@@ -1,0 +1,116 @@
+This is the interface to the transcevier.
+
+Each TRX Manager UDP socket interface represents a single ARFCN.
+Each of these per-ARFCN interfaces is a pair of UDP sockets, one for control and one for data.
+Give a base port B (5700), the master clock interface is at port P=B.
+The TRX-side control interface for C(N) is on  port P=B+2N+1 and the data interface is on an odd numbered port P=B+2N+2.
+The corresponding core-side interface for every socket is at P+100.
+For any given build, the number of ARFCN interfaces can be fixed.
+
+
+
+Indications on the Master Clock Interface
+
+The master clock interface is output only (from the radio).
+Messages are "indications".
+
+CLOCK gives the current value of the transceiver clock to be used by the core.
+This message is sent whenever a trasmission packet arrives that is too late or too early.  The clock value is NOT the current transceiver time.  It is a time setting the the core should use to give better packet arrival times.
+IND CLOCK <totalFrames>
+
+
+
+Commands on the Per-ARFCN Control Interface
+
+The per-ARFCN control interface uses a command-reponse protocol.
+Commands are NULL-terminated ASCII strings, one per UDP socket.
+Each command has a corresponding response.
+Every command is of the form:
+
+CMD <cmdtype> [params]
+
+The <cmdtype> is the actual command.
+Parameters are optional depending on the commands type.
+Every response is of the form:
+
+RSP <cmdtype> <status> [result]
+
+The <status> is 0 for success and a non-zero error code for failure.
+Successful responses may include results, depending on the command type.
+
+
+Power Control
+
+POWEROFF shuts off transmitter power and stops the demodulator.
+CMD POWEROFF
+RSP POWEROFF <status>
+
+POWERON starts the transmitter and starts the demodulator.  Initial power level is very low.
+This command fails if the transmitter and receiver are not yet tuned.
+This command fails if the transmit or receive frequency creates a conflict with another ARFCN that is already runnng.
+If the transceiver is already on, it response with success to this command.
+CMD POWERON
+RSP POWERON <status>
+
+SETPOWER sets output power in dB wrt full scale.
+This command fails if the transmitter and receiver are not running.
+CMD SETPOWER <dB>
+RSP SETPOWER <status> <dB>
+
+ADJPOWER adjusts power by the given dB step.  Response returns resulting power level wrt full scale.
+This command fails if the transmitter and receiver are not running.
+CMD ADJPOWER <dBStep>
+RSP ADJPOWER <status> <dBLevel>
+
+
+Tuning Control
+
+RXTUNE tunes the receiver to a given frequency in kHz.
+This command fails if the receiver is already running.
+(To re-tune you stop the radio, re-tune, and restart.)
+This command fails if the transmit or receive frequency creates a conflict with another ARFCN that is already runnng.
+CMD RXTUNE <kHz>
+RSP RXTUNE <status> <kHz>
+
+TXTUNE tunes the transmitter to a given frequency in kHz.
+This command fails if the transmitter is already running.
+(To re-tune you stop the radio, re-tune, and restart.)
+This command fails if the transmit or receive frequency creates a conflict with another ARFCN that is already runnng.
+CMD TXTUNE <kHz>
+RSP TXTUNE <status> <kHz>
+
+
+Timeslot Control
+
+SETSLOT sets the format of the uplink timeslots in the ARFCN.
+The <timeslot> indicates the timeslot of interest.
+The <chantype> indicates the type of channel that occupies the timeslot.
+A chantype of zero indicates the timeslot is off.
+CMD SETSLOT <timeslot> <chantype>
+RSP SETSLOT <status> <timeslot> <chantype>
+
+
+Messages on the per-ARFCN Data Interface
+
+Messages on the data interface carry one radio burst per UDP message.
+
+
+Received Data Burst
+
+1 byte timeslot index
+4 bytes GSM frame number, big endian
+1 byte RSSI in -dBm
+2 bytes correlator timing offset in 1/256 symbol steps, 2's-comp, big endian
+148 bytes soft symbol estimates, 0 -> definite "0", 255 -> definite "1"
+
+
+Transmit Data Burst
+
+1 byte timeslot index
+4 bytes GSM frame number, big endian
+1 byte transmit level wrt ARFCN max, -dB (attenuation)
+148 bytes output symbol values, 0 & 1
+
+
+
+

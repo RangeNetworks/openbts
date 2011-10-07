@@ -1,0 +1,192 @@
+#
+# Copyright 2008, 2009 Free Software Foundation, Inc.
+# 
+# This file is part of GNU Radio
+# 
+# GNU Radio is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3, or (at your option)
+# any later version.
+# 
+# GNU Radio is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License along
+# with this program; if not, write to the Free Software Foundation, Inc.,
+# 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+#
+
+David A. Burgess, dburgess@kestrelsp.com:
+    CLI/CLI.cpp
+    CLI/CLI.h
+    CommonLibs/Assert.h
+    CommonLibs/BitVector.cpp
+    CommonLibs/BitVectorTest.cpp
+    CommonLibs/Configuration.cpp
+    CommonLibs/Configuration.h
+    CommonLibs/ConfigurationTest.cpp
+    CommonLibs/Interthread.h
+    CommonLibs/InterthreadTest.cpp
+    CommonLibs/LinkedLists.cpp
+    CommonLibs/LinkedLists.h
+    CommonLibs/Regexp.h
+    CommonLibs/RegexpTest.cpp
+    CommonLibs/Sockets.cpp
+    CommonLibs/Sockets.h
+    CommonLibs/SocketsTest.cpp
+    CommonLibs/Threads.cpp
+    CommonLibs/Threads.h
+    CommonLibs/Timeval.cpp
+    CommonLibs/Timeval.h
+    CommonLibs/TimevalTest.cpp
+    CommonLibs/Vector.h
+    CommonLibs/VectorTest.cpp
+    Control/CallControl.cpp
+    Control/ControlCommon.cpp
+    Control/ControlCommon.h
+    Control/FACCHDispatch.cpp
+    Control/MobilityManagement.cpp
+    Control/PagerTest.cpp
+    Control/RadioResource.cpp
+    Control/SDCCHDispatch.cpp
+    GSM/GSM610Tables.cpp
+    GSM/GSM610Tables.h
+    GSM/GSMCommon.cpp
+    GSM/GSMCommon.h
+    GSM/GSMConfig.h
+    GSM/GSML1FEC.cpp
+    GSM/GSML1FEC.h
+    GSM/GSML2LAPDm.cpp
+    GSM/GSML2LAPDm.h
+    GSM/GSML3CCElements.cpp
+    GSM/GSML3CCElements.h
+    GSM/GSML3CCMessages.cpp
+    GSM/GSML3CCMessages.h
+    GSM/GSML3CommonElements.cpp
+    GSM/GSML3CommonElements.h
+    GSM/GSML3MMElements.cpp
+    GSM/GSML3MMElements.h
+    GSM/GSML3MMMessages.cpp
+    GSM/GSML3MMMessages.h
+    GSM/GSML3Message.cpp
+    GSM/GSML3Message.h
+    GSM/GSML3RRElements.cpp
+    GSM/GSML3RRElements.h
+    GSM/GSML3RRMessages.cpp
+    GSM/GSML3RRMessages.h
+    GSM/GSMLogicalChannel.h
+    GSM/GSMTDMA.cpp
+    GSM/GSMTDMA.h
+    GSM/GSMTransfer.cpp
+    GSM/GSMTransfer.h
+    LICENSEBLOCK
+    SIP/SIPEngine.h
+    SIP/SIPInterface.h
+    SMS/SMSMessages.cpp
+    SMS/SMSMessages.h
+    SMS/SMSTransfer.cpp
+    SMS/SMSTransfer.h
+    TRXManager/TRXManager.cpp
+    Transceiver/Complex.h
+    apps/OpenBTS900.cpp
+    apps/OpenBTS850.cpp
+    apps/OpenBTS25c3.cpp
+    tests/AGCHTest.cpp
+    tests/BeaconTest.cpp
+    tests/CallTest.cpp
+    tests/CallTest2.cpp
+    tests/LAPDmTest.cpp
+    tests/LoopbackTest.cpp
+    tests/RegistrationTest.cpp
+    tests/TRXSimulator.cpp
+
+Harvind S. Samra, hssamra@kestrelsp.com:
+    Control/PagerTest.cpp
+    Control/RadioResource.cpp
+    GSM/GSMConfig.h
+    GSM/GSMTransfer.h
+    LICENSEBLOCK
+    Transceiver/ComplexTest.cpp
+    Transceiver/Transceiver.cpp
+    Transceiver/Transceiver.h
+    Transceiver/USRPDevice.cpp
+    Transceiver/USRPDevice.h
+    Transceiver/USRPping.cpp
+    Transceiver/radioInterface.cpp
+    Transceiver/radioInterface.h
+    Transceiver/rcvLPF_651.h
+    Transceiver/runTransceiver.cpp
+    Transceiver/sendLPF_961.h
+    Transceiver/sigProcLib.cpp
+    Transceiver/sigProcLib.h
+    Transceiver/sigProcLibTest.cpp
+    Transceiver/sweepGenerator.cpp
+    Transceiver/testRadio.cpp
+
+Raffi Sevlian, raffisev@gmail.com:
+    Control/CallControl.cpp
+    Control/ControlCommon.cpp
+    Control/ControlCommon.h
+    Control/FACCHDispatch.cpp
+    Control/MobilityManagement.cpp
+    Control/PagerTest.cpp
+    Control/RadioResource.cpp
+    GSM/GSMCommon.h
+    GSM/GSMConfig.h
+    GSM/GSML1FEC.h
+    GSM/GSML3CCElements.cpp
+    GSM/GSML3CCElements.h
+    GSM/GSML3CCMessages.cpp
+    GSM/GSML3CCMessages.h
+    GSM/GSML3CommonElements.cpp
+    GSM/GSML3CommonElements.h
+    GSM/GSML3MMElements.cpp
+    GSM/GSML3MMElements.h
+    GSM/GSML3MMMessages.cpp
+    GSM/GSML3MMMessages.h
+    GSM/GSML3Message.cpp
+    GSM/GSML3Message.h
+    GSM/GSML3RRElements.cpp
+    GSM/GSML3RRElements.h
+    GSM/GSML3RRMessages.cpp
+    GSM/GSML3RRMessages.h
+    GSM/GSMLogicalChannel.h
+    GSM/GSMSAPMux.cpp
+    GSM/GSMSAPMux.h
+    GSM/GSMTransfer.h
+    LICENSEBLOCK
+    SIP/SIPEngine.cpp
+    SIP/SIPInterface.cpp
+    SIP/SIPInterface.h
+    SIP/SIPMessage.cpp
+    SIP/SIPMessage.h
+    SIP/SIPUtility.cpp
+    SIP/SIPUtility.h
+    SMS/CMMessage.cpp
+    SMS/CMMessage.h
+    SMS/CMProcessor.cpp
+    SMS/CMProcessor.h
+    SMS/CMTest.cpp
+    SMS/RLMessage.cpp
+    SMS/RLMessage.h
+    SMS/RLProcessor.cpp
+    SMS/RLProcessor.h
+    SMS/SMSMessages.cpp
+    SMS/SMSMessages.h
+    SMS/SMSProcessors.cpp
+    SMS/SMSProcessors.h
+    SMS/SMSTransfer.cpp
+    SMS/SMSTransfer.h
+    SMS/TLMessage.cpp
+    SMS/TLMessage.h
+    SMS/TLProcessor.cpp
+    SMS/TLProcessor.h
+    TRXManager/TRXManager.h
+
+Alon Levy, alonlevy1@gmail.com
+    RRLPMessages.cpp
+    RRLPMessages.h
+    RRLPTest.cpp
+

@@ -1,0 +1,281 @@
+= Coding Standard for C++ in OpenBTS =
+Do not violate one of these rules unless you are sure that you understand the rationale behind the rule and are sure that you have a legitimate exception to that rationale.
+
+The "owner" of OpenBTS and its related applcations is the CTO of Range Networks, Inc.  All public and private releases must ultimately be approved by this CTO.
+
+''This document uses trac-style wiki formatting.''
+
+
+== Libraries, Licenses and Portability ==
+'''All new library dependencies must be approvaed by the Range Networks CTO before being added to the system.'''
+
+=== POSIX ===
+Ideally, OpenBTS and its related applications should compile and run on any POSIX system.  At a minimum, we expect these applications to be portable to any current-release Linux or BSD system.  Any portability failure for current-release Linux or BSD distribution is considered to be a bug.
+
+=== Licenses ===
+OpenBTS and its related applications are distributed publicly under AGPLv3 and privately under other licenses.  Do not use any GPL library for which a non-GPL license cannot be acquired.  Any LGPL libraries must be linked dynamically or licensed under other terms.  If you add a new library to the system, please update the LEGAL file with with appropriate licensing information.
+
+=== Libraries and Portbility ===
+Just because you ''can'' use a library for a task does not mean you ''should''.  The difficulty of porting an application to a new platform is a direct function of the number of library dependencies it has, so if you can write handful of simple functions to take the place of a new external library, please do so.  OpenBTS, in the long run, is intended to be a highly portable embedded application.  We cannot tollerate a "kitchen sink" dependency list, requiring developers to download the entire internet before starting a build.
+
+
+
+
+== Symbol Names ==
+
+=== Name Formats ===
+Symbol names should be formatted so that a reader can determine the scope of a symbol from the format of the name.  C++ symbol names are to use camel case (camelCase).  Do not use underscores except in #define marcos.
+
+Capitalization rules:
+ * Local scope variables and member methods start with a lower case letter.
+ * Class names and type names start with an upper case letter.
+ * #define marcos are all-caps and underscores are allowed.
+
+Prefixes:
+ * Class instance variables are prefixed with "m".
+ * Static valiables are prefixed with "s".
+ * Global variables are prefixed with "g".
+ * Arguments to constructors and assignment accessors, when given the same name as the assigned instance variable, are prefixed with "w".
+
+
+Example:
+{{{
+bool gSomeGlobalFlag;
+
+#define DEFAULT_TAG 5
+
+class ThisClass {
+
+	private:
+
+	int mValue;
+	int mTag;
+	static const int msDefaultTag = DEFAULT_TAG;
+	static int msClassCounter = 0; 
+
+	public:
+
+	ThisClass(int wTag = gsDefaultTag)
+		:mTag(wTag)
+	{ }
+
+	int value() const { return mValue; }
+	void value(wValue) { mValue = wValue; }
+
+	int tag() const { return mTag; }
+};
+}}}
+
+=== Names from the Specificaitons ===
+When a variable name is taken from the GSM or ITU specicaitons, it sould follow the form in the specifications as closely as possible (substituting "_" for "-", for example).  This rule overrides the formating guidelines given above.
+
+== Text Formatting ==
+
+=== Tabs and Spaces ===
+Use tabs for indentation and for comment alignment.  Set your editor to display the tab width you like.
+
+=== Curly Braces ===
+Place curly braces according to the following examples:
+{{{
+
+if (test) {
+	action();
+}
+
+if (test) {
+	action();
+} else {
+	otherAction();
+}
+
+while (condition) {
+	action();
+}
+
+void function(void)
+{
+	doStuff();
+	do moreStuff();
+}
+
+/** An example class to show some formatting. */
+class ThisClass : public ThatClass {
+
+	protected:
+
+	int mValue;	///< an example instance variable
+
+
+	/** An initialization function called by the constructor. */
+	void initStuff();
+
+
+	public:
+
+	/**
+		Construct a ThisClass object.
+		@param wValue The initial value for mValue
+	*/
+	ThisClass(wValue)
+		:ThatClass()
+	{
+		initStuff();
+	}
+
+	void bigFunction(void);		///< bigFunction defined in .cpp file
+
+	/** Short one-liner can be defined right here. */
+	void shortFunction(void) { doItHere(); }
+
+};
+
+}}}
+
+
+== Scoping ==
+Generally speaking, anything you declare should be declared in the smallest possible scope.
+
+=== Local Variables ===
+Like anything else, local variables should be defined in the smallest possible scope.  For example, this:
+{{{
+int sum = 0;
+for (int i=0; i<N; i++) {
+	int sq = v[i]*v[i];
+	sum += sq;
+}
+}}}
+is better than this:
+{{{
+int sum = 0;
+int sq;
+int i;
+for (i=0; i<N; i++) {
+	sq = v[i]*v[i];
+	sum += sq;
+}
+}}}
+
+=== Functions and Variables Local to a File ===
+If a function is used only within a single .cpp file, there is no need to declare a prototype in the corresponsing .h files.  If a variable is used only within a single .cpp file, there is no need to it in the corresponsing .h files.
+
+
+== Orgnaization and Naming of Files ==
+C++ files should use the .cpp or .h extension.  Each .cpp file generally has one corresponding .h file.
+
+It is OK to group multiple classes within a file if those classes, together, define a specific layer, subprotocol or other functional unit.
+
+Every file should start with a doxygen comment describing the purpose of the code it contains, followed by apprpriate copyright and license notices.
+
+
+
+== C++ Language Features ==
+The language of preference for OpenBTS and its related applications is C++.  OpenBTS is object-oriented and based on a data-flow model, especially in the lower layers.
+
+=== Where to Store Data ===
+ * A local variable on the stack is better than an instance variable in an object.
+ * An instance variable declared as part of an object is better than a pointer that must be allocated in a constructor and/or deleted in a destructor.
+ * If there is only one instance of a certain object and it is used in many, many placs in the system, it is OK to make it global.
+
+=== Pass-By-Reference ===
+Arguments to C++ methods and functions should be passed by reference or pointer whenever the arguement in question is not an atomic type.  Pass-by-reference is preferable for C++ objects or structures.  Pass-by-pointer is appropriate for C arrays or atomic types.
+
+Pass-by-reference or pass-by-pointer can be used to make an arguement modifiable, but the practice should be avoided when it is practical to use a return value instead.
+
+=== Use of "const" ===
+Use "const" whenever a symbol is intended to be read-only, especially when passing arguments by reference or pointer.
+
+=== Namespaces ===
+Define distinct C++ namespaces for major features.  Some existing namespaces are:
+ * GSM -- Elements of 2G GSM.
+ * Control -- The L3 hybrid control layer.
+ * SMS -- Code related specifically to SMS processing.
+
+Try to keep namespace names short.
+
+Do not use a "using namespace" declaration in a .h file.
+
+=== Inline Coding in Declarations ===
+Do not define executable code in class delcarations in .h files unless you specifically intend for that cdoe to be compiled inline.  With rare exceptions, any function or method definition more than two lines long should not be in a .h file.
+
+=== Static Local Variables ===
+Static variables can produce unexpected behavior in multithreaded applications.  Use them with extreme caution.
+
+Do not define local static variables in class methods.  Use instance variables instead.
+
+=== Dynamic Casting ===
+Dynamic casting is allowable, but should be used as little as possible.
+
+=== Class Instance Variables and Methods ===
+==== Proper Subclasses ====
+When you have variations in object structure or behavior, it is normally preferable to define different subclasses that to use instance variable flags.  The principle here is to define as much behavior as possible at compile time, not at runtime.  There are expections, though, where runtime or dynamic configuration of a class is desirable.
+
+==== Accessor Methods ====
+Instance variables in C++ classes should normally be declared as "private" or "protected".  To provide external access to instance variables, define public accessor methods that can be used to read and modify each variable in question.  It is usually not appropriate to return a writable reference to a member variable, although there are exceptions.
+
+==== Protected Constructors ====
+If you define a base class that is not intended to be used except through derived classes, you can enforce this usage pattern by declaring the contructor(s) as "protected".
+
+
+
+== Use of Comments ==
+Comments are good.  Use lots.
+
+=== Doxygen ===
+Doxygen is a tool for automatic generation of documentation from source code comments.
+Learn and use doxygen directives in your comments.
+At a minimum:
+ * Use "///<" or "/** ... */" comments to document the purpose of every function, class method or instance variable.
+ * Use the "@param" and "@return" directives to document the purpose of each method or function argument.
+ * Use "/**@file ... */" comments atthe start of every file to document its purpose.
+
+=== Special Tags ===
+Some comment tags have special meaning:
+ * TODO -- The following code is funcitonal but incomplete or performs poorly for some cases.
+ * FIXME -- The following code is non-functional or has known bugs.
+ * HACK -- The following code is a temporary modification that needs to be cleaned up or removed in production releases.
+
+When possible, FIXME or TODO tags should reference trac ticket numbers.
+
+=== Referencing GSM/ITU Spreifications ===
+At a minimum, comment every class, function and method with a reference to the specification that it implements, by document number and section/paragraph.
+
+
+== Threads ==
+OepnBTS and its related applications are multithreaded, using the pthreads library.  If you write for for an object that might be shared across threads, that code '''must use proper thread synchornization mechanisms'''.  If you do not understand how to use a mutex stop now and go learn before you touch the code.
+
+=== CommonLibs Wrapper Classes and Containers ===
+The Threads.h and Threads.cpp files in CommonLibs define C++ wrappers for the pthread library.  Familiarize yourself with Threads.h and use these wrapper classes instead of direct calls to the pthreads library.
+
+The file Interthread.h in CommonLibs defines a set of container templates for interthread communicationm, specifically queue and map containers with thread-safe locking and efficient blocking.  The intended use of these containers is to carry pointers to allocated objects.  Normally, these objects are created by thread that writes into the container and deallocated by the thread that reads them.
+
+=== Writing Thread-Safe Objects ===
+The simplest way to write a thread-safe object is to declare a Mutex as a private or protected instance variable in the class and then lock and unlock the Mutex as needed in the accessors.  If you think an object might be used by more than one thread, do this.
+
+To transfer messages between threads, use one of the container classes from Interthread.h.
+
+You may be tempted to just declare an instance variable as volatile for sharing across classes.  Do not do this unless you are absolutely sure it is safe.
+
+
+== Tools in !CommonLibs ==
+Apart from the thread-related libraries, there are several other tools in !CommonLibs that are use by applications in the OpenbTS suit.
+
+=== Configuration Tables ===
+Applications in the OpenBTS suite are configured using the !ConfigurationTable class in CommonLibs/Configuration.h.  The normal way to do this is to have a global configuration table called gConfiguration that gets its values from an sqlite3 database file.  The !ConfigurationTable uses these database at runtime so that writes to the database file by external applications result in changes to gConfiguration inside the application.  Wherever possible, configured values should be dynamic, so that a change in the configuration database file produces a runtime change in the behavior of the application.
+
+The gConfiguration object should be the first thing declared in the application, with the database file name given as a hard-coded parameter.
+
+=== Logging ===
+Use the Log object and related macros (in Logger.h) for logging to syslogd.  This object supports the standard syslogd logging levels and allows logging level to be controlled on a file-by-file basis in real time.  The logging levels are:
+
+ * EMERGENCY -- serious internal fault associated with service failure. 
+ * ALERT -- likely service disruption caused by misconfiguration, poor connectivity or some other problem not internal to the software. 
+ * CRITICAL -- anomalous event that may degrade service. 
+ * ERROR -- an internal error of the software that may result in degradation of service under some limited conditions.
+ * WARNING -- an anomalous event that may indicate a degradation of service. 
+ * NOTICE -- anomalous event that probably does not affect service but may be of interest to network operators. 
+ * INFO -- a normal event. 
+ * DEBUG -- detailed information about internal data structures. 
+
+Logging levels are controlled from gConfiguration, so te Log class cannot be used until gConfiguration is defined and initialized.  Routing, storage and reporting of log entries are controlled by /etc/syslog.conf.
+
+

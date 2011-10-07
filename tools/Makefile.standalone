@@ -1,0 +1,4 @@
+
+hata: hata.cpp
+	g++ -o hata hata.cpp
+

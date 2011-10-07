@@ -1,0 +1,173 @@
+Welcome to the OpenBTS source code.
+
+
+For free support, please subscribe to openbts-discuss@lists.sourceforge.net.
+See http://sourceforge.net/mailarchive/forum.php?forum_name=openbts-discuss
+and https://lists.sourceforge.net/lists/listinfo/openbts-discuss for details.
+
+For additional information, refer to http://openbts.org.
+
+
+These are the directories:
+
+AsteriskConfig	Asterisk configuration files for use with OpenBTS.
+CommonLib	Common-use libraries, mostly C++ wrappers for basic facilities.
+Control		Control-layer functions for the protocols of GSM 04.08 and SIP.
+GSM		The GSM stack.
+RRLP		Radio Resource Location Protocol
+SIP		Components of the SIP state machines ued by the control layer.
+SMS		The SMS stack.
+SR		The subscriber registry.
+TRXManager	The interface between the GSM stack and the radio.
+Transceiver	The software transceiver and specific installation tests.
+apps		OpenBTS application binaries.
+doc		Project documentation.
+tests		Test fixtures for subsets of OpenBTS components.
+smqueue		RFC-3428 store-and-forward server for SMS
+
+
+
+By default, OpenBTS assumes the following UDP port assignments:
+
+5060 -- Asterisk SIP interface
+5061 -- local SIP softphone
+5062 -- OpenBTS SIP interface
+5063 -- smqueue SIP interface
+5064 -- subscriber registry SIP interface
+5700-range -- OpenBTS-transceiver interface
+
+These can be controlled in the CONFIG table in /etc/OpenBTS.db.
+
+Standrd paths:
+/OpenBTS -- Binary installation and authorization keys.
+/etc/OpenBTS -- Configuration databases.
+/var/run/OpenBTS -- Real-time reporting databases.
+
+The script apps/setUpFiles.sh will create these directories and install the
+correct files in them.
+
+
+Releases 2.5 and later include the smqueue SMS server.  It is NOT part of the
+normal GNU build process with the rest of OpenBTS.  To build smqueue, go
+into the smqueue directory and just type "make -f Makefile.standalone".
+
+
+
+Release history:
+
+Release	Name		SVN Reposiory	SVN Rev	Comments
+
+1.0	(none)		SF.net		??		completed L1, L2
+
+1.1	Arnaudville	GNU Radio	r10019 (trunk)
+
+1.2	Breaux Bridge	GNU Radio	r10088 (trunk)	GNU Build, very early assignment
+
+1.3	Carencro	KSP		r1 (trunk)	first post-injunction release
+
+1.4	Donaldsonville	KSP		r23 (trunk)	fixed Ubuntu build error
+
+1.5	Eunice		KSP		r39 (trunk)	fixed L2 bugs related to segmentation
+							removed incomplete SMS directory
+							moved "abort" calls into L3 subclasses
+
+1.6	New Iberia	KSP		r130 (trunk)	import of all 2.2 improvements to non-SMS release
+
+
+2.0	St. Francisville KSP		r54 (smswork)	SMS support
+							file-based configuration
+
+2.1	Grand Coteau	KSP		r70 (smswork)	DTMF support
+							fixed more Linux-related build errors
+								-lpthread
+								TLMessage constructor
+							expanded stack to prevent overflows in Linux
+							moved gSIPInterface to main app
+							fixed iterator bug in Pager
+
+2.2	Houma		KSP		r122 (smswork)	added LEGAL notice
+							removed Assert classes
+							stop paging on page response
+							fixed Pager-spin bug
+							fixed Transceiver spin bugs
+							fixed 2^32 microsecond rollover bug
+							reduced stack footprints in Transceiver
+							fixed SMS timestamps
+							check LAI before using TMSI in LUR
+							reduced memory requirement by 75%
+							removed PagerTest
+							fixed stale-transaction bug in paging handler
+							fixed USRP clock rollover bug
+							faster call connection
+							new USRPDevice design
+
+2.3	Jean Lafitte	KSP		r190? (trunk)	check for out-of-date RACH bursts
+							better TRX-GSM clock sync
+							formal logging system
+							command line interface
+							emergency call setup
+
+2.4	Kinder		KSP		r208? (trunk)	fixed BCCH neighbor list bug
+							support for neighbor lists
+							fixed support for non-local Asterisk servers
+							cleaner configuration management
+							more realtime control of BCCH parameters
+							proper rejection of Hold messages
+							fixed L3 hanging bug in MTDCheckBYE
+
+2.4.1	Kinder		KSP		r462		fixed lots of valgrind errors
+
+2.4.2	Kinder		KSP		r482		zero-length calling party number bug
+							g++ 4.4 #includes
+
+2.5	Lacassine	KSP		r551		imported Joshua Lackey patches
+							SIP fixes from Anne Kwong
+							SIP fixes from testing with SMS server
+							L3 TI handling fixes
+							SMS server support
+							GNU Radio 3.2 compatibility
+							configurable max range and LU-reject cause
+							"page" & "testcall" CLI features
+
+2.5.1	Lacassine	KSP		r595		fixed some build bugs for some Linux distros
+
+2.5.2	Lacassine	KSP		r630		fixed channel assignment bug for Nokia DCT4+ handsets
+
+2.5.3	Lacassine	KSP		r756		merged fix for transceiver startup crash
+								due to use of uninitialized variables (r646)
+							merged fix for fusb bug from trunk (r582)
+
+2.5.4	Lacassine	KSP		r812		merged fixes to build under latest Fedora and
+								to build with git GnuRadio (r814)
+
+2.6	Mamou		KSP		r886		fixed infamous fusb bug (r582)
+							fixed idle-filling table size bug
+							smoother uplink power control
+							load-limiting downlink power control
+							new "config" features (optional, static)
+							IMEI interrogation
+							fixed MOD "missing FIFO" bug
+							configurable short code features
+							fixed transceiver startup crash (r646)
+							readline support is back
+							fixed timing advance bug (r844)
+							added CLI "chans" command
+							track time-of-use in TMSI table (r844)
+							added CLI "noise" command (r844)
+							added CLI "rxpower" command (r844)
+							added CLI "unconfig" command
+
+2.7	Natchitoches	Range	rxxx			(never released publicly)
+							converted TMSITable to sqlite3 (r902)
+							sqlite3-based configuration (r???)
+							converted Logger to syslogd (r903)
+							added support for rest octets (r1022)
+							external database for transaction reporting (r1184)
+							external database for channel status reporting (r1203)
+							in-call delivery and submission of text messages (r1231)
+							RFC-2833 DMTF (r1249)
+
+2.8	Opelousas	Range	rxxx			move databases to /etc and /var
+							RRLP aiding support
+
+

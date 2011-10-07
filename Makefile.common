@@ -1,0 +1,55 @@
+#
+# Copyright 2008 Free Software Foundation, Inc.
+#
+# This software is distributed under the terms of the GNU Public License.
+# See the COPYING file in the main directory for details.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+
+COMMON_INCLUDEDIR = $(top_srcdir)/CommonLibs
+CONTROL_INCLUDEDIR = $(top_srcdir)/Control
+GSM_INCLUDEDIR = $(top_srcdir)/GSM
+SIP_INCLUDEDIR = $(top_srcdir)/SIP
+SMS_INCLUDEDIR = $(top_srcdir)/SMS
+TRX_INCLUDEDIR = $(top_srcdir)/TRXManager
+GLOBALS_INCLUDEDIR = $(top_srcdir)/Globals
+CLI_INCLUDEDIR = $(top_srcdir)/CLI
+SQLITE_INCLUDEDIR = $(top_srcdir)/sqlite3
+SR_INCLUDEDIR = $(top_srcdir)/SR
+
+STD_DEFINES_AND_INCLUDES = \
+	-I$(COMMON_INCLUDEDIR) \
+	-I$(CONTROL_INCLUDEDIR) \
+	-I$(GSM_INCLUDEDIR) \
+	-I$(SIP_INCLUDEDIR) \
+	-I$(SMS_INCLUDEDIR) \
+	-I$(TRX_INCLUDEDIR) \
+	-I$(GLOBALS_INCLUDEDIR) \
+	-I$(CLI_INCLUDEDIR) \
+	-I$(SR_INCLUDEDIR) \
+	-I$(SQLITE_INCLUDEDIR)
+
+COMMON_LA = $(top_builddir)/CommonLibs/libcommon.la
+GSM_LA = $(top_builddir)/GSM/libGSM.la
+SIP_LA = $(top_builddir)/SIP/libSIP.la
+SMS_LA = $(top_builddir)/SMS/libSMS.la
+TRX_LA = $(top_builddir)/TRXManager/libtrxmanager.la
+CONTROL_LA = $(top_builddir)/Control/libcontrol.la
+GLOBALS_LA = $(top_builddir)/Globals/libglobals.la
+CLI_LA = $(top_builddir)/CLI/libcli.la
+SR_LA = $(top_builddir)/SR/libSR.la
+SQLITE_LA = $(top_builddir)/sqlite3/libsqlite.la
+
+MOSTLYCLEANFILES = *~

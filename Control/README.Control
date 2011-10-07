@@ -1,0 +1,25 @@
+This directory contains control-layer functions for the access point.
+
+Most GSM L3 and VoIP messages terminate here.
+
+Everything in this directory should be in the Control namespace.
+
+Components:
+
+RadioResource -- Functions for RR procedures (paging, access grant)
+MobilityManagement -- Functions for MM procedures (CM service, location updating)
+CallControl -- Functions for CC (mobile originated, mobile terminated)
+SMS -- Funcitons for text messaging.
+
+
+
+SIP and RTP UDP/IP Port Assignments
+
+Component	Protocol	Port(s)
+Asterisk	SIP		5060
+Zoiper		SIP		5061
+AP/BTS		SIP		5062
+Zoiper		RTP		16384-16385
+Asterisk	RTP		16386-16483
+AP/BTS		RTP		16484-16583
+
