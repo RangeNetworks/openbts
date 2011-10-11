@@ -18,7 +18,7 @@ dnl You should have received a copy of the GNU General Public License
 dnl along with this program.  If not, see <http://www.gnu.org/licenses/>.
 dnl
 
-AC_INIT(openbts,P2.8TRUNK)
+AC_INIT(openbts,P2.8.0Opelousas)
 AC_PREREQ(2.57)
 AC_CONFIG_SRCDIR([config/Makefile.am])
 AC_CONFIG_AUX_DIR([.])	
