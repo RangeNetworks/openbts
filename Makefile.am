@@ -45,6 +45,7 @@ SUBDIRS = \
 	tools
 
 EXTRA_DIST = \
+	autogen.sh \ 
 	Transceiver52M \
 	INSTALLATION \
 	LEGAL \
