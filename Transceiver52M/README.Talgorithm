@@ -1,0 +1,15 @@
+Basic model:
+
+Have channel H = {h_0, h_1, ..., h_{K-1}}.
+Have received sequence Y = {y_0, ..., y_{K+N}}.
+Have transmitted sequence X = {x_0, ..., x_{N-1}}.
+Denote state S_n = {x_n, x_{n-1}, ..., x_{n-L}}.
+
+Define a bag as an unordered collection with two operations, add and take.
+We have three bags:
+   S: a bag of survivors.
+   F: a bag of available data structures.
+
+At time n, start with a non-empty bag S of survivors from time n-1.
+Take a member out of S, and create all possible branches and their corresponding metrics.  If metric ratio is above T, discard branch.  Otherwise, check branch against entry in pruning table P.  If branch metric is smaller than the existing entry's metric in P, then replace entry with branch.  Otherwise, discard branch.
+Once all possible branches of S have been created and pruned, S should be empty.Empty pruning table back into S, thus P is now empty.  Repeat.

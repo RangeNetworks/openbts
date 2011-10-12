@@ -1,0 +1,35 @@
+The Transceiver
+
+The transceiver consists of three modules:
+   --- transceiver
+   --- radioInterface
+   --- USRPDevice
+
+The USRPDevice module is basically a driver that reads/writes
+packets to a USRP with two RFX900 daughterboards, board 
+A is the Tx chain and board B is the Rx chain.  
+
+The radioInterface module is basically an interface b/w the
+transceiver and the USRP.   It operates the basestation clock
+based upon the sample count of received USRP samples.  Packets 
+from the USRP are queued and segmented into GSM bursts that are
+passed up to the transceiver; bursts from the transceiver are
+passed down to the USRP. 
+
+The transceiver basically operates "layer 0" of the GSM stack,
+performing the modulation, detection, and demodulation of GSM 
+bursts.  It communicates with the GSM stack via three UDP sockets,
+one socket for data, one for control messages, and one socket to
+pass clocking information.  The transceiver contains a priority
+queue to sort to-be-transmitted bursts, and a filler table to fill
+in timeslots that do not have bursts in the priority queue.  The
+transceiver tries to stay ahead of the basestation clock, adapting 
+its latency when underruns are reported by the radioInterface/USRP.
+Received bursts (from the radioInterface) pass through a simple 
+energy detector, a RACH or midamble correlator, and a DFE-based demodulator.
+
+NOTE: There's a SWLOOPBACK #define statement, where the USRP is replaced
+with a memory buffer.  In this mode, data written to the USRP is actually stored 
+in a buffer, and read commands to the USRP simply pull data from this buffer.
+This was very useful in early testing, and still may be useful in testing basic
+Transceiver and radioInterface functionality. 
