@@ -266,7 +266,9 @@ enum TypeAndOffset {
 	SDCCH_4_0=4, SDCCH_4_1=5, SDCCH_4_2=6, SDCCH_4_3=7,
 	SDCCH_8_0=8, SDCCH_8_1=9, SDCCH_8_2=10, SDCCH_8_3=11,
 	SDCCH_8_4=12, SDCCH_8_5=13, SDCCH_8_6=14, SDCCH_8_7=15,
-	/// An extra one for our internal use.
+	/// Some extra ones for our internal use.
+	TDMA_BEACON_BCCH=253,
+	TDMA_BEACON_CCCH=252,
 	TDMA_BEACON=255
 };
 

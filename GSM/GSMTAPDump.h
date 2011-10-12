@@ -25,10 +25,13 @@
 #define GSMTAPDUMP_H
 
 #include "gsmtap.h"
+#include "GSMCommon.h"
 #include "GSMTransfer.h"
 
 
-void gWriteGSMTAP(unsigned ARFCN, unsigned TS, unsigned FN, const GSM::L2Frame& frame);
+void gWriteGSMTAP(unsigned ARFCN, unsigned TS, unsigned FN,
+                  GSM::TypeAndOffset to, bool is_sacch, bool ul_dln,
+                  const BitVector& frame);
 
 
 #endif

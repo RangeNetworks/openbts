@@ -71,7 +71,7 @@ const unsigned SCHFrames[] = {1,11,21,31,41};
 MAKE_TDMA_MAPPING(SCH,TDMA_BEACON,true,false,0x01,true,51);
 
 const unsigned BCCHFrames[] = {2,3,4,5};
-MAKE_TDMA_MAPPING(BCCH,TDMA_BEACON,true,false,0x55,true,51);
+MAKE_TDMA_MAPPING(BCCH,TDMA_BEACON_BCCH,true,false,0x55,true,51);
 
 // Note that we removed frames for the SDCCH components of the Combination-V C0T0.
 const unsigned RACHC5Frames[] = {4,5,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,45,46};
@@ -80,16 +80,16 @@ MAKE_TDMA_MAPPING(RACHC5,TDMA_BEACON,false,true,0x55,true,51);
 // CCCH 0-2 are used in C-IV and C-V.  The others are used in C-IV only.
 
 const unsigned CCCH_0Frames[] = {6,7,8,9};
-MAKE_TDMA_MAPPING(CCCH_0,TDMA_BEACON,true,false,0x55,true,51);
+MAKE_TDMA_MAPPING(CCCH_0,TDMA_BEACON_CCCH,true,false,0x55,true,51);
 
 const unsigned CCCH_1Frames[] = {12,13,14,15};
-MAKE_TDMA_MAPPING(CCCH_1,TDMA_BEACON,true,false,0x55,true,51);
+MAKE_TDMA_MAPPING(CCCH_1,TDMA_BEACON_CCCH,true,false,0x55,true,51);
 
 const unsigned CCCH_2Frames[] = {16,17,18,19};
-MAKE_TDMA_MAPPING(CCCH_2,TDMA_BEACON,true,false,0x55,true,51);
+MAKE_TDMA_MAPPING(CCCH_2,TDMA_BEACON_CCCH,true,false,0x55,true,51);
 
 const unsigned CCCH_3Frames[] = {22,23,24,25};
-MAKE_TDMA_MAPPING(CCCH_3,TDMA_BEACON,true,false,0x55,true,51);
+MAKE_TDMA_MAPPING(CCCH_3,TDMA_BEACON_CCCH,true,false,0x55,true,51);
 
 // TODO -- Other CCCH subchannels 4-8 for support of C-IV.
 
