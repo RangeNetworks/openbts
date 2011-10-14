@@ -133,17 +133,17 @@ bool USRPDevice::rx_setFreq(double freq, double *actual_freq)
   if (R==0) return false;
  
   writeLock.lock(); 
-  m_uRx->_write_spi(0,SPI_ENABLE_RX_B,SPI_FMT_MSB | SPI_FMT_HDR_0,
+  m_uRx->_write_spi(0,SPI_ENABLE_RX_A,SPI_FMT_MSB | SPI_FMT_HDR_0,
 		    write_it((R & ~0x3) | 1));
-  m_uRx->_write_spi(0,SPI_ENABLE_RX_B,SPI_FMT_MSB | SPI_FMT_HDR_0,
+  m_uRx->_write_spi(0,SPI_ENABLE_RX_A,SPI_FMT_MSB | SPI_FMT_HDR_0,
 		    write_it((control & ~0x3) | 0));
   usleep(10000);
-  m_uRx->_write_spi(0,SPI_ENABLE_RX_B,SPI_FMT_MSB | SPI_FMT_HDR_0,
+  m_uRx->_write_spi(0,SPI_ENABLE_RX_A,SPI_FMT_MSB | SPI_FMT_HDR_0,
 		    write_it((N & ~0x3) | 2));
   writeLock.unlock();
   
-  if (m_uRx->read_io(1) & PLL_LOCK_DETECT)  return true;
-  if (m_uRx->read_io(1) & PLL_LOCK_DETECT)  return true;
+  if (m_uRx->read_io(0) & PLL_LOCK_DETECT)  return true;
+  if (m_uRx->read_io(0) & PLL_LOCK_DETECT)  return true;
   return false;
 }
 
@@ -197,6 +197,9 @@ bool USRPDevice::make(bool wSkipRx)
     m_uRx.reset();
     return false;
   }
+  m_uRx->_write_oe(0,0,0xffff);
+  m_uRx->_write_oe(0,(POWER_UP|RX_TXN|ENABLE), 0xffff);
+  m_uRx->write_io(0,(POWER_UP|RX_TXN),(POWER_UP|RX_TXN|ENABLE));
   }
 
   try {
@@ -212,6 +215,10 @@ bool USRPDevice::make(bool wSkipRx)
     m_uTx.reset();
     return false;
   }
+
+  m_uTx->_write_oe(0,0,0xffff);
+  m_uTx->_write_oe(0,(POWER_UP|RX_TXN|ENABLE), 0xffff);
+  m_uTx->write_io(0,(POWER_UP|RX_TXN),(POWER_UP|RX_TXN|ENABLE));
 
   if (m_uTx->fpga_master_clock_freq() != masterClockRate)
   {
@@ -248,9 +255,13 @@ bool USRPDevice::start()
   writeLock.lock();
   // power up and configure daughterboards
   m_uTx->_write_oe(0,0,0xffff);
+
   m_uTx->_write_oe(0,(POWER_UP|RX_TXN|ENABLE), 0xffff);
-  m_uTx->write_io(0,(~POWER_UP|RX_TXN),(POWER_UP|RX_TXN|ENABLE));
-  m_uTx->write_io(0,ENABLE,(RX_TXN | ENABLE));
+  //m_uTx->write_io(0,(POWER_UP|RX_TXN),(POWER_UP|RX_TXN|ENABLE));
+  //m_uTx->write_io(0,ENABLE,(RX_TXN | ENABLE));
+  //m_uTx->write_io(0,(RX_TXN | ENABLE), (RX_TXN | ENABLE));//only for litie
+  m_uTx->write_io(0,ENABLE,(POWER_UP|RX_TXN|ENABLE)); /* POWER_UP inverted */
+
   m_uTx->_write_fpga_reg(FR_ATR_MASK_0 ,0);//RX_TXN|ENABLE);
   m_uTx->_write_fpga_reg(FR_ATR_TXVAL_0,0);//,0 |ENABLE);
   m_uTx->_write_fpga_reg(FR_ATR_RXVAL_0,0);//,RX_TXN|0);
@@ -264,17 +275,20 @@ bool USRPDevice::start()
 
   if (!skipRx) {
     writeLock.lock();
-    m_uRx->_write_fpga_reg(FR_ATR_MASK_0  + 3*3,0);
-    m_uRx->_write_fpga_reg(FR_ATR_TXVAL_0 + 3*3,0);
-    m_uRx->_write_fpga_reg(FR_ATR_RXVAL_0 + 3*3,0);
+    m_uRx->_write_fpga_reg(FR_ATR_MASK_0  + 1*3,0);
+    m_uRx->_write_fpga_reg(FR_ATR_TXVAL_0 + 1*3,0);
+    m_uRx->_write_fpga_reg(FR_ATR_RXVAL_0 + 1*3,0);
+    m_uRx->_write_fpga_reg(41,0);
     m_uRx->_write_fpga_reg(43,0);
-    m_uRx->_write_oe(1,(POWER_UP|RX_TXN|ENABLE), 0xffff);
-    m_uRx->write_io(1,(~POWER_UP|RX_TXN|ENABLE),(POWER_UP|RX_TXN|ENABLE));
+    m_uRx->_write_oe(0,(POWER_UP|RX_TXN|ENABLE), 0xffff);
+    m_uRx->write_io(0,(POWER_UP|RX_TXN|ENABLE),(POWER_UP|RX_TXN|ENABLE));
     //m_uRx->write_io(1,0,RX2_RX1N); // using Tx/Rx/
-    m_uRx->write_io(1,RX2_RX1N,RX2_RX1N); // using Rx2
-    m_uRx->set_adc_buffer_bypass(2,true);
-    m_uRx->set_adc_buffer_bypass(3,true);
-    m_uRx->set_mux(0x00000032);
+    m_uRx->write_io(0,RX2_RX1N,RX2_RX1N); // using Rx2
+    m_uRx->set_adc_buffer_bypass(0,true);
+    m_uRx->set_adc_buffer_bypass(1,true);
+    m_uRx->set_pga(0,m_uRx->pga_max()); // should be 20dB
+    m_uRx->set_pga(1,m_uRx->pga_max());
+    m_uRx->set_mux(0x00000010);
     writeLock.unlock();
     // FIXME -- This should be configurable.
     setRxGain(47); //maxRxGain());
@@ -311,7 +325,7 @@ bool USRPDevice::stop()
   
   // power down
   m_uTx->write_io(0,(~POWER_UP|RX_TXN),(POWER_UP|RX_TXN|ENABLE));
-  m_uRx->write_io(1,~POWER_UP,(POWER_UP|ENABLE));
+  m_uRx->write_io(0,~POWER_UP,(POWER_UP|ENABLE));
   
   delete[] currData;
   
@@ -351,15 +365,15 @@ double USRPDevice::setRxGain(double dB) {
 
    double rfMax = 70.0;
    if (dB > rfMax) {
-        m_uRx->set_pga(2,dB-rfMax);
-        m_uRx->set_pga(3,dB-rfMax);
+        m_uRx->set_pga(0,dB-rfMax);
+        m_uRx->set_pga(1,dB-rfMax);
         dB = rfMax;
    }
    else {
-        m_uRx->set_pga(2,0);
-        m_uRx->set_pga(3,0);
+        m_uRx->set_pga(0,0);
+        m_uRx->set_pga(1,0);
    }
-   m_uRx->write_aux_dac(1,0,
+   m_uRx->write_aux_dac(0,0,
         (int) ceil((1.2 + 0.02 - (dB/rfMax))*4096.0/3.3));
 
    LOG(DEBUG) << "Setting DAC voltage to " << (1.2+0.02 - (dB/rfMax)) << " " << (int) ceil((1.2 + 0.02 - (dB/rfMax))*4096.0/3.3);
@@ -538,7 +552,7 @@ int USRPDevice::writeSamples(short *buf, int len, bool *underrun,
 #ifndef SWLOOPBACK 
   if (!m_uTx) return 0;
  
-  static uint32_t outData[128*20];
+  static uint32_t outData[128*200];
  
   for (int i = 0; i < len*2; i++) {
 	buf[i] = host_to_usrp_short(buf[i]);
@@ -589,7 +603,7 @@ bool USRPDevice::updateAlignment(TIMESTAMP timestamp)
 #ifndef SWLOOPBACK 
   short data[] = {0x00,0x02,0x00,0x00};
   uint32_t *wordPtr = (uint32_t *) data;
-  *wordPtr = host_to_usrp_u32(*wordPtr);
+  //*wordPtr = host_to_usrp_u32(*wordPtr);
   bool tmpUnderrun;
   if (writeSamples((short *) data,1,&tmpUnderrun,timestamp & 0x0ffffffffll,true)) {
     pingTimestamp = timestamp;
@@ -608,6 +622,7 @@ bool USRPDevice::setTxFreq(double wFreq) {
   if (!tx_setFreq(wFreq+1*LO_OFFSET,&actFreq)) return false;
   bool retVal = m_uTx->set_tx_freq(0,(wFreq-actFreq));
   LOG(INFO) << "set TX: " << wFreq-actFreq << " actual TX: " << m_uTx->tx_freq(0);
+  //m_uTx->write_io(0,RX_TXN,RX_TXN);
   return retVal;
 };
 
@@ -622,6 +637,7 @@ bool USRPDevice::setRxFreq(double wFreq) {
   if (!rx_setFreq(wFreq-2*LO_OFFSET,&actFreq)) return false;
   bool retVal = m_uRx->set_rx_freq(0,(wFreq-actFreq));
   LOG(DEBUG) << "set RX: " << wFreq-actFreq << " actual RX: " << m_uRx->rx_freq(0);
+  //m_uRx->write_io(0,RX_TXN,RX_TXN);
   return retVal;
 };
 

@@ -215,10 +215,10 @@ private:
   bool setRxFreq(double wFreq);
 
   /** Returns the starting write Timestamp*/
-  TIMESTAMP initialWriteTimestamp(void) { return 20000;}
+  TIMESTAMP initialWriteTimestamp(void) { return 40000;}
 
   /** Returns the starting read Timestamp*/
-  TIMESTAMP initialReadTimestamp(void) { return 20000;}
+  TIMESTAMP initialReadTimestamp(void) { return 40000;}
 
   /** returns the full-scale transmit amplitude **/
   double fullScaleInputValue() {return 13500.0;}
