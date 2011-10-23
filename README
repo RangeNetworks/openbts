@@ -39,17 +39,13 @@ By default, OpenBTS assumes the following UDP port assignments:
 These can be controlled in the CONFIG table in /etc/OpenBTS.db.
 
 Standrd paths:
-/OpenBTS -- Binary installation and authorization keys.
+/OpenBTS -- Binary installation.
 /etc/OpenBTS -- Configuration databases.
 /var/run/OpenBTS -- Real-time reporting databases.
 
 The script apps/setUpFiles.sh will create these directories and install the
 correct files in them.
 
-
-Releases 2.5 and later include the smqueue SMS server.  It is NOT part of the
-normal GNU build process with the rest of OpenBTS.  To build smqueue, go
-into the smqueue directory and just type "make -f Makefile.standalone".
 
 
 
