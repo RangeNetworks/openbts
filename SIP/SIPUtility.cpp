@@ -102,4 +102,28 @@ void SIP::make_branch( char * branch )
 	sprintf(branch,"z9hG4bKobts28%llx", val);
 }
 
+/* get the return address from the SIP VIA header
+   if port not available, guess at 5060
+   if header not available, guess from SIP.Proxy.SMS 
+   -kurtis 
+*/
+string SIP::get_return_address(osip_message_t * msg){
+
+	string result;
+	osip_via* via = (osip_via *) osip_list_get(&msg->vias,0);
+	if (via){
+		result = string(via->host);
+		if (via->port) {
+			result += string(":") + string(via->port);
+		}
+		else {
+			result += string(":") + string("5060"); //assume SIP
+		}
+	}
+	else { //no via header? Take best guess from conf -k
+		result = gConfig.getStr("SIP.Proxy.SMS");
+	}
+	return result;
+}
+
 // vim: ts=4 sw=4

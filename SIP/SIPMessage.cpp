@@ -77,8 +77,6 @@ osip_message_t * SIP::sip_register( const char * sip_username, short timeout, sh
 	char  * via_str;
 	osip_via_to_str(via, &via_str);
 	osip_message_set_via(request, via_str);
-	// set via
-	osip_list_add(&request->vias, via, -1);
 
 
 	// FROM

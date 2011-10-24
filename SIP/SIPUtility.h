@@ -67,6 +67,8 @@ void make_tag( char * tag );
 
 void make_branch(char * branch);
 
+string get_return_address(osip_message_t * msg);
+
 
 };
 #endif

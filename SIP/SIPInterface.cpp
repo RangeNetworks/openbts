@@ -299,7 +299,8 @@ bool SIPInterface::checkInvite( osip_message_t * msg)
 	GSM::ChannelType requiredChannel;
 	bool channelAvailable = false;
 	GSM::L3CMServiceType serviceType;
-	string proxy;
+	// pretty sure strings are garbage collected
+	string proxy = get_return_address(msg);
 	if (strcmp(method,"INVITE") == 0) {
 		// INVITE is for MTC.
 		// Set the required channel type to match the assignment style.
@@ -313,14 +314,12 @@ bool SIPInterface::checkInvite( osip_message_t * msg)
 			channelAvailable = gBTS.SDCCHAvailable() && gBTS.TCHAvailable();
 		}
 		serviceType = L3CMServiceType::MobileTerminatedCall;
-		proxy = gConfig.getStr("SIP.Proxy.Speech");
 	}
 	else if (strcmp(method,"MESSAGE") == 0) {
 		// MESSAGE is for MTSMS.
 		requiredChannel = GSM::SDCCHType;
 		channelAvailable = gBTS.SDCCHAvailable();
 		serviceType = L3CMServiceType::MobileTerminatedShortMessage;
-		proxy = gConfig.getStr("SIP.Proxy.SMS");
 	}
 	else {
 		// Not a method handled here.
