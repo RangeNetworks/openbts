@@ -1,0 +1,76 @@
+<!-- 
+Copyright 2011 Kurtis Heimerl. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification, are
+permitted provided that the following conditions are met:
+
+   1. Redistributions of source code must retain the above copyright notice, this list of
+      conditions and the following disclaimer.
+
+   2. Redistributions in binary form must reproduce the above copyright notice, this list
+      of conditions and the following disclaimer in the documentation and/or other materials
+      provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY KURTIS HEIMERL ''AS IS'' AND ANY EXPRESS OR IMPLIED
+WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL KURTIS HEIMERL OR
+CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+The views and conclusions contained in the software and documentation are those of the
+authors and should not be interpreted as representing official policies, either expressed
+or implied, of Kurtis Heimerl.
+-->
+
+<?xml version="1.0" encoding="utf-8"?>
+<include>
+  <context name="default">
+
+    <!-- set all the openbts variables -->
+    <extension name="openbts" continue="true">
+      <condition field="to_user" expression="^smsc$">
+	<action inline="true" application="python" data="OpenBTS_Parse_SMS"/>
+      </condition>
+    </extension>
+
+     <!-- openbts_db_loc set in vars.xml -->
+    <extension name="registration">
+      <condition field="openbts_tp_dest_address" expression="^101$"/>
+      <!-- is it a number? -->
+      <condition field="openbts_text" expression="^\d{7,10}$">
+	
+	<!-- if so, try to register user -->
+	<action application="set" data="caller_number=${python(OpenBTS_DB -d ${openbts_db_loc} -c ${from_user})}" />
+	<!-- return value in _openbts_ret -->
+	<action application="python" data="OpenBTS_New_User"/>
+	<!-- text back the return value -->
+	<action application="python" data="OpenBTS_Send_SMS ${caller_number}|101|${_openbts_ret}"/>
+	
+	<!-- if not, look up user and respond with instructions -->
+	<anti-action application="set" data="caller_number=${python(OpenBTS_DB -d ${openbts_db_loc} -c ${from_user})}" />
+	<anti-action application="python" data="OpenBTS_Send_SMS ${caller_number}|101|Please send just the number you want!"/>
+      </condition>
+    </extension>
+
+    <extension name="callbacks">
+      <condition field="openbts_tp_dest_address" expression="^919(\d)$">
+	<!-- bgapi lets us finish this without waiting for the originate -->
+	<!-- the space between the args and the dest is important, for some reason -->
+	<action application="set" data="api_result=${bgapi(originate {origination_caller_id_number=${openbts_tp_dest_address}}sofia/internal/${from}:${from_sip_port} ${openbts_tp_dest_address})}"/>
+      </condition>
+    </extension>
+      
+    <!-- send any other messages onto smqueue -->
+    <!-- reencode for now... though I'll probably write a "forward" script -->
+    <extension name="forward">
+      <condition field="openbts_tp_dest_address" expression="^(.*)$">
+	<action application="python" data="OpenBTS_Send_SMS ${openbts_tp_dest_address}|${from_user}|${openbts_text}"/>
+      </condition>
+    </extension>
+
+  </context>
+</include>
