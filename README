@@ -14,7 +14,6 @@ AsteriskConfig	Asterisk configuration files for use with OpenBTS.
 CommonLib	Common-use libraries, mostly C++ wrappers for basic facilities.
 Control		Control-layer functions for the protocols of GSM 04.08 and SIP.
 GSM		The GSM stack.
-RRLP		Radio Resource Location Protocol
 SIP		Components of the SIP state machines ued by the control layer.
 SMS		The SMS stack.
 SR		The subscriber registry.
