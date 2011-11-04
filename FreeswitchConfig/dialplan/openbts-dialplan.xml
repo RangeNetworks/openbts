@@ -29,12 +29,11 @@ or implied, of Kurtis Heimerl.
 <extension name="local_call">
 
   <!-- openbts_db_loc set in vars.xml -->
-  <condition field="destination_number" expression="^\d{7}$"/>
-  <condition field="${python(OpenBTS_DB -d ${openbts_db_loc} -t ${destination_number})}" expression="IMSI\d{15}"/>
-  <condition field="${python(OpenBTS_DB -d ${openbts_db_loc} -c ${username})}" expression="\d{7}">
-   <action application="set" data="target=${python(OpenBTS_DB -d ${openbts_db_loc} -t ${destination_number})}" />
-   <action application="set" data="effective_caller_id_number=${python(OpenBTS_DB -d ${openbts_db_loc} -c ${username})}" />
-   <action application="bridge" data="sofia/internal/${target}@${domain}:${sip_received_port}"/>
+  <condition field='${python(OpenBTS_DB SELECT name FROM sip_buddies WHERE callerid="${destination_number}")}' expression="IMSI\d{15}"/>
+  <condition field='${python(OpenBTS_DB SELECT callerid FROM sip_buddies WHERE name="${username}"' expression="\d{7,10}">
+    <action application="set" data='target=${python(OpenBTS_DB SELECT name FROM sip_buddies WHERE callerid="${destination_number}")}' />
+    <action application="set" data='effective_caller_id_number=${python(OpenBTS_DB SELECT callerid FROM sip_buddies WHERE name="${username}"'/>
+    <action application="bridge" data="sofia/internal/${target}@${domain}:${sip_received_port}"/>
   </condition>
 
 </extension>

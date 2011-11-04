@@ -86,21 +86,29 @@ def chat(message, args):
 
 def fsapi(session, stream, env, args):
     args = args.split('|')
-    db_loc = args[0]
-    caller = args[1]
-    target = args[2]
-    port = args[3]
+    if (len(args) < 3):
+        err('Missing Args\n')
+    caller = args[0]
+    target = args[1]
+    port = args[2]
+
+    db_loc = None
+    if (len(args) == 4):
+        db_loc = args[3]
 
     #if they don't all exist
     if (not db_loc or db_loc == ''):
         db_loc = getGlobalVariable("openbts_db_loc")
 
-    if not (db_loc and caller and target and port):
-        err("Missing/Malformed Args \n")
+    if (not db_loc):
+        err("Missing DB. Is openbts_db_loc defined?\n")
+
+    if not (caller and target and port):
+        err("Malformed Args \n")
 
     if (caller == '' or
         target == '' or
         port == ''):
-        err("Missing/Malformed Args \n")
+        err("Malformed Args \n")
 
     stream.write(str(create_user(db_loc, caller, target, port)))

@@ -26,66 +26,47 @@
 
 import csv
 import sqlite3
-import getopt
+import sys
 from freeswitch import *
 
-def get_target(cur, destination):
-    cur.execute('select name from sip_buddies where callerid=?', (destination,))
-    res = cur.fetchone()
-    if (res):
-        return res[0]
-    else:
-        return res
-
-def get_caller_id(cur, caller):
-    cur.execute('select callerid from sip_buddies where name=?', (caller,))
-    res = cur.fetchone()
-    if (res):
-        return res[0]
-    else:
-        return res 
-
-def usage(stream, code):
-    stream.write("ERROR: %d" % code)
-    exit(1)
-
-def fsapi(session, stream, env, args):
-    db_loc = None
-    caller = None
-    destination = None
-
-
-    opts, args = getopt.getopt(args.split(" "), "d:c:t:", ["db=", "caller=", "target="])
-    
-    for o,a in opts:
-        if o in ("-d", "--db="):
-            db_loc = a
-        elif o in ("-c", "--caller="):
-            caller = a
-        elif o in ("-t", "--target="):
-            destination = a
-        else:
-            usage(stream,0)
-            
-    if (not db_loc):
-        usage(stream,1)
-    if (caller and destination):
-        usage(stream,2)
-
+def execute_cmd(db_loc, cmd):
     conn = sqlite3.connect(db_loc)
     cur = conn.cursor()
-    if (caller):
-        stream.write(str(get_caller_id(cur, caller)))
-    else:
-        stream.write(str(get_target(cur, destination)))
+    cur.execute(cmd)
+    res = cur.fetchone()
     conn.close()
+    return res
 
-#not using this now
-def handler(session,args):
-    db_loc = session.getVariable("db_loc")
-    caller = session.getVariable("username")
-    destination = session.getVariable("destination_number")
-    if (db_loc and caller and destination):
-        res = get_vars(db_loc, caller, destination)
+def err(msg):
+    consoleLog(msg)
+    exit(1)
+
+def parse_and_op(args):
+    sys.stderr.write(args + "\n")
+    args = args.split('|')
+    cmd = args[0]
+    db_loc = getGlobalVariable('openbts_db_loc')
+    if (len(args) > 1):
+        db_loc = args[1]
+
+    if not(db_loc):
+       err('Missing DB. Is openbts_db_loc defined?\n') 
     
+    try:
+        res = execute_cmd(db_loc, cmd)
+        return str(res[0])
+    except Exception as err:
+        consoleLog('err', str(err) + "\n")
+        exit(1)
+
+def chat(message, args):
+    res = parse_and_op(args)
+    consoleLog('info', "Returned: " + res)
+    message.chat_execute('set', '_openbts_ret=%s' % res)
+
+def fsapi(session, stream, env, args):
+    res = parse_and_op(args)
+    consoleLog('info', "Returned: " + res)
+    if (res):
+        stream.write(str(res))
 

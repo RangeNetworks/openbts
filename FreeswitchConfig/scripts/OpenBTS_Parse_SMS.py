@@ -114,14 +114,20 @@ def parse(rp_message):
     (rp_dest_address_type, rp_dest_address, rp_message) = get_rp_destination_address(rp_message)
     rp_user_data = get_rp_user_data(rp_message)
 
-#rp_message finished
+    #rp_message finished
     (tp_message_type, rp_user_data) = get_tp_message_type(rp_user_data)
     (tp_message_reference, rp_user_data) = get_tp_message_reference(rp_user_data)
     (tp_dest_address_type, tp_dest_address, rp_user_data) = get_tp_destination_address(rp_user_data)
     (tp_protocol_id, rp_user_data) = get_tp_protocol_identifier(rp_user_data)
     (tp_data_coding_scheme, rp_user_data) = get_tp_data_coding_scheme(rp_user_data)
-    (tp_validity_period, rp_user_data) = get_tp_validity_period(rp_user_data)
+    #check to see if validity period field is there
+    if (int(tp_message_type, 16) & 0x10 == 0):
+        tp_validity_period = None
+    else:
+        (tp_validity_period, rp_user_data) = get_tp_validity_period(rp_user_data)
     (tp_user_data, rp_user_data) = get_tp_user_data(rp_user_data)
+
+    sys.stderr.write(tp_user_data)
 
     return {"openbts_rp_message_type" : rp_message_type,
             "openbts_rp_message_reference" : rp_message_reference,
@@ -136,14 +142,10 @@ def parse(rp_message):
             "openbts_tp_data_coding_scheme" : tp_data_coding_scheme,
             "openbts_tp_validity_period" : tp_validity_period,
             "openbts_tp_user_data" : tp_user_data,
-            "openbts_text" : messaging.utils.unpack_msg(tp_user_data).encode('UTF8')
+            "openbts_text" : messaging.utils.unpack_msg(tp_user_data).encode('UTF8').rstrip('\0')
             }
 
-    if (len(rp_user_data[0]) != rp_user_data[1]): #index equals total
-        raise Exception("EXTRA DATA AFTER TP-USER-DATA")
-
 def chat(message, args):
-    #sys.stderr.write(str(message.serialize()))
     try:
         content = parse(message.getBody())
         for key in content.keys():
@@ -151,6 +153,11 @@ def chat(message, args):
     except Exception as err:
         consoleLog('err', str(err))
         sys.stderr.write(str(err))
+        exit(1)
+
+def fsapi(session, stream, env, args):
+    consoleLog('err', 'Cannot call Parse_SMS from the FS API\n')
+    exit(1)
 
 if __name__ == '__main__':
     if (len(sys.argv) < 2):

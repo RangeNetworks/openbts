@@ -68,8 +68,8 @@ def gen_body(to, text):
     tp_len = (len(tp_header) + len(tp_user_data))/2 #octets, not bytes
     return rp_header + gen_hex(tp_len) + tp_header + tp_user_data
 
-def send_message(to, fromm, text):
-    #fromm = 'IMSI641104278340235'
+#forward the message to smqueue for store-and-forwarding
+def send_smqueue_message(to, fromm, text):
     event = Event("CUSTOM", "SMS::SEND_MESSAGE")
     event.addHeader("proto", "sip");
     event.addHeader("dest_proto", "sip");
@@ -82,18 +82,21 @@ def send_message(to, fromm, text):
     event.addHeader("replying", "false");
     event.addBody(gen_body(to, text));
 
-    #sys.stderr.write(event.serialize())
     event.fire()
 
 def chat(message, args):
     args = args.split('|')
+    if (len(args) < 3):
+        consoleLog('err', 'Missing Args\n')
+        exit(1)
     to = args[0]
     fromm = args[1]
     text = args[2]
     if ((not to or to == '') or
         (not fromm or fromm == '')):
-        consoleLog('err', 'Missing Args\n')
-    send_message(to, fromm, text)
+        consoleLog('err', 'Malformed Args\n')
+        exit(1)
+    send_smqueue_message(to, fromm, text)
 
 def fsapi(session, stream, env, args):
     #chat doesn't use message anyhow

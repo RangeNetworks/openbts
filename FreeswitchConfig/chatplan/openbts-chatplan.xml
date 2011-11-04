@@ -33,26 +33,40 @@ or implied, of Kurtis Heimerl.
     <!-- set all the openbts variables -->
     <extension name="openbts" continue="true">
       <condition field="to_user" expression="^smsc$">
+	<!-- first, parse SMS -->
 	<action inline="true" application="python" data="OpenBTS_Parse_SMS"/>
+	<!-- second, look up sender -->
+	<!-- freeswitch eats 's, switch them up here -->
+	<action inline="true" application="python" data='OpenBTS_DB SELECT callerid FROM sip_buddies WHERE name="${from_user}"'/>
+	<!-- result in _openbts_ret -->
+	<action inline="true" application="set" data="openbts_callerid=${_openbts_ret}"/>
       </condition>
     </extension>
 
-     <!-- openbts_db_loc set in vars.xml -->
+    <!-- register a user in the subscriber registry -->
     <extension name="registration">
       <condition field="openbts_tp_dest_address" expression="^101$"/>
       <!-- is it a number? -->
       <condition field="openbts_text" expression="^\d{7,10}$">
 	
-	<!-- if so, try to register user -->
-	<action application="set" data="caller_number=${python(OpenBTS_DB -d ${openbts_db_loc} -c ${from_user})}" />
-	<!-- return value in _openbts_ret -->
 	<action application="python" data="OpenBTS_New_User"/>
+	<action application="set" data="response_text=${_openbts_ret}"/>
+	<!-- lookup new number -->
+	<action application="python" data='OpenBTS_DB SELECT callerid FROM sip_buddies WHERE name="${from_user}"'/>
 	<!-- text back the return value -->
-	<action application="python" data="OpenBTS_Send_SMS ${caller_number}|101|${_openbts_ret}"/>
+	<action application="python" data="OpenBTS_Send_SMS ${_openbts_ret}|101|${response_text}"/>
 	
-	<!-- if not, look up user and respond with instructions -->
-	<anti-action application="set" data="caller_number=${python(OpenBTS_DB -d ${openbts_db_loc} -c ${from_user})}" />
-	<anti-action application="python" data="OpenBTS_Send_SMS ${caller_number}|101|Please send just the number you want!"/>
+	<!-- if not, reply -->
+	<!-- this doesn't work yet, missing MC->MS encoder
+	<anti-action application="python" data="OpenBTS_Reply_SMS 101|101|Please send a 7-10 digit number!"/>
+	-->
+
+      </condition>
+    </extension>
+
+    <extension name="echo">
+      <condition field="openbts_tp_dest_address" expression="^9189$">
+	<action application="python" data="OpenBTS_Send_SMS ${openbts_callerid}|9189|${openbts_text}"/>
       </condition>
     </extension>
 
