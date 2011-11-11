@@ -113,6 +113,7 @@ INSERT INTO "CONFIG" VALUES('SubscriberRegistry.Manager.Title','Subscriber Regis
 INSERT INTO "CONFIG" VALUES('SubscriberRegistry.Manager.Url','http://127.0.0.1/cgi/srmanager.cgi',0,0,'URL of the subscriber registry database manager.');
 INSERT INTO "CONFIG" VALUES('SubscriberRegistry.Manager.VisibleColumns','name username type context host',0,0,'Field names in subscriber registry visible in the database manager.');
 INSERT INTO "CONFIG" VALUES('SubscriberRegistry.db','/var/lib/asterisk/sqlite3dir/sqlite3.db',0,0,'The location of the sqlite3 database holding the subscriber registry.');
+INSERT INTO "CONFIG" VALUES('SubscriberRegistry.Port','5064',0,0,'The port for the subscriber registry. Static.');
 INSERT INTO "CONFIG" VALUES('TRX.IP','127.0.0.1',1,0,'IP address of the transceiver application.  Static.');
 INSERT INTO "CONFIG" VALUES('TRX.Port','5700',1,0,'IP port of the transceiver application.  Static.');
 INSERT INTO "CONFIG" VALUES('TRX.RadioFrequencyOffset','128',1,0,'Fine-tuning adjustment for the transceiver master clock.  Roughly 170 Hz/step.  Set at the factory.  Do not adjust without proper calibration.  Static.');
