@@ -48,7 +48,7 @@ INSERT INTO "CONFIG" VALUES('GSM.MS.Power.Min','5',0,0,'Minimum commanded MS pow
 INSERT INTO "CONFIG" VALUES('GSM.MS.TA.Damping','50',0,0,'Damping value for timing advance control loop.');
 INSERT INTO "CONFIG" VALUES('GSM.MS.TA.Max','5',0,0,'Maximum allowed timing advance in symbol periods.  Ignore RACH bursts with delays greater than this.  Can be used to limit service range.');
 INSERT INTO "CONFIG" VALUES('GSM.MaxSpeechLatency','2',0,0,'Maximum allowed speech buffering latency, in 20 ms frames.  If the jitter is larger than this delay, frames will be lost.');
-INSERT INTO "CONFIG" VALUES('GSM.RACH.AC','0',0,0,'Access class flags.  This is the raw parameter sent on the BCCH.  See GSM 04.08 10.5.2.29 for encoding.  Set to 0 to allow full access.  If you do not have proper PSAP integration, set to 0x0400 to indicate no support for emergency calls.');
+INSERT INTO "CONFIG" VALUES('GSM.RACH.AC','1024',0,0,'Access class flags.  This is the raw parameter sent on the BCCH.  See GSM 04.08 10.5.2.29 for encoding.  Set to 0 to allow full access.  If you do not have proper PSAP integration, set to 0x0400 to indicate no support for emergency calls.');
 INSERT INTO "CONFIG" VALUES('GSM.RACH.MaxRetrans','1',0,0,'Maximum RACH retransmission attempts.  This is the raw parameter sent on the BCCH.  See GSM 04.08 10.5.2.29 for encoding.');
 INSERT INTO "CONFIG" VALUES('GSM.RACH.TxInteger','14',0,0,'Parameter to spread RACH busts over time.  This is the raw parameter sent on the BCCH.  See GSM 04.08 10.5.2.29 for encoding.');
 INSERT INTO "CONFIG" VALUES('GSM.RADIO-LINK-TIMEOUT','15',0,0,' L1 radio link timeout.  This is the raw parameter sent on the BCCH; see GSM 10.5.2.3 for encoding. Should be coordinated with T3109.');
