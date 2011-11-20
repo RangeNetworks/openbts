@@ -150,6 +150,7 @@ void addAlarm(const string& s)
 
 Log::~Log()
 {
+	if (mDummyInit) return;
 	// Anything at or above LOG_CRIT is an "alarm".
 	// Save alarms in the local list and echo them to stderr.
 	if (mPriority <= LOG_CRIT) {
@@ -159,6 +160,13 @@ Log::~Log()
 	// Current logging level was already checked by the macro.
 	// So just log.
 	syslog(mPriority, "%s", mStream.str().c_str());
+}
+
+
+Log::Log(const char* name, const char* level, int facility)
+{
+	mDummyInit = true;
+	gLogInit(name, level, facility);
 }
 
 

@@ -40,10 +40,18 @@
 #define _LOG(level) \
 	Log(LOG_##level).get() << pthread_self() \
 	<< " " __FILE__  ":"  << __LINE__ << ":" << __FUNCTION__ << ": "
+
+#ifdef NDEBUG
+#define LOG(wLevel) \
+	if (LOG_##wLevel!=LOG_DEBUG && gGetLoggingLevel(__FILE__)>=LOG_##wLevel) _LOG(wLevel)
+#else
 #define LOG(wLevel) \
 	if (gGetLoggingLevel(__FILE__)>=LOG_##wLevel) _LOG(wLevel)
+#endif
+
+
 #define OBJLOG(wLevel) \
-	if (gGetLoggingLevel(__FILE__)>=LOG_##wLevel) _LOG(wLevel) << "obj: " << this << ' '
+	LOG(wLevel) << "obj: " << this << ' '
 
 #define LOG_ASSERT(x) { if (!(x)) LOG(EMERG) << "assertion " #x " failed"; } assert(x);
 
@@ -66,12 +74,15 @@ class Log {
 
 	std::ostringstream mStream;		///< This is where we buffer up the log entry.
 	int mPriority;					///< Priority of current repot.
+	bool mDummyInit;
 
 	public:
 
 	Log(int wPriority)
-		:mPriority(wPriority)
+		:mPriority(wPriority), mDummyInit(false)
 	{ }
+
+	Log(const char* name, const char* level=NULL, int facility=LOG_USER);
 
 	// Most of the work is in the desctructor.
 	/** The destructor actually generates the log entry. */
