@@ -273,7 +273,7 @@ void RadioInterface::pullBuffer()
 	num_rd = mRadio->readSamples(rx_buf, OUTCHUNK, &overrun,
 				     readTimestamp, &local_underrun);
 
-	LOG(DEEPDEBUG) << "Rx read " << num_rd << " samples from device";
+	LOG(DEBUG) << "Rx read " << num_rd << " samples from device";
 	assert(num_rd == OUTCHUNK);
 
 	underrun |= local_underrun;
@@ -283,7 +283,7 @@ void RadioInterface::pullBuffer()
 	num_cv = rx_resmpl_int_flt(rcvBuffer + 2 * rcvCursor,
 				   rx_buf, num_rd);
 
-	LOG(DEEPDEBUG) << "Rx read " << num_cv << " samples from resampler";
+	LOG(DEBUG) << "Rx read " << num_cv << " samples from resampler";
 
 	rcvCursor += num_cv;
 }
@@ -296,7 +296,7 @@ void RadioInterface::pushBuffer()
 	if (sendCursor < INCHUNK)
 		return;
 
-	LOG(DEEPDEBUG) << "Tx wrote " << sendCursor << " samples to resampler";
+	LOG(DEBUG) << "Tx wrote " << sendCursor << " samples to resampler";
 
 	/* Resample and convert */
 	num_cv = tx_resmpl_flt_int(tx_buf, sendBuffer, sendCursor);
@@ -308,7 +308,7 @@ void RadioInterface::pushBuffer()
 				      &underrun,
 				      writeTimestamp);
 
-	LOG(DEEPDEBUG) << "Tx wrote " << num_wr << " samples to device";
+	LOG(DEBUG) << "Tx wrote " << num_wr << " samples to device";
 	assert(num_wr == num_wr);
 
 	writeTimestamp += (TIMESTAMP) num_wr;

@@ -257,10 +257,10 @@ void uhd_msg_handler(uhd::msg::type_t type, const std::string &msg)
 		LOG(INFO) << msg;
 		break;
 	case uhd::msg::warning:
-		LOG(WARN) << msg;
+		LOG(WARNING) << msg;
 		break;
 	case uhd::msg::error:
-		LOG(ERROR) << msg;
+		LOG(ERR) << msg;
 		break;
 	case uhd::msg::fastpath:
 		break;
@@ -333,7 +333,7 @@ double uhd_device::set_rates(double rate)
 	actual_clk_rt = usrp_dev->get_master_clock_rate();
 
 	if (actual_clk_rt != master_clk_rt) {
-		LOG(ERROR) << "Failed to set master clock rate";
+		LOG(ERR) << "Failed to set master clock rate";
 		return -1.0;
 	}
 #endif
@@ -344,11 +344,11 @@ double uhd_device::set_rates(double rate)
 	actual_rt = usrp_dev->get_tx_rate();
 
 	if (actual_rt != rate) {
-		LOG(ERROR) << "Actual sample rate differs from desired rate";
+		LOG(ERR) << "Actual sample rate differs from desired rate";
 		return -1.0;
 	}
 	if (usrp_dev->get_rx_rate() != actual_rt) {
-		LOG(ERROR) << "Transmit and receive sample rates do not match";
+		LOG(ERR) << "Transmit and receive sample rates do not match";
 		return -1.0;
 	}
 
@@ -396,7 +396,7 @@ bool uhd_device::parse_dev_type()
 	b100_str2 = mboard_str.find("B100");
 
 	if (usrp1_str != std::string::npos) {
-		LOG(ERROR) << "USRP1 is not supported using UHD driver";
+		LOG(ERR) << "USRP1 is not supported using UHD driver";
 		return false;
 	}
 
@@ -422,7 +422,7 @@ bool uhd_device::open()
 	try {
 		usrp_dev = uhd::usrp::single_usrp::make(dev_addr);
 	} catch(...) {
-		LOG(ERROR) << "UHD make failed";
+		LOG(ERR) << "UHD make failed";
 		return false;
 	}
 
@@ -510,7 +510,7 @@ bool uhd_device::start()
 	LOG(INFO) << "Starting USRP...";
 
 	if (started) {
-		LOG(ERROR) << "Device already started";
+		LOG(ERR) << "Device already started";
 		return false;
 	}
 
@@ -552,7 +552,7 @@ int uhd_device::check_rx_md_err(uhd::rx_metadata_t &md, ssize_t num_smpls)
 	uhd::time_spec_t ts;
 
 	if (!num_smpls) {
-		LOG(ERROR) << str_code(md);
+		LOG(ERR) << str_code(md);
 
 		switch (md.error_code) {
 		case uhd::rx_metadata_t::ERROR_CODE_TIMEOUT:
@@ -568,7 +568,7 @@ int uhd_device::check_rx_md_err(uhd::rx_metadata_t &md, ssize_t num_smpls)
 
 	// Missing timestamp
 	if (!md.has_time_spec) {
-		LOG(ERROR) << "UHD: Received packet missing timestamp";
+		LOG(ERR) << "UHD: Received packet missing timestamp";
 		return ERROR_UNRECOVERABLE;
 	}
 
@@ -576,8 +576,8 @@ int uhd_device::check_rx_md_err(uhd::rx_metadata_t &md, ssize_t num_smpls)
 
 	// Monotonicity check
 	if (ts < prev_ts) {
-		LOG(ERROR) << "UHD: Loss of monotonic: " << ts.get_real_secs();
-		LOG(ERROR) << "UHD: Previous time: " << prev_ts.get_real_secs();
+		LOG(ERR) << "UHD: Loss of monotonic: " << ts.get_real_secs();
+		LOG(ERR) << "UHD: Previous time: " << prev_ts.get_real_secs();
 		return ERROR_TIMING;
 	} else {
 		prev_ts = ts;
@@ -601,13 +601,13 @@ int uhd_device::readSamples(short *buf, int len, bool *overrun,
 	timestamp += ts_offset;
 
 	ts = convert_time(timestamp, actual_smpl_rt);
-	LOG(DEEPDEBUG) << "Requested timestamp = " << ts.get_real_secs();
+	LOG(DEBUG) << "Requested timestamp = " << ts.get_real_secs();
 
 	// Check that timestamp is valid
 	rc = rx_smpl_buf->avail_smpls(timestamp);
 	if (rc < 0) {
-		LOG(ERROR) << rx_smpl_buf->str_code(rc);
-		LOG(ERROR) << rx_smpl_buf->str_status();
+		LOG(ERR) << rx_smpl_buf->str_code(rc);
+		LOG(ERR) << rx_smpl_buf->str_status();
 		return 0;
 	}
 
@@ -626,7 +626,7 @@ int uhd_device::readSamples(short *buf, int len, bool *overrun,
 		rc = check_rx_md_err(metadata, num_smpls);
 		switch (rc) {
 		case ERROR_UNRECOVERABLE:
-			LOG(ERROR) << "UHD: Unrecoverable error, exiting.";
+			LOG(ERR) << "UHD: Unrecoverable error, exiting.";
 			exit(-1);
 		case ERROR_TIMING:
 			restart(prev_ts);
@@ -636,7 +636,7 @@ int uhd_device::readSamples(short *buf, int len, bool *overrun,
 
 
 		ts = metadata.time_spec;
-		LOG(DEEPDEBUG) << "Received timestamp = " << ts.get_real_secs();
+		LOG(DEBUG) << "Received timestamp = " << ts.get_real_secs();
 
 		rc = rx_smpl_buf->write(pkt_buf,
 					num_smpls,
@@ -644,8 +644,8 @@ int uhd_device::readSamples(short *buf, int len, bool *overrun,
 
 		// Continue on local overrun, exit on other errors
 		if ((rc < 0)) {
-			LOG(ERROR) << rx_smpl_buf->str_code(rc);
-			LOG(ERROR) << rx_smpl_buf->str_status();
+			LOG(ERR) << rx_smpl_buf->str_code(rc);
+			LOG(ERR) << rx_smpl_buf->str_status();
 			if (rc != smpl_buf::ERROR_OVERFLOW)
 				return 0;
 		}
@@ -654,8 +654,8 @@ int uhd_device::readSamples(short *buf, int len, bool *overrun,
 	// We have enough samples
 	rc = rx_smpl_buf->read(buf, len, timestamp);
 	if ((rc < 0) || (rc != len)) {
-		LOG(ERROR) << rx_smpl_buf->str_code(rc);
-		LOG(ERROR) << rx_smpl_buf->str_status();
+		LOG(ERR) << rx_smpl_buf->str_code(rc);
+		LOG(ERR) << rx_smpl_buf->str_status();
 		return 0;
 	}
 
@@ -673,7 +673,7 @@ int uhd_device::writeSamples(short *buf, int len, bool *underrun,
 
 	// No control packets
 	if (isControl) {
-		LOG(ERROR) << "Control packets not supported";
+		LOG(ERR) << "Control packets not supported";
 		return 0;
 	}
 
@@ -685,7 +685,7 @@ int uhd_device::writeSamples(short *buf, int len, bool *underrun,
 			LOG(DEBUG) << "Aligning transmitter: stop burst";
 			metadata.end_of_burst = true;
 		} else if (drop_cnt < 30) {
-			LOG(DEEPDEBUG) << "Aligning transmitter: packet advance";
+			LOG(DEBUG) << "Aligning transmitter: packet advance";
 			*underrun = true;
 			return len;
 		} else {
@@ -703,7 +703,7 @@ int uhd_device::writeSamples(short *buf, int len, bool *underrun,
 					uhd::device::SEND_MODE_FULL_BUFF);
 
 	if (num_smpls != (unsigned)len)
-		LOG(ERROR) << "UHD: Sent fewer samples than requested";
+		LOG(ERR) << "UHD: Sent fewer samples than requested";
 
 	return num_smpls;
 }
@@ -741,7 +741,7 @@ bool uhd_device::recv_async_msg()
 	// Assume that any error requires resynchronization
 	if (metadata.event_code != uhd::async_metadata_t::EVENT_CODE_BURST_ACK) {
 		aligned = false;
-		LOG(ERROR) << str_code(metadata);
+		LOG(ERR) << str_code(metadata);
 	}
 
 	return true;

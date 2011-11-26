@@ -254,7 +254,7 @@ double USRPDevice::setTxGain(double dB) {
    LOG(NOTICE) << "Setting TX gain to " << dB << " dB.";
 
    if (!m_dbRx->set_gain(dB))
-     LOG(ERROR) << "Error setting TX gain";
+     LOG(ERR) << "Error setting TX gain";
 
    writeLock.unlock();
   
@@ -271,7 +271,7 @@ double USRPDevice::setRxGain(double dB) {
    LOG(NOTICE) << "Setting RX gain to " << dB << " dB.";
 
    if (!m_dbRx->set_gain(dB))
-     LOG(ERROR) << "Error setting RX gain";
+     LOG(ERR) << "Error setting RX gain";
   
    writeLock.unlock();
    
@@ -514,7 +514,7 @@ bool USRPDevice::setTxFreq(double wFreq)
     return true;
   }
   else {
-    LOG(ERROR) << "set TX: " << wFreq << "failed" << std::endl
+    LOG(ERR) << "set TX: " << wFreq << "failed" << std::endl
                << "    baseband freq: " << result.baseband_freq << std::endl
                << "    DDC freq:      " << result.dxc_freq << std::endl
                << "    residual freq: " << result.residual_freq;
@@ -534,7 +534,7 @@ bool USRPDevice::setRxFreq(double wFreq)
     return true;
   }
   else {
-    LOG(ERROR) << "set RX: " << wFreq << "failed" << std::endl
+    LOG(ERR) << "set RX: " << wFreq << "failed" << std::endl
                << "    baseband freq: " << result.baseband_freq << std::endl
                << "    DDC freq:      " << result.dxc_freq << std::endl
                << "    residual freq: " << result.residual_freq;
