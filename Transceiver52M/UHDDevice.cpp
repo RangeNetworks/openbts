@@ -552,7 +552,7 @@ int uhd_device::readSamples(short *buf, int len, bool *overrun,
 		case ERROR_TIMING:
 			restart(prev_ts);
 		case ERROR_UNHANDLED:
-			return 0;
+			continue;
 		}
 
 
