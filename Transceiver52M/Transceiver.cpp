@@ -303,6 +303,9 @@ SoftVector *Transceiver::pullRadioVector(GSM::Time &wTime,
      double framesElapsed = rxBurst->time()-prevFalseDetectionTime;
      if (framesElapsed > 50) {  // if we haven't had any false detections for a while, lower threshold
 	mEnergyThreshold -= 10.0/10.0;
+        if (mEnergyThreshold < 0.0)
+          mEnergyThreshold = 0.0;
+
         prevFalseDetectionTime = rxBurst->time();
      }
      delete rxBurst;
