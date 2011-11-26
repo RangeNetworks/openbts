@@ -204,7 +204,10 @@ private:
 	smpl_buf *rx_smpl_buf;
 
 	void init_gains();
+	void set_ref_clk(bool ext_clk);
+	double set_rates(double rate);
 	bool flush_recv(size_t num_pkts);
+
 	std::string str_code(uhd::rx_metadata_t metadata);
 	std::string str_code(uhd::async_metadata_t metadata);
 
@@ -238,19 +241,57 @@ uhd_device::~uhd_device()
 		delete rx_smpl_buf;
 }
 
-static double set_usrp_rates(uhd::usrp::single_usrp::sptr dev, double rate)
+void uhd_device::init_gains()
+{
+	uhd::gain_range_t range;
+
+	range = usrp_dev->get_tx_gain_range();
+	tx_gain_min = range.start();
+	tx_gain_max = range.stop();
+
+	range = usrp_dev->get_rx_gain_range();
+	rx_gain_min = range.start();
+	rx_gain_max = range.stop();
+
+	usrp_dev->set_tx_gain((tx_gain_min + tx_gain_max) / 2);
+	usrp_dev->set_rx_gain((rx_gain_min + rx_gain_max) / 2);
+
+	tx_gain = usrp_dev->get_tx_gain();
+	rx_gain = usrp_dev->get_rx_gain();
+
+	return;
+}
+
+void uhd_device::set_ref_clk(bool ext_clk)
+{
+	uhd::clock_config_t clk_cfg;
+
+	clk_cfg.pps_source = uhd::clock_config_t::PPS_SMA;
+	clk_cfg.pps_polarity = uhd::clock_config_t::PPS_NEG;
+
+	if (ext_clk)
+		clk_cfg.ref_source = uhd::clock_config_t::REF_SMA;
+	else
+		clk_cfg.ref_source = uhd::clock_config_t::REF_INT;
+
+	usrp_dev->set_clock_config(clk_cfg);
+
+	return;
+}
+
+double uhd_device::set_rates(double rate)
 {
 	double actual_rate;
 
-	dev->set_tx_rate(rate);
-	dev->set_rx_rate(rate);
-	actual_rate = dev->get_tx_rate();
+	usrp_dev->set_tx_rate(rate);
+	usrp_dev->set_rx_rate(rate);
+	actual_rate = usrp_dev->get_tx_rate();
 
 	if (actual_rate != rate) {
 		LOG(ERROR) << "Actual sample rate differs from desired rate";
 		return -1.0;
 	}
-	if (dev->get_rx_rate() != actual_rate) {
+	if (usrp_dev->get_rx_rate() != actual_rate) {
 		LOG(ERROR) << "Transmit and receive sample rates do not match";
 		return -1.0;
 	}
@@ -278,42 +319,6 @@ double uhd_device::setRxGain(double db)
 	return rx_gain;
 }
 
-void uhd_device::init_gains()
-{
-	uhd::gain_range_t range;
-
-	range = usrp_dev->get_tx_gain_range();
-	tx_gain_min = range.start();
-	tx_gain_max = range.stop();
-
-	range = usrp_dev->get_rx_gain_range();
-	rx_gain_min = range.start();
-	rx_gain_max = range.stop();
-
-	usrp_dev->set_tx_gain((tx_gain_min + tx_gain_max) / 2);
-	usrp_dev->set_rx_gain((rx_gain_min + rx_gain_max) / 2);
-
-	tx_gain = usrp_dev->get_tx_gain();
-	rx_gain = usrp_dev->get_rx_gain();
-
-	return;
-}
-
-static void set_usrp_ref_clk(uhd::usrp::single_usrp::sptr dev, bool ext_clk)
-{
-	uhd::clock_config_t clk_cfg;
-
-	clk_cfg.pps_source = uhd::clock_config_t::PPS_SMA;
-	clk_cfg.pps_polarity = uhd::clock_config_t::PPS_NEG;
-
-	if (ext_clk)
-		clk_cfg.ref_source = uhd::clock_config_t::REF_SMA;
-	else
-		clk_cfg.ref_source = uhd::clock_config_t::REF_INT;
-
-	dev->set_clock_config(clk_cfg);
-}
-
 bool uhd_device::open()
 {
 	LOG(INFO) << "creating USRP device...";
@@ -337,7 +342,7 @@ bool uhd_device::open()
 	rx_spp = usrp_dev->get_device()->get_max_recv_samps_per_packet();
 
 	// Set rates
-	actual_smpl_rt = set_usrp_rates(usrp_dev, desired_smpl_rt);
+	actual_smpl_rt = set_rates(desired_smpl_rt);
 	if (actual_smpl_rt < 0)
 		return false;
 
@@ -352,7 +357,7 @@ bool uhd_device::open()
 	init_gains();
 
 	// Set reference clock
-	set_usrp_ref_clk(usrp_dev, use_ext_ref);
+	set_ref_clk(use_ext_ref);
 
 	// Print configuration
 	LOG(INFO) << usrp_dev->get_pp_string();
