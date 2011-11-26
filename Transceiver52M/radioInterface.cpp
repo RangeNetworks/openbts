@@ -84,6 +84,7 @@ RadioInterface::RadioInterface(RadioDevice *wRadio,
   samplesPerSymbol = wRadioOversampling;
   mClock.set(wStartTime);
   powerScaling = 1.0;
+  loadTest = false;
 }
 
 RadioInterface::~RadioInterface(void) {
