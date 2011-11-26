@@ -130,35 +130,28 @@ bool USRPDevice::open()
 
   switch (dboardConfig) {
   case TXA_RXB:
-    m_dbTx = m_uTx->db(0)[0];
-    m_dbRx = m_uRx->db(1)[0];
     txSubdevSpec = usrp_subdev_spec(0,0);
     rxSubdevSpec = usrp_subdev_spec(1,0);
     break;
   case TXB_RXA:
-    m_dbTx = m_uTx->db(1)[0];
-    m_dbRx = m_uRx->db(0)[0];
     txSubdevSpec = usrp_subdev_spec(1,0);
     rxSubdevSpec = usrp_subdev_spec(0,0);
     break;
   case TXA_RXA:
-    m_dbTx = m_uTx->db(0)[0];
-    m_dbRx = m_uRx->db(0)[0];
     txSubdevSpec = usrp_subdev_spec(0,0);
     rxSubdevSpec = usrp_subdev_spec(0,0);
     break;
   case TXB_RXB:
-    m_dbTx = m_uTx->db(1)[0];
-    m_dbRx = m_uRx->db(1)[0];
     txSubdevSpec = usrp_subdev_spec(1,0);
     rxSubdevSpec = usrp_subdev_spec(1,0);
     break;
   default:
-    m_dbTx = m_uTx->db(0)[0];
-    m_dbRx = m_uRx->db(1)[0];
     txSubdevSpec = usrp_subdev_spec(0,0);
     rxSubdevSpec = usrp_subdev_spec(1,0);
   }
+
+  m_dbTx = m_uTx->selected_subdev(txSubdevSpec);
+  m_dbRx = m_uRx->selected_subdev(rxSubdevSpec);
 
   samplesRead = 0;
   samplesWritten = 0;
@@ -513,7 +506,7 @@ bool USRPDevice::setTxFreq(double wFreq)
 {
   usrp_tune_result result;
 
-  if (m_uTx->tune(0, m_dbTx, wFreq, &result)) {
+  if (m_uTx->tune(txSubdevSpec.side, m_dbTx, wFreq, &result)) {
     LOG(INFO) << "set TX: " << wFreq << std::endl
               << "    baseband freq: " << result.baseband_freq << std::endl
               << "    DDC freq:      " << result.dxc_freq << std::endl
