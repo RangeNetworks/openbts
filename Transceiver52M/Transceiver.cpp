@@ -401,7 +401,6 @@ SoftVector *Transceiver::pullRadioVector(GSM::Time &wTime,
 			    *DFEFeedback[timeslot]);
     }
     wTime = rxBurst->time();
-    // FIXME:  what is full scale for the USRP?  we get more that 12 bits of resolution...
     RSSI = (int) floor(20.0*log10(rxFullScale/amplitude.abs()));
     LOG(DEBUG) << "RSSI: " << RSSI;
     timingOffset = (int) round(TOA*256.0/mSamplesPerSymbol);

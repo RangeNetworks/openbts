@@ -38,12 +38,15 @@
                         on the RF side of the timestamping point of the device.
                         This value is generally empirically measured.
 
-    smpl_buf_sz       - The receive sample buffer size in bytes. 
+    smpl_buf_sz       - The receive sample buffer size in bytes.
+
+    tx_ampl           - Transmit amplitude must be between 0 and 1.0
 */
 const bool use_ext_ref = false;
 const double master_clk_rt = 52e6;
 const double rx_smpl_offset = .0000869;
 const size_t smpl_buf_sz = (1 << 20);
+const float tx_ampl = .3;
 
 /** Timestamp conversion
     @param timestamp a UHD or OpenBTS timestamp
@@ -158,8 +161,8 @@ public:
 	inline TIMESTAMP initialWriteTimestamp() { return 0; }
 	inline TIMESTAMP initialReadTimestamp() { return 0; }
 
-	inline double fullScaleInputValue() { return 13500.0; }
-	inline double fullScaleOutputValue() { return 9450.0; }
+	inline double fullScaleInputValue() { return 32000 * tx_ampl; }
+	inline double fullScaleOutputValue() { return 32000; }
 
 	double setRxGain(double db);
 	double getRxGain(void) { return rx_gain; }
