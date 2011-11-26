@@ -182,6 +182,12 @@ public:
 	*/
 	bool recv_async_msg();
 
+	enum err_code {
+		ERROR_TIMING = -1,
+		ERROR_UNRECOVERABLE = -2,
+		ERROR_UNHANDLED = -3,
+	};
+
 private:
 	uhd::usrp::single_usrp::sptr usrp_dev;
 
@@ -208,6 +214,7 @@ private:
 	void set_ref_clk(bool ext_clk);
 	double set_rates(double rate);
 	bool flush_recv(size_t num_pkts);
+	int check_rx_md_err(uhd::rx_metadata_t &md, ssize_t num_smpls);
 
 	std::string str_code(uhd::rx_metadata_t metadata);
 	std::string str_code(uhd::async_metadata_t metadata);
@@ -449,14 +456,29 @@ void uhd_device::setPriority()
 	return;
 }
 
-static int check_rx_md_err(uhd::rx_metadata_t &md, uhd::time_spec_t &prev_ts)
+int uhd_device::check_rx_md_err(uhd::rx_metadata_t &md, ssize_t num_smpls)
 {
 	uhd::time_spec_t ts;
+
+	if (!num_smpls) {
+		LOG(ERROR) << str_code(md);
+
+		switch (md.error_code) {
+		case uhd::rx_metadata_t::ERROR_CODE_TIMEOUT:
+			return ERROR_UNRECOVERABLE;
+		case uhd::rx_metadata_t::ERROR_CODE_OVERFLOW:
+		case uhd::rx_metadata_t::ERROR_CODE_LATE_COMMAND:
+		case uhd::rx_metadata_t::ERROR_CODE_BROKEN_CHAIN:
+		case uhd::rx_metadata_t::ERROR_CODE_BAD_PACKET:
+		default:
+			return ERROR_UNHANDLED;
+		}
+	}
 
 	// Missing timestamp
 	if (!md.has_time_spec) {
 		LOG(ERROR) << "UHD: Received packet missing timestamp";
-		return -1;
+		return ERROR_UNRECOVERABLE;
 	}
 
 	ts = md.time_spec;
@@ -465,7 +487,7 @@ static int check_rx_md_err(uhd::rx_metadata_t &md, uhd::time_spec_t &prev_ts)
 	if (ts < prev_ts) {
 		LOG(ERROR) << "UHD: Loss of monotonic: " << ts.get_real_secs();
 		LOG(ERROR) << "UHD: Previous time: " << prev_ts.get_real_secs();
-		return -1;
+		return ERROR_TIMING;
 	} else {
 		prev_ts = ts;
 	}
@@ -509,17 +531,18 @@ int uhd_device::readSamples(short *buf, int len, bool *overrun,
 
 		rx_pkt_cnt++;
 
-		// Recv error in UHD
-		if (!num_smpls) {
-			LOG(ERROR) << str_code(metadata);
+		// Check for errors 
+		rc = check_rx_md_err(metadata, num_smpls);
+		switch (rc) {
+		case ERROR_UNRECOVERABLE:
+			LOG(ERROR) << "UHD: Unrecoverable error, exiting.";
+			exit(-1);
+		case ERROR_TIMING:
+			restart(prev_ts);
+		case ERROR_UNHANDLED:
 			return 0;
 		}
 
-		// Other metadata timing checks
-		if (check_rx_md_err(metadata, prev_ts) < 0) {
-			restart(prev_ts);
-			return 0;
-		}
 
 		ts = metadata.time_spec;
 		LOG(DEEPDEBUG) << "Received timestamp = " << ts.get_real_secs();
