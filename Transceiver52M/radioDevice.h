@@ -27,6 +27,9 @@ typedef unsigned long long TIMESTAMP;
 class RadioDevice {
 
   public:
+  static RadioDevice *make(double desiredSampleRate, bool skipRx = false);
+
+  virtual bool open()=0;
 
   /** Start the USRP */
   virtual bool start()=0;
@@ -45,9 +48,9 @@ class RadioDevice {
 	@return The number of samples actually read
   */
   virtual int readSamples(short *buf, int len, bool *overrun, 
-		   TIMESTAMP timestamp,
-		   bool *underrun,
-		   unsigned *RSSI=NULL)=0;
+		   TIMESTAMP timestamp = 0xffffffff,
+		   bool *underrun = 0,
+		   unsigned *RSSI = 0)=0;
   /**
         Write samples to the radio.
         @param buf Contains the data to be written.

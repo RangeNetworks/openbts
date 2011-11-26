@@ -51,7 +51,8 @@ enum dboardConfigType {
 const dboardConfigType dboardConfig = TXA_RXB;
 const double USRPDevice::masterClockRate = 52.0e6;
 
-USRPDevice::USRPDevice (double _desiredSampleRate) 
+USRPDevice::USRPDevice (double _desiredSampleRate, bool skipRx)
+  : skipRx(skipRx)
 {
   LOG(INFO) << "creating USRP device...";
   decimRate = (unsigned int) round(masterClockRate/_desiredSampleRate);
@@ -66,13 +67,11 @@ USRPDevice::USRPDevice (double _desiredSampleRate)
 #endif
 }
 
-bool USRPDevice::make(bool wSkipRx) 
+bool USRPDevice::open()
 {
-  skipRx = wSkipRx;
-
   writeLock.unlock();
 
-  LOG(INFO) << "making USRP device..";
+  LOG(INFO) << "opening USRP device..";
 #ifndef SWLOOPBACK 
   string rbf = "std_inband.rbf";
   //string rbf = "inband_1rxhb_1tx.rbf"; 
@@ -555,3 +554,8 @@ bool USRPDevice::setRxFreq(double wFreq)
 bool USRPDevice::setTxFreq(double wFreq) { return true;};
 bool USRPDevice::setRxFreq(double wFreq) { return true;};
 #endif
+
+RadioDevice *RadioDevice::make(double desiredSampleRate, bool skipRx)
+{
+	return new USRPDevice(desiredSampleRate, skipRx);
+}

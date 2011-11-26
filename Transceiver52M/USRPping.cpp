@@ -28,7 +28,7 @@
 #include <stdio.h>
 #include <Logger.h>
 #include <Configuration.h>
-#include "USRPDevice.h"
+#include "radioDevice.h"
 
 ConfigurationTable gConfig;
 
@@ -41,9 +41,9 @@ int main(int argc, char *argv[]) {
   else gLogInit("DEBUG");
   //if (argc>2) gSetLogFile(argv[2]);
 
-  USRPDevice *usrp = new USRPDevice(52.0e6/192.0);
+  RadioDevice *usrp = RadioDevice::make(52.0e6/192.0);
 
-  usrp->make();
+  usrp->open();
 
   TIMESTAMP timestamp;
 
