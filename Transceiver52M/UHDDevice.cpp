@@ -315,6 +315,7 @@ bool uhd_device::open()
 
 	// Set gains to midpoint
 	set_usrp_tx_gain(usrp_dev, 0.0);
+	set_usrp_rx_gain(usrp_dev, 0.0);
 
 	// Set reference clock
 	set_usrp_ref_clk(usrp_dev, use_ext_ref);
