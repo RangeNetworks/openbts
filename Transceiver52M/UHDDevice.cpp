@@ -141,6 +141,7 @@ public:
 	bool open();
 	bool start();
 	bool stop();
+	void restart(uhd::time_spec_t ts);
 	void setPriority();
 
 	int readSamples(short *buf, int len, bool *overrun, 
@@ -205,7 +206,6 @@ private:
 
 	void init_gains();
 	void set_ref_clk(bool ext_clk);
-	void reset_clk(uhd::time_spec_t ts);
 	double set_rates(double rate);
 	bool flush_recv(size_t num_pkts);
 
@@ -387,13 +387,19 @@ bool uhd_device::flush_recv(size_t num_pkts)
 	return true;
 }
 
-void uhd_device::reset_clk(uhd::time_spec_t ts)
+void uhd_device::restart(uhd::time_spec_t ts)
 {
-	double time;
+	uhd::stream_cmd_t cmd = uhd::stream_cmd_t::STREAM_MODE_STOP_CONTINUOUS;
+	usrp_dev->issue_stream_cmd(cmd);
 
-	usrp_dev->set_time_now(uhd::time_spec_t(ts));
-	time = usrp_dev->get_time_now().get_real_secs();
-	LOG(INFO) << "Reset USRP clock to " << time << " seconds";
+	flush_recv(50);
+
+	usrp_dev->set_time_now(ts);
+	aligned = false;
+
+	cmd = uhd::stream_cmd_t::STREAM_MODE_START_CONTINUOUS;
+	cmd.stream_now = true;
+	usrp_dev->issue_stream_cmd(cmd);
 }
 
 bool uhd_device::start()
@@ -515,7 +521,7 @@ int uhd_device::readSamples(short *buf, int len, bool *overrun,
 
 		// Other metadata timing checks
 		if (check_rx_md_err(metadata, prev_ts) < 0) {
-			reset_clk(prev_ts);
+			restart(prev_ts);
 			return 0;
 		}
 
