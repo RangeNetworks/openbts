@@ -28,11 +28,11 @@ AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES) $(USRP_CFLAGS)
 endif
 AM_CXXFLAGS = -ldl -lpthread
 
-#rev2dir = $(datadir)/usrp/rev2
-#rev4dir = $(datadir)/usrp/rev4
+rev2dir = $(datadir)/usrp/rev2
+rev4dir = $(datadir)/usrp/rev4
 
-#dist_rev2_DATA = std_inband.rbf
-#dist_rev4_DATA = std_inband.rbf
+dist_rev2_DATA = std_inband.rbf
+dist_rev4_DATA = std_inband.rbf
 
 EXTRA_DIST = \
 	README \
