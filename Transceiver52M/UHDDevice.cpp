@@ -200,6 +200,7 @@ private:
 	TIMESTAMP ts_offset;
 	smpl_buf *rx_smpl_buf;
 
+	bool flush_recv(size_t num_pkts);
 	std::string str_code(uhd::rx_metadata_t metadata);
 	std::string str_code(uhd::async_metadata_t metadata);
 
@@ -323,6 +324,27 @@ bool uhd_device::open()
 	return true;
 }
 
+bool uhd_device::flush_recv(size_t num_pkts)
+{
+	uhd::rx_metadata_t metadata;
+	size_t num_smpls;
+	uint32_t buff[rx_spp];
+
+	for (size_t i = 0; i < num_pkts; i++) {
+		num_smpls = usrp_dev->get_device()->recv(
+					buff,
+					rx_spp,
+					metadata,
+					uhd::io_type_t::COMPLEX_INT16,
+					uhd::device::RECV_MODE_ONE_PACKET);
+
+		if (!num_smpls)
+			return false;
+	}
+
+	return true;
+}
+
 bool uhd_device::start()
 {
 	LOG(INFO) << "Starting USRP...";
@@ -344,6 +366,10 @@ bool uhd_device::start()
 
 	if (!skip_rx)
 		usrp_dev->issue_stream_cmd(cmd);
+
+	// Flush out any early garbage
+	if (!flush_recv(20))
+		return false;
 
 	// Display usrp time
 	double time_now = usrp_dev->get_time_now().get_real_secs();
