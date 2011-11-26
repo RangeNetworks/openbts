@@ -46,11 +46,11 @@ _SUBDIRS = \
 
 #if UHD or USRP1 defined, build Transceiver52M as well
 if UHD
-SUBDIRS = $(_SUBIRS) \
+SUBDIRS = $(_SUBDIRS) \
 	  Transceiver52M
 else
 if USRP1
-SUBDIRS = $(_SUBIRS) \
+SUBDIRS = $(_SUBDIRS) \
 	  Transceiver52M
 else
 SUBDIRS = $(_SUBDIRS)
