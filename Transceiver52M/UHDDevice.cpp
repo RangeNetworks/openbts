@@ -419,7 +419,7 @@ bool uhd_device::open()
 	try {
 		usrp_dev = uhd::usrp::single_usrp::make(dev_addr);
 	} catch(...) {
-		LOG(ERR) << "UHD make failed";
+		LOG(ALERT) << "UHD make failed";
 		return false;
 	}
 
