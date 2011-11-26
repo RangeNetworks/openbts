@@ -21,10 +21,17 @@
 
 include $(top_srcdir)/Makefile.common
 
+#UHD wins if both are defined
 if UHD
 AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES) $(UHD_CFLAGS)
 else
+if USRP1
 AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES) $(USRP_CFLAGS)
+else
+#we should never be here, as this doesn't build if one of the above
+#doesn't exist
+AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES)
+endif
 endif
 AM_CXXFLAGS = -ldl -lpthread
 
@@ -93,16 +100,21 @@ sigProcLibTest_LDADD = \
 	$(GSM_LA) \
 	$(COMMON_LA) $(SQLITE_LA)
 
+#uhd wins
 if UHD
 libtransceiver_la_SOURCES += UHDDevice.cpp
 transceiver_LDADD += $(UHD_LIBS)
 USRPping_LDADD += $(UHD_LIBS)
 sigProcLibTest_LDADD += $(UHD_LIBS)
 else
+if USRP1
 libtransceiver_la_SOURCES += USRPDevice.cpp
 transceiver_LDADD += $(USRP_LIBS)
 USRPping_LDADD += $(USRP_LIBS)
 sigProcLibTest_LDADD += $(USRP_LIBS)
+else
+#we should never be here, as one of the above mustbe defined for us to build
+endif
 endif
 
 

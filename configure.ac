@@ -62,6 +62,11 @@ AC_ARG_WITH(usrp1, [
         [enable USRP1 gnuradio based transceiver])
 ])
 
+AC_ARG_WITH(uhd, [
+    AS_HELP_STRING([--with-uhd],
+        [enable UHD based transceiver])
+])
+
 AC_ARG_WITH(singledb, [
     AS_HELP_STRING([--with-singledb],
         [enable single daughterboard use on USRP1])
@@ -90,8 +95,10 @@ AS_IF([test "x$with_usrp1" = "xyes"], [
     if test "x$libusrp_3_3" = "xyes";then
         AC_DEFINE(HAVE_LIBUSRP_3_3, 1, Define to 1 if you have libusrp >= 3.3)
     fi
-],
-    [PKG_CHECK_MODULES(UHD, uhd)
+])
+
+AS_IF([test "x$with_uhd" = "xyes"],[
+    PKG_CHECK_MODULES(UHD, uhd)
     AC_DEFINE(USE_UHD, 1, Define to 1 if using UHD)
 ])
 
@@ -108,7 +115,8 @@ AS_IF([test "x$with_singledb" = "xyes"], [
 ])
 
 AM_CONDITIONAL(RESAMPLE, [test "x$with_resamp" = "xyes"])
-AM_CONDITIONAL(UHD, [test "x$with_usrp1" != "xyes"])
+AM_CONDITIONAL(UHD, [test "x$with_uhd" = "xyes"])
+AM_CONDITIONAL(USRP1, [test "x$with_usrp1" = "xyes"])
 
 # Defines OSIP_CFLAGS, OSIP_INCLUDEDIR, and OSIP_LIBS
 PKG_CHECK_MODULES(OSIP, libosip2)
@@ -121,7 +129,6 @@ PKG_CHECK_MODULES(LIBUSB, libusb-1.0)
 
 # Prepends -lreadline to LIBS and defines HAVE_LIBREADLINE in config.h
 #AC_CHECK_LIB(readline, readline)
-
 
 dnl Output files
 AC_CONFIG_FILES([\
@@ -138,11 +145,14 @@ AC_CONFIG_FILES([\
     SIP/Makefile \
     SMS/Makefile \
     TransceiverRAD1/Makefile \
-    Transceiver52M/Makefile \
     TRXManager/Makefile \
     CLI/Makefile \
     SR/Makefile \
     sqlite3/Makefile \
+]) 
+
+AS_IF([test "x$with_usrp1" = "xyes" -o "x$with_uhd" = "xyes"],
+	    [AC_CONFIG_FILES(Transceiver52M/Makefile)
 ])
 
 AC_OUTPUT

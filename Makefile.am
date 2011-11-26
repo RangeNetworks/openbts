@@ -26,7 +26,7 @@ AM_CXXFLAGS = -Wall -pthread -ldl
 #AM_CFLAGS = -Wall -O2 -NDEBUG -pthread -ldl
 
 # Order must be preserved
-SUBDIRS = \
+_SUBDIRS = \
 	config \
 	AsteriskConfig \
 	sqlite3 \
@@ -38,12 +38,24 @@ SUBDIRS = \
 	GSM \
 	SMS \
 	TransceiverRAD1 \
-	Transceiver52M \
 	TRXManager \
 	Control \
 	apps \
 	doc \
 	tools
+
+#if UHD or USRP1 defined, build Transceiver52M as well
+if UHD
+SUBDIRS = $(_SUBIRS) \
+	  Transceiver52M
+else
+if USRP1
+SUBDIRS = $(_SUBIRS) \
+	  Transceiver52M
+else
+SUBDIRS = $(_SUBDIRS)
+endif
+endif
 
 EXTRA_DIST = \
 	autogen.sh \
