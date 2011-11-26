@@ -282,8 +282,8 @@ bool uhd_device::open()
 {
 	LOG(INFO) << "creating USRP device...";
 
-	// Use the first available USRP2 / N210
-	uhd::device_addr_t dev_addr("type=usrp2");
+	// Use the first available USRP E100
+	uhd::device_addr_t dev_addr("type=usrp-e");
 	try {
 		usrp_dev = uhd::usrp::single_usrp::make(dev_addr);
 	}
