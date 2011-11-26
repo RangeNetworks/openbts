@@ -46,7 +46,8 @@ COMMON_SOURCES = \
 	DummyLoad.cpp
 
 libtransceiver_la_SOURCES = \
-	$(COMMON_SOURCES)
+	$(COMMON_SOURCES) \
+	radioIO.cpp
 
 noinst_PROGRAMS = \
 	USRPping \
