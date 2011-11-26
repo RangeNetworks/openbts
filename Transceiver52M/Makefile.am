@@ -72,7 +72,9 @@ noinst_HEADERS = \
 	sigProcLib.h \
 	Transceiver.h \
 	USRPDevice.h \
-	DummyLoad.h
+	DummyLoad.h \
+	rcvLPF_651.h \
+	sendLPF_961.h
 
 USRPping_SOURCES = USRPping.cpp
 USRPping_LDADD = \
