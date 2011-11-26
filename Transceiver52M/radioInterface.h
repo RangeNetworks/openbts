@@ -157,7 +157,10 @@ private:
   signalVector *finalVec, *finalVec9;
 
   /** format samples to USRP */ 
-  short *radioifyVector(signalVector &wVector, short *shortVector, bool zeroOut);
+  short *radioifyVector(signalVector &wVector,
+                        short *shortVector,
+                        float scale,
+                        bool zeroOut);
 
   /** format samples from USRP */
   void unRadioifyVector(short *shortVector, signalVector &wVector);
