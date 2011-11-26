@@ -398,18 +398,23 @@ void uhd_device::setPriority()
 
 static int check_rx_md_err(uhd::rx_metadata_t &md, uhd::time_spec_t &prev_ts)
 {
+	uhd::time_spec_t ts;
+
 	// Missing timestamp
 	if (!md.has_time_spec) {
 		LOG(ERROR) << "UHD: Received packet missing timestamp";
 		return -1;
 	}
 
+	ts = md.time_spec;
+
 	// Monotonicity check
-	if (md.time_spec < prev_ts) {
-		LOG(ERROR) << "Loss of monotonicity";
+	if (ts < prev_ts) {
+		LOG(ERROR) << "UHD: Loss of monotonic: " << ts.get_real_secs();
+		LOG(ERROR) << "UHD: Previous time: " << prev_ts.get_real_secs();
 		return -1;
 	} else {
-		prev_ts = md.time_spec;
+		prev_ts = ts;
 	}
 
 	return 0;
