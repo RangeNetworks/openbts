@@ -292,22 +292,32 @@ void uhd_device::set_ref_clk(bool ext_clk)
 
 double uhd_device::set_rates(double rate)
 {
-	double actual_rate;
+	double actual_rt, actual_clk_rt;
 
+	// Set master clock rate
+	usrp_dev->set_master_clock_rate(master_clk_rt);
+	actual_clk_rt = usrp_dev->get_master_clock_rate();
+
+	if (actual_clk_rt != master_clk_rt) {
+		LOG(ERROR) << "Failed to set master clock rate";
+		return -1.0;
+	}
+
+	// Set sample rates
 	usrp_dev->set_tx_rate(rate);
 	usrp_dev->set_rx_rate(rate);
-	actual_rate = usrp_dev->get_tx_rate();
+	actual_rt = usrp_dev->get_tx_rate();
 
-	if (actual_rate != rate) {
+	if (actual_rt != rate) {
 		LOG(ERROR) << "Actual sample rate differs from desired rate";
 		return -1.0;
 	}
-	if (usrp_dev->get_rx_rate() != actual_rate) {
+	if (usrp_dev->get_rx_rate() != actual_rt) {
 		LOG(ERROR) << "Transmit and receive sample rates do not match";
 		return -1.0;
 	}
 
-	return actual_rate;
+	return actual_rt;
 }
 
 double uhd_device::setTxGain(double db)
@@ -344,9 +354,6 @@ bool uhd_device::open()
 		LOG(ERROR) << "USRP make failed";
 		return false;
 	}
-
-	// Set master clock rate
-	usrp_dev->set_master_clock_rate(master_clk_rt);
 
 	// Number of samples per over-the-wire packet
 	tx_spp = usrp_dev->get_device()->get_max_send_samps_per_packet();
