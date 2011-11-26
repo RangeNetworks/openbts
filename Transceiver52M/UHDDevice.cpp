@@ -228,7 +228,7 @@ uhd_device::uhd_device(double rate, bool skip_rx)
 	  tx_gain(0.0), tx_gain_min(0.0), tx_gain_max(0.0),
 	  rx_gain(0.0), rx_gain_min(0.0), rx_gain_max(0.0),
 	  tx_freq(0.0), rx_freq(0.0), tx_spp(0), rx_spp(0),
-	  started(false), aligned(true), rx_pkt_cnt(0), drop_cnt(0),
+	  started(false), aligned(false), rx_pkt_cnt(0), drop_cnt(0),
 	  prev_ts(0,0), ts_offset(0), rx_smpl_buf(NULL)
 {
 	this->skip_rx = skip_rx;
@@ -371,6 +371,10 @@ bool uhd_device::flush_recv(size_t num_pkts)
 	uhd::rx_metadata_t metadata;
 	size_t num_smpls;
 	uint32_t buff[rx_spp];
+	float timeout;
+
+	// Use .01 sec instead of the default .1 sec
+	timeout = .01;
 
 	for (size_t i = 0; i < num_pkts; i++) {
 		num_smpls = usrp_dev->get_device()->recv(
@@ -378,7 +382,8 @@ bool uhd_device::flush_recv(size_t num_pkts)
 					rx_spp,
 					metadata,
 					uhd::io_type_t::COMPLEX_INT16,
-					uhd::device::RECV_MODE_ONE_PACKET);
+					uhd::device::RECV_MODE_ONE_PACKET,
+					timeout);
 
 		if (!num_smpls)
 			return false;
@@ -417,16 +422,7 @@ bool uhd_device::start()
 	async_event_thrd.start((void * (*)(void*))async_event_loop, (void*)this);
 
 	// Start streaming
-	uhd::stream_cmd_t cmd = uhd::stream_cmd_t::STREAM_MODE_START_CONTINUOUS;
-	cmd.stream_now = true;
-	usrp_dev->set_time_now(uhd::time_spec_t(0.0));
-
-	if (!skip_rx)
-		usrp_dev->issue_stream_cmd(cmd);
-
-	// Flush out any early garbage
-	if (!flush_recv(20))
-		return false;
+	restart(uhd::time_spec_t(0.0));
 
 	// Display usrp time
 	double time_now = usrp_dev->get_time_now().get_real_secs();
