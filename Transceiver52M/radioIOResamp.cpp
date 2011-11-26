@@ -51,8 +51,16 @@ signalVector *rx_hist = 0;
 signalVector *tx_vec = 0;
 signalVector *rx_vec = 0;
 
-/* High rate (device facing) buffers */
-short tx_buf[INCHUNK * 2 * 2];
+/*
+ * High rate (device facing) buffers
+ *
+ * Transmit side samples are pushed after each burst so accomodate
+ * a resampled burst plus up to a chunk left over from the previous
+ * resampling operation.
+ *
+ * Receive side samples always pulled with a fixed size.
+ */
+short tx_buf[INCHUNK * 2 * 4];
 short rx_buf[OUTCHUNK * 2 * 2];
 
 /* 
