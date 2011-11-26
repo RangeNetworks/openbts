@@ -22,7 +22,6 @@
 
 */
 
-//#define NDEBUG
 #include "radioInterface.h"
 #include <Logger.h>
 
@@ -151,7 +150,6 @@ void RadioInterface::unRadioifyVector(short *shortVector, signalVector& newVecto
   short *shortItr = shortVector;
   while (itr < newVector.end()) {
     *itr++ = Complex<float>(*shortItr,*(shortItr+1));
-    //LOG(DEBUG) << (*(itr-1));
     shortItr += 2;
   }
 
@@ -169,7 +167,10 @@ void RadioInterface::pushBuffer(void) {
 					  INCHUNK*samplesPerSymbol,
 					  &underrun,
 					  writeTimestamp); 
+<<<<<<< HEAD
   //LOG(DEBUG) << "writeTimestamp: " << writeTimestamp << ", samplesWritten: " << samplesWritten;
+=======
+>>>>>>> 957b9c5... transceiver: remove extraneous comments
    
   writeTimestamp += (TIMESTAMP) samplesWritten;
 
