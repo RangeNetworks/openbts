@@ -278,7 +278,6 @@ void uhd_device::set_ref_clk(bool ext_clk)
 	uhd::clock_config_t clk_cfg;
 
 	clk_cfg.pps_source = uhd::clock_config_t::PPS_SMA;
-	clk_cfg.pps_polarity = uhd::clock_config_t::PPS_NEG;
 
 	if (ext_clk)
 		clk_cfg.ref_source = uhd::clock_config_t::REF_SMA;
