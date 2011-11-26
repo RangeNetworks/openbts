@@ -215,5 +215,36 @@ void RadioInterface::driveReceiveRadio() {
     rcvCursor -= readSz;
     memmove(rcvBuffer,rcvBuffer+2*readSz,sizeof(float) * 2 * rcvCursor);
   }
-} 
-  
+}
+
+bool RadioInterface::isUnderrun()
+{
+  bool retVal = underrun;
+  underrun = false;
+
+  return retVal;
+}
+
+void RadioInterface::attach(RadioDevice *wRadio, int wRadioOversampling)
+{
+  if (!mOn) {
+    mRadio = wRadio;
+    mRadioOversampling = SAMPSPERSYM;
+  }
+}
+
+double RadioInterface::setRxGain(double dB)
+{
+  if (mRadio)
+    return mRadio->setRxGain(dB);
+  else
+    return -1;
+}
+
+double RadioInterface::getRxGain()
+{
+  if (mRadio)
+    return mRadio->getRxGain();
+  else
+    return -1;
+}
