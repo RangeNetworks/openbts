@@ -82,7 +82,6 @@ int main(int argc, char *argv[]) {
       LOG(INFO) << "rcvd. data@:" << timestamp;
       for (int i = 0; i < 512; i++) {
         uint32_t *wordPtr = (uint32_t *) &readBuf[2*i];
-        *wordPtr = usrp_to_host_u32(*wordPtr); 
 	printf ("%llu: %d %d\n", timestamp+i,readBuf[2*i],readBuf[2*i+1]);
         sum += (readBuf[2*i+1]*readBuf[2*i+1] + readBuf[2*i]*readBuf[2*i]);
         num++;
