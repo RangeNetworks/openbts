@@ -712,6 +712,7 @@ void Transceiver::driveTransmitFIFO()
     while (radioClock->get() + mTransmitLatency > mTransmitDeadlineClock) {
       // if underrun, then we're not providing bursts to radio/USRP fast
       //   enough.  Need to increase latency by one GSM frame.
+#ifndef USE_UHD
       if (mRadioInterface->isUnderrun()) {
         // only do latency update every 10 frames, so we don't over update
 	if (radioClock->get() > mLatencyUpdateTime + GSM::Time(10,0)) {
@@ -731,6 +732,7 @@ void Transceiver::driveTransmitFIFO()
 	  }
 	}
       }
+#endif
       // time to push burst to transmit FIFO
       pushRadioVector(mTransmitDeadlineClock);
       mTransmitDeadlineClock.incTN();
