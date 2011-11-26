@@ -103,10 +103,9 @@ double RadioInterface::fullScaleOutputValue(void) {
 
 void RadioInterface::setPowerAttenuation(double dBAtten)
 {
-  float HWdBAtten = mRadio->setTxGain(-dBAtten);
-  dBAtten -= (-HWdBAtten);
-  float linearAtten = powf(10.0F,0.1F*dBAtten);
-  if (linearAtten < 1.0)
+  double HWatten = mRadio->setTxGain(mRadio->maxTxGain() - atten);
+  atten -= (-HWatten);
+  if (atten < 1.0)
     powerScaling = 1.0;
   else
     powerScaling = 1.0/sqrt(linearAtten);
