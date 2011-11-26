@@ -25,10 +25,15 @@
 #include <uhd/usrp/single_usrp.hpp>
 #include <uhd/utils/thread_priority.hpp>
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 /*
     use_ext_ref       - Enable external 10MHz clock reference
 
-    master_clk_rt     - Master clock frequency
+    master_clk_rt     - Master clock frequency - ignored if host resampling is
+                        enabled
 
     rx_smpl_offset    - Timing correction in seconds between receive and
                         transmit timestamps. This value corrects for delays on
@@ -41,9 +46,14 @@
 */
 const bool use_ext_ref = false;
 const double master_clk_rt = 52e6;
-const double rx_smpl_offset = .0000869;
 const size_t smpl_buf_sz = (1 << 20);
 const float tx_ampl = .3;
+
+#ifdef RESAMPLE
+const double rx_smpl_offset = .00005;
+#else
+const double rx_smpl_offset = .0000869;
+#endif
 
 /** Timestamp conversion
     @param timestamp a UHD or OpenBTS timestamp
@@ -290,6 +300,7 @@ double uhd_device::set_rates(double rate)
 {
 	double actual_rt, actual_clk_rt;
 
+#ifndef RESAMPLE
 	// Set master clock rate
 	usrp_dev->set_master_clock_rate(master_clk_rt);
 	actual_clk_rt = usrp_dev->get_master_clock_rate();
@@ -298,6 +309,7 @@ double uhd_device::set_rates(double rate)
 		LOG(ERROR) << "Failed to set master clock rate";
 		return -1.0;
 	}
+#endif
 
 	// Set sample rates
 	usrp_dev->set_tx_rate(rate);
