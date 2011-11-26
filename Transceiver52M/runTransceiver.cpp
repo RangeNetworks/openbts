@@ -26,7 +26,7 @@
 
 
 #include "Transceiver.h"
-#include "USRPDevice.h"
+#include "radioDevice.h"
 #include "DummyLoad.h"
 
 #include <time.h>
@@ -35,6 +35,12 @@
 #include <GSMCommon.h>
 #include <Logger.h>
 #include <Configuration.h>
+
+#ifdef RESAMPLE
+  #define DEVICERATE 400e3
+#else
+  #define DEVICERATE 1625e3/6 
+#endif
 
 using namespace std;
 
@@ -72,10 +78,10 @@ int main(int argc, char *argv[])
   srandom(time(NULL));
 
   int mOversamplingRate = numARFCN/2 + numARFCN;
-  //DYNDevice *usrp = new DYNDevice(mOversamplingRate*1625.0e3/6.0);
-  USRPDevice *usrp = new USRPDevice(mOversamplingRate*1625.0e3/6.0);
-  //DummyLoad *usrp = new DummyLoad(mOversamplingRate*1625.0e3/6.0);
-  usrp->make(); 
+  RadioDevice *usrp = RadioDevice::make(DEVICERATE);
+  if (!usrp->open()) {
+    return EXIT_FAILURE;
+  }
 
   RadioInterface* radio = new RadioInterface(usrp,3,SAMPSPERSYM,mOversamplingRate,false);
   Transceiver *trx = new Transceiver(5700,"127.0.0.1",SAMPSPERSYM,GSM::Time(2,0),radio);
