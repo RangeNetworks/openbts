@@ -32,8 +32,6 @@
 #endif
 
 /*
-    use_ext_ref       - Enable external 10MHz clock reference
-
     master_clk_rt     - Master clock frequency - ignored if host resampling is
                         enabled
 
@@ -46,7 +44,6 @@
 
     tx_ampl           - Transmit amplitude must be between 0 and 1.0
 */
-const bool use_ext_ref = false;
 const double master_clk_rt = 52e6;
 const size_t smpl_buf_sz = (1 << 20);
 const float tx_ampl = .3;
@@ -426,6 +423,10 @@ bool uhd_device::open()
 		return false;
 	}
 
+#ifdef EXTREF
+	set_ref_clk(true);
+#endif
+
 	// Number of samples per over-the-wire packet
 	tx_spp = usrp_dev->get_device()->get_max_send_samps_per_packet();
 	rx_spp = usrp_dev->get_device()->get_max_recv_samps_per_packet();
@@ -444,9 +445,6 @@ bool uhd_device::open()
 
 	// Initialize and shadow gain values 
 	init_gains();
-
-	// Set reference clock
-	set_ref_clk(use_ext_ref);
 
 	// Print configuration
 	LOG(INFO) << "\n" << usrp_dev->get_pp_string();

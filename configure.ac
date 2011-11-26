@@ -67,6 +67,11 @@ AC_ARG_WITH(resamp, [
         [enable resampling for non-52MHz devices])
 ])
 
+AC_ARG_WITH(extref, [
+    AS_HELP_STRING([--with-extref],
+        [enable external reference on UHD devices])
+])
+
 AS_IF([test "x$with_usrp1" = "xyes"], [
     # Defines USRP_CFLAGS, USRP_INCLUDEDIR, and USRP_LIBS
     PKG_CHECK_MODULES(USRP, usrp > 3.1)
@@ -87,6 +92,10 @@ AS_IF([test "x$with_usrp1" = "xyes"], [
 
 AS_IF([test "x$with_resamp" = "xyes"], [
     AC_DEFINE(RESAMPLE, 1, Define to 1 for resampling)
+])
+
+AS_IF([test "x$with_extref" = "xyes"], [
+    AC_DEFINE(EXTREF, 1, Define to 1 for external reference)
 ])
 
 AM_CONDITIONAL(RESAMPLE, [test "x$with_resamp" = "xyes"])
