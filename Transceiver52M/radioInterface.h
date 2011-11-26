@@ -226,6 +226,8 @@ public:
   /** returns the full-scale receive amplitude **/
   double fullScaleOutputValue();
 
+  /** set thread priority on current thread */
+  void setPriority() { mRadio->setPriority(); }
 
 protected:
 

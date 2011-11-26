@@ -169,7 +169,6 @@ public:
   /** attach the radioInterface transmit FIFO */
   void transmitFIFO(VectorFIFO *wFIFO) { mTransmitFIFO = wFIFO;}
 
-
 protected:
 
   /** drive reception and demodulation of GSM bursts */ 
@@ -194,6 +193,10 @@ protected:
   friend void *TransmitPriorityQueueServiceLoopAdapter(Transceiver *);
 
   void reset();
+
+  /** set priority on current thread */
+  void setPriority() { mRadioInterface->setPriority(); }
+
 };
 
 /** FIFO thread loop */
