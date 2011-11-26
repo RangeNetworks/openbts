@@ -28,25 +28,18 @@
 bool started = false;
 
 RadioInterface::RadioInterface(RadioDevice *wRadio,
-                               int wReceiveOffset,
+			       int wReceiveOffset,
 			       int wRadioOversampling,
 			       int wTransceiverOversampling,
 			       GSM::Time wStartTime)
-
+  : underrun(false), sendCursor(0), rcvCursor(0), mOn(false),
+    mRadio(wRadio), receiveOffset(wReceiveOffset),
+    samplesPerSymbol(wRadioOversampling), powerScaling(1.0),
+    loadTest(false)
 {
-  underrun = false;
- 
-  sendCursor = 0; 
-  rcvCursor = 0;
-  mOn = false;
-  
-  mRadio = wRadio;
-  receiveOffset = wReceiveOffset;
-  samplesPerSymbol = wRadioOversampling;
   mClock.set(wStartTime);
-  loadTest = false;
-  powerScaling = 1.0;
 }
+
 
 RadioInterface::~RadioInterface(void) {
   if (rcvBuffer!=NULL) delete rcvBuffer;
