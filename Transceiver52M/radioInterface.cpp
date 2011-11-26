@@ -101,15 +101,14 @@ double RadioInterface::fullScaleOutputValue(void) {
 }
 
 
-void RadioInterface::setPowerAttenuation(double dBAtten)
+void RadioInterface::setPowerAttenuation(double atten)
 {
   double HWatten = mRadio->setTxGain(mRadio->maxTxGain() - atten);
-  atten -= (-HWatten);
+  atten -= HWatten;
   if (atten < 1.0)
     powerScaling = 1.0;
   else
-    powerScaling = 1.0/sqrt(linearAtten);
-  LOG(INFO) << "setting HW gain to " << HWdBAtten << " and power scaling to " << powerScaling;
+    powerScaling = 1.0 / sqrt(pow(10, (atten / 10.0)));
 }
 
 
