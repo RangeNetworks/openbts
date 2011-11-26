@@ -766,6 +766,8 @@ ssize_t smpl_buf::avail_smpls(uhd::time_spec_t timespec) const
 
 ssize_t smpl_buf::read(void *buf, size_t len, TIMESTAMP timestamp)
 {
+	int type_sz = 2 * sizeof(short);
+
 	// Check for valid read
 	if (timestamp < time_start)
 		return ERROR_TIMESTAMP;
@@ -784,11 +786,11 @@ ssize_t smpl_buf::read(void *buf, size_t len, TIMESTAMP timestamp)
 
 	// Read it
 	if (read_start + num_smpls < buf_len) {
-		size_t numBytes = len * 2 * sizeof(short);
+		size_t numBytes = len * type_sz;
 		memcpy(buf, data + read_start, numBytes);
 	} else {
-		size_t first_cp = (buf_len - read_start) * 2 * sizeof(short);
-		size_t second_cp = len * 2 * sizeof(short) - first_cp;
+		size_t first_cp = (buf_len - read_start) * type_sz;
+		size_t second_cp = len * type_sz - first_cp;
 
 		memcpy(buf, data + read_start, first_cp);
 		memcpy((char*) buf + first_cp, data, second_cp);
@@ -810,6 +812,8 @@ ssize_t smpl_buf::read(void *buf, size_t len, uhd::time_spec_t ts)
 
 ssize_t smpl_buf::write(void *buf, size_t len, TIMESTAMP timestamp)
 {
+	int type_sz = 2 * sizeof(short);
+
 	// Check for valid write
 	if ((len == 0) || (len >= buf_len))
 		return ERROR_WRITE;
@@ -821,11 +825,11 @@ ssize_t smpl_buf::write(void *buf, size_t len, TIMESTAMP timestamp)
 
 	// Write it
 	if ((write_start + len) < buf_len) {
-		size_t numBytes = len * 2 * sizeof(short);
+		size_t numBytes = len * type_sz;
 		memcpy(data + write_start, buf, numBytes);
 	} else {
-		size_t first_cp = (buf_len - write_start) * 2 * sizeof(short);
-		size_t second_cp = len * 2 * sizeof(short) - first_cp;
+		size_t first_cp = (buf_len - write_start) * type_sz;
+		size_t second_cp = len * type_sz - first_cp;
 
 		memcpy(data + write_start, buf, first_cp);
 		memcpy(data, (char*) buf + first_cp, second_cp);
