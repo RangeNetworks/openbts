@@ -38,6 +38,7 @@ SUBDIRS = \
 	GSM \
 	SMS \
 	TransceiverRAD1 \
+	Transceiver52M \
 	TRXManager \
 	Control \
 	apps \
