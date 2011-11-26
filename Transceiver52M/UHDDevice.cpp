@@ -205,6 +205,7 @@ private:
 
 	void init_gains();
 	void set_ref_clk(bool ext_clk);
+	void reset_clk(uhd::time_spec_t ts);
 	double set_rates(double rate);
 	bool flush_recv(size_t num_pkts);
 
@@ -386,6 +387,15 @@ bool uhd_device::flush_recv(size_t num_pkts)
 	return true;
 }
 
+void uhd_device::reset_clk(uhd::time_spec_t ts)
+{
+	double time;
+
+	usrp_dev->set_time_now(uhd::time_spec_t(ts));
+	time = usrp_dev->get_time_now().get_real_secs();
+	LOG(INFO) << "Reset USRP clock to " << time << " seconds";
+}
+
 bool uhd_device::start()
 {
 	LOG(INFO) << "Starting USRP...";
@@ -504,8 +514,10 @@ int uhd_device::readSamples(short *buf, int len, bool *overrun,
 		}
 
 		// Other metadata timing checks
-		if (check_rx_md_err(metadata, prev_ts) < 0)
+		if (check_rx_md_err(metadata, prev_ts) < 0) {
+			reset_clk(prev_ts);
 			return 0;
+		}
 
 		ts = metadata.time_spec;
 		LOG(DEEPDEBUG) << "Received timestamp = " << ts.get_real_secs();
