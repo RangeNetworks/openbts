@@ -62,6 +62,11 @@ AC_ARG_WITH(usrp1, [
         [enable USRP1 gnuradio based transceiver])
 ])
 
+AC_ARG_WITH(singledb, [
+    AS_HELP_STRING([--with-singledb],
+        [enable single daughterboard use on USRP1])
+])
+
 AC_ARG_WITH(resamp, [
     AS_HELP_STRING([--with-resamp],
         [enable resampling for non-52MHz devices])
@@ -96,6 +101,10 @@ AS_IF([test "x$with_resamp" = "xyes"], [
 
 AS_IF([test "x$with_extref" = "xyes"], [
     AC_DEFINE(EXTREF, 1, Define to 1 for external reference)
+])
+
+AS_IF([test "x$with_singledb" = "xyes"], [
+    AC_DEFINE(SINGLEDB, 1, Define to 1 for single daughterboard)
 ])
 
 AM_CONDITIONAL(RESAMPLE, [test "x$with_resamp" = "xyes"])
