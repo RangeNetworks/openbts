@@ -22,6 +22,7 @@
 #include "radioDevice.h"
 #include "Threads.h"
 #include "Logger.h"
+#include <uhd/property_tree.hpp>
 #include <uhd/usrp/single_usrp.hpp>
 #include <uhd/utils/thread_priority.hpp>
 #include <uhd/utils/msg.hpp>
@@ -154,6 +155,7 @@ public:
 	bool stop();
 	void restart(uhd::time_spec_t ts);
 	void setPriority();
+	enum busType getBus() { return bus; }
 
 	int readSamples(short *buf, int len, bool *overrun, 
 			TIMESTAMP timestamp, bool *underrun, unsigned *RSSI);
@@ -201,6 +203,7 @@ public:
 
 private:
 	uhd::usrp::single_usrp::sptr usrp_dev;
+	enum busType bus;
 
 	double desired_smpl_rt, actual_smpl_rt;
 
@@ -373,20 +376,38 @@ double uhd_device::setRxGain(double db)
 
 bool uhd_device::open()
 {
-	LOG(INFO) << "creating USRP device...";
+	std::string dev_str;
+	uhd::property_tree::sptr prop_tree;
 
 	// Register msg handler
 	uhd::msg::register_handler(&uhd_msg_handler);
 
 	// Allow all UHD devices
+	LOG(INFO) << "Creating transceiver with first found UHD device";
 	uhd::device_addr_t dev_addr("");
 	try {
 		usrp_dev = uhd::usrp::single_usrp::make(dev_addr);
-	}
-	
-	catch(...) {
-		LOG(ERROR) << "USRP make failed";
+	} catch(...) {
+		LOG(ERROR) << "UHD make failed";
 		return false;
+	}
+
+	// Set the device name and bus type 
+	dev_str = usrp_dev->get_mboard_name();
+	LOG(NOTICE) << "Found " << dev_str;
+
+	prop_tree = usrp_dev->get_device()->get_tree();
+	dev_str = prop_tree->access<std::string>("/name").get();
+
+	size_t res1 = dev_str.find("B100");
+	size_t res2 = dev_str.find("B-Series");
+
+	if ((res1 != std::string::npos) || (res2 != std::string::npos)) {
+		bus = USB;
+		LOG(NOTICE) << "Using USB bus for " << dev_str;
+	} else {
+		bus = NET;
+		LOG(NOTICE) << "Using network bus for " << dev_str;
 	}
 
 	// Number of samples per over-the-wire packet

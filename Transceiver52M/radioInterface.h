@@ -138,6 +138,9 @@ public:
   /** set thread priority on current thread */
   void setPriority() { mRadio->setPriority(); }
 
+  /** get transport bus type of attached device */ 
+  enum RadioDevice::busType getBus() { return mRadio->getBus(); }
+
 protected:
 
   /** drive synchronization of Tx/Rx of USRP */

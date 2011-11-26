@@ -126,6 +126,9 @@ private:
   /** Set priority not supported */
   void setPriority() { return; }
 
+  /** Only USB bus supported */
+  busType getBus() { return USB; }
+
   /**
 	Read samples from the USRP.
 	@param buf preallocated buf to contain read result

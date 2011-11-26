@@ -714,27 +714,27 @@ void Transceiver::driveTransmitFIFO()
     while (radioClock->get() + mTransmitLatency > mTransmitDeadlineClock) {
       // if underrun, then we're not providing bursts to radio/USRP fast
       //   enough.  Need to increase latency by one GSM frame.
-#ifndef USE_UHD
-      if (mRadioInterface->isUnderrun()) {
-        // only do latency update every 10 frames, so we don't over update
-	if (radioClock->get() > mLatencyUpdateTime + GSM::Time(10,0)) {
-	  mTransmitLatency = mTransmitLatency + GSM::Time(1,0);
-	  LOG(INFO) << "new latency: " << mTransmitLatency;
-	  mLatencyUpdateTime = radioClock->get();
-	}
+      if (mRadioInterface->getBus() == RadioDevice::USB) {
+        if (mRadioInterface->isUnderrun()) {
+          // only do latency update every 10 frames, so we don't over update
+          if (radioClock->get() > mLatencyUpdateTime + GSM::Time(10,0)) {
+            mTransmitLatency = mTransmitLatency + GSM::Time(1,0);
+            LOG(INFO) << "new latency: " << mTransmitLatency;
+            mLatencyUpdateTime = radioClock->get();
+          }
+        }
+        else {
+          // if underrun hasn't occurred in the last sec (216 frames) drop
+          //    transmit latency by a timeslot
+          if (mTransmitLatency > GSM::Time(1,1)) {
+              if (radioClock->get() > mLatencyUpdateTime + GSM::Time(216,0)) {
+              mTransmitLatency.decTN();
+              LOG(INFO) << "reduced latency: " << mTransmitLatency;
+              mLatencyUpdateTime = radioClock->get();
+            }
+          }
+        }
       }
-      else {
-        // if underrun hasn't occurred in the last sec (216 frames) drop
-        //    transmit latency by a timeslot
-	if (mTransmitLatency > GSM::Time(1,1)) {
-            if (radioClock->get() > mLatencyUpdateTime + GSM::Time(216,0)) {
-	    mTransmitLatency.decTN();
-	    LOG(INFO) << "reduced latency: " << mTransmitLatency;
-	    mLatencyUpdateTime = radioClock->get();
-	  }
-	}
-      }
-#endif
       // time to push burst to transmit FIFO
       pushRadioVector(mTransmitDeadlineClock);
       mTransmitDeadlineClock.incTN();

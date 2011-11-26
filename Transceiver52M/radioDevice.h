@@ -27,6 +27,9 @@ typedef unsigned long long TIMESTAMP;
 class RadioDevice {
 
   public:
+  /* Available transport bus types */
+  enum busType { USB, NET };
+
   static RadioDevice *make(double desiredSampleRate, bool skipRx = false);
 
   /** Initialize the USRP */
@@ -37,6 +40,9 @@ class RadioDevice {
 
   /** Stop the USRP */
   virtual bool stop()=0;
+
+  /** Get the bus type */
+  virtual enum busType getBus()=0;
 
   /** Enable thread priority */
   virtual void setPriority()=0;
