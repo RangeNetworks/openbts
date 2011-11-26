@@ -227,6 +227,7 @@ private:
 	void init_gains();
 	void set_ref_clk(bool ext_clk);
 	double set_rates(double rate);
+	bool parse_dev_type();
 	bool flush_recv(size_t num_pkts);
 	int check_rx_md_err(uhd::rx_metadata_t &md, ssize_t num_smpls);
 
@@ -374,11 +375,44 @@ double uhd_device::setRxGain(double db)
 	return rx_gain;
 }
 
+/*
+    Parse the UHD device tree and mboard name to find out what device we're
+    dealing with. We need the bus type so that the transceiver knows how to
+    deal with the transport latency. Reject the USRP1 because UHD doesn't
+    support timestamped samples with it.
+ */
+bool uhd_device::parse_dev_type()
+{
+	std::string mboard_str, dev_str;
+	uhd::property_tree::sptr prop_tree;
+	size_t usrp1_str, usrp2_str, b100_str1, b100_str2;
+
+	prop_tree = usrp_dev->get_device()->get_tree();
+	dev_str = prop_tree->access<std::string>("/name").get();
+	mboard_str = usrp_dev->get_mboard_name();
+
+	usrp1_str = dev_str.find("USRP1");
+	b100_str1 = dev_str.find("B-Series");
+	b100_str2 = mboard_str.find("B100");
+
+	if (usrp1_str != std::string::npos) {
+		LOG(ERROR) << "USRP1 is not supported using UHD driver";
+		return false;
+	}
+
+	if ((b100_str1 != std::string::npos) || (b100_str2 != std::string::npos)) {
+		bus = USB;
+		LOG(INFO) << "Using USB bus for " << dev_str;
+	} else {
+		bus = NET;
+		LOG(INFO) << "Using network bus for " << dev_str;
+	}
+
+	return true;
+}
+
 bool uhd_device::open()
 {
-	std::string dev_str;
-	uhd::property_tree::sptr prop_tree;
-
 	// Register msg handler
 	uhd::msg::register_handler(&uhd_msg_handler);
 
@@ -390,24 +424,6 @@ bool uhd_device::open()
 	} catch(...) {
 		LOG(ERROR) << "UHD make failed";
 		return false;
-	}
-
-	// Set the device name and bus type 
-	dev_str = usrp_dev->get_mboard_name();
-	LOG(NOTICE) << "Found " << dev_str;
-
-	prop_tree = usrp_dev->get_device()->get_tree();
-	dev_str = prop_tree->access<std::string>("/name").get();
-
-	size_t res1 = dev_str.find("B100");
-	size_t res2 = dev_str.find("B-Series");
-
-	if ((res1 != std::string::npos) || (res2 != std::string::npos)) {
-		bus = USB;
-		LOG(NOTICE) << "Using USB bus for " << dev_str;
-	} else {
-		bus = NET;
-		LOG(NOTICE) << "Using network bus for " << dev_str;
 	}
 
 	// Number of samples per over-the-wire packet
@@ -434,6 +450,10 @@ bool uhd_device::open()
 
 	// Print configuration
 	LOG(INFO) << usrp_dev->get_pp_string();
+
+	// Check for a valid device type and set bus type
+	if (!parse_dev_type())
+		return false;
 
 	return true;
 }
