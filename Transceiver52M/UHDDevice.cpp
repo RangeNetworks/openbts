@@ -58,7 +58,7 @@ uhd::time_spec_t convert_time(TIMESTAMP ticks, double rate)
 
 TIMESTAMP convert_time(uhd::time_spec_t ts, double rate)
 {
-	size_t ticks = ts.get_full_secs() * rate;
+	TIMESTAMP ticks = ts.get_full_secs() * rate;
 	return ts.get_tick_count(rate) + ticks;
 }
 
