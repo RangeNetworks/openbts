@@ -449,7 +449,7 @@ bool uhd_device::open()
 	set_ref_clk(use_ext_ref);
 
 	// Print configuration
-	LOG(INFO) << usrp_dev->get_pp_string();
+	LOG(INFO) << "\n" << usrp_dev->get_pp_string();
 
 	// Check for a valid device type and set bus type
 	if (!parse_dev_type())
@@ -717,7 +717,7 @@ bool uhd_device::updateAlignment(TIMESTAMP timestamp)
 bool uhd_device::setTxFreq(double wFreq)
 {
 	uhd::tune_result_t tr = usrp_dev->set_tx_freq(wFreq);
-	LOG(INFO) << tr.to_pp_string();
+	LOG(INFO) << "\n" << tr.to_pp_string();
 	tx_freq = usrp_dev->get_tx_freq();
 
 	return true;
@@ -726,7 +726,7 @@ bool uhd_device::setTxFreq(double wFreq)
 bool uhd_device::setRxFreq(double wFreq)
 {
 	uhd::tune_result_t tr = usrp_dev->set_rx_freq(wFreq);
-	LOG(INFO) << tr.to_pp_string();
+	LOG(INFO) << "\n" << tr.to_pp_string();
 	rx_freq = usrp_dev->get_rx_freq();
 
 	return true;
