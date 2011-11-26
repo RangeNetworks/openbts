@@ -378,7 +378,7 @@ bool uhd_device::open()
 
 bool uhd_device::flush_recv(size_t num_pkts)
 {
-	uhd::rx_metadata_t metadata;
+	uhd::rx_metadata_t md;
 	size_t num_smpls;
 	uint32_t buff[rx_spp];
 	float timeout;
@@ -390,13 +390,19 @@ bool uhd_device::flush_recv(size_t num_pkts)
 		num_smpls = usrp_dev->get_device()->recv(
 					buff,
 					rx_spp,
-					metadata,
+					md,
 					uhd::io_type_t::COMPLEX_INT16,
 					uhd::device::RECV_MODE_ONE_PACKET,
 					timeout);
 
-		if (!num_smpls)
-			return false;
+		if (!num_smpls) {
+			switch (md.error_code) {
+			case uhd::rx_metadata_t::ERROR_CODE_TIMEOUT:
+				return true;
+			default:
+				continue;
+			}
+		}
 	}
 
 	return true;
