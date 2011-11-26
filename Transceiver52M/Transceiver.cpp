@@ -149,7 +149,7 @@ void Transceiver::pushRadioVector(GSM::Time &nowTime)
     // Even if the burst is stale, put it in the fillter table.
     // (It might be an idle pattern.)
     LOG(NOTICE) << "dumping STALE burst in TRX->USRP interface";
-    const GSM::Time& nextTime = staleBurst->time();
+    const GSM::Time& nextTime = staleBurst->getTime();
     int TN = nextTime.TN();
     int modFN = nextTime.FN() % fillerModulus[TN];
     delete fillerTable[modFN][TN];
@@ -282,11 +282,11 @@ SoftVector *Transceiver::pullRadioVector(GSM::Time &wTime,
 
   if (!rxBurst) return NULL;
 
-  LOG(DEBUG) << "receiveFIFO: read radio vector at time: " << rxBurst->time() << ", new size: " << mReceiveFIFO->size();
+  LOG(DEBUG) << "receiveFIFO: read radio vector at time: " << rxBurst->getTime() << ", new size: " << mReceiveFIFO->size();
 
-  int timeslot = rxBurst->time().TN();
+  int timeslot = rxBurst->getTime().TN();
 
-  CorrType corrType = expectedCorrType(rxBurst->time());
+  CorrType corrType = expectedCorrType(rxBurst->getTime());
 
   if ((corrType==OFF) || (corrType==IDLE)) {
     delete rxBurst;
@@ -299,26 +299,26 @@ SoftVector *Transceiver::pullRadioVector(GSM::Time &wTime,
   float TOA = 0.0;
   float avgPwr = 0.0;
   if (!energyDetect(*vectorBurst,20*mSamplesPerSymbol,mEnergyThreshold,&avgPwr)) {
-     LOG(DEBUG) << "Estimated Energy: " << sqrt(avgPwr) << ", at time " << rxBurst->time();
-     double framesElapsed = rxBurst->time()-prevFalseDetectionTime;
+     LOG(DEBUG) << "Estimated Energy: " << sqrt(avgPwr) << ", at time " << rxBurst->getTime();
+     double framesElapsed = rxBurst->getTime()-prevFalseDetectionTime;
      if (framesElapsed > 50) {  // if we haven't had any false detections for a while, lower threshold
 	mEnergyThreshold -= 10.0/10.0;
         if (mEnergyThreshold < 0.0)
           mEnergyThreshold = 0.0;
 
-        prevFalseDetectionTime = rxBurst->time();
+        prevFalseDetectionTime = rxBurst->getTime();
      }
      delete rxBurst;
      return NULL;
   }
-  LOG(DEBUG) << "Estimated Energy: " << sqrt(avgPwr) << ", at time " << rxBurst->time();
+  LOG(DEBUG) << "Estimated Energy: " << sqrt(avgPwr) << ", at time " << rxBurst->getTime();
 
   // run the proper correlator
   bool success = false;
   if (corrType==TSC) {
-    LOG(DEBUG) << "looking for TSC at time: " << rxBurst->time();
+    LOG(DEBUG) << "looking for TSC at time: " << rxBurst->getTime();
     signalVector *channelResp;
-    double framesElapsed = rxBurst->time()-channelEstimateTime[timeslot];
+    double framesElapsed = rxBurst->getTime()-channelEstimateTime[timeslot];
     bool estimateChannel = false;
     if ((framesElapsed > 50) || (channelResponse[timeslot]==NULL)) {
 	if (channelResponse[timeslot]) delete channelResponse[timeslot];
@@ -353,15 +353,15 @@ SoftVector *Transceiver::pullRadioVector(GSM::Time &wTime,
          chanRespAmplitude[timeslot] = amplitude;
 	 scaleVector(*channelResp, complex(1.0,0.0)/amplitude);
          designDFE(*channelResp, SNRestimate[timeslot], 7, &DFEForward[timeslot], &DFEFeedback[timeslot]);
-         channelEstimateTime[timeslot] = rxBurst->time();  
+         channelEstimateTime[timeslot] = rxBurst->getTime();  
          LOG(DEBUG) << "SNR: " << SNRestimate[timeslot] << ", DFE forward: " << *DFEForward[timeslot] << ", DFE backward: " << *DFEFeedback[timeslot];
       }
     }
     else {
-      double framesElapsed = rxBurst->time()-prevFalseDetectionTime; 
-      LOG(DEBUG) << "wTime: " << rxBurst->time() << ", pTime: " << prevFalseDetectionTime << ", fElapsed: " << framesElapsed;
+      double framesElapsed = rxBurst->getTime()-prevFalseDetectionTime; 
+      LOG(DEBUG) << "wTime: " << rxBurst->getTime() << ", pTime: " << prevFalseDetectionTime << ", fElapsed: " << framesElapsed;
       mEnergyThreshold += 10.0F/10.0F*exp(-framesElapsed);
-      prevFalseDetectionTime = rxBurst->time();
+      prevFalseDetectionTime = rxBurst->getTime();
       channelResponse[timeslot] = NULL;
     }
   }
@@ -379,9 +379,9 @@ SoftVector *Transceiver::pullRadioVector(GSM::Time &wTime,
       channelResponse[timeslot] = NULL; 
     }
     else {
-      double framesElapsed = rxBurst->time()-prevFalseDetectionTime;
+      double framesElapsed = rxBurst->getTime()-prevFalseDetectionTime;
       mEnergyThreshold += (1.0F/10.0F)*exp(-framesElapsed);
-      prevFalseDetectionTime = rxBurst->time();
+      prevFalseDetectionTime = rxBurst->getTime();
     }
   }
   LOG(DEBUG) << "energy Threshold = " << mEnergyThreshold; 
@@ -403,7 +403,7 @@ SoftVector *Transceiver::pullRadioVector(GSM::Time &wTime,
 			    *DFEForward[timeslot],
 			    *DFEFeedback[timeslot]);
     }
-    wTime = rxBurst->time();
+    wTime = rxBurst->getTime();
     RSSI = (int) floor(20.0*log10(rxFullScale/amplitude.abs()));
     LOG(DEBUG) << "RSSI: " << RSSI;
     timingOffset = (int) round(TOA*256.0/mSamplesPerSymbol);

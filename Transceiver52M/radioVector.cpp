@@ -26,7 +26,7 @@ radioVector::radioVector(const signalVector& wVector, GSM::Time& wTime)
 {
 }
 
-GSM::Time radioVector::time() const
+GSM::Time radioVector::getTime() const
 {
 	return mTime;
 }
@@ -64,7 +64,7 @@ GSM::Time VectorQueue::nextTime() const
 	while (mQ.size()==0)
 		mWriteSignal.wait(mLock);
 
-	retVal = mQ.top()->time();
+	retVal = mQ.top()->getTime();
 	mLock.unlock();
 
 	return retVal;
@@ -78,7 +78,7 @@ radioVector* VectorQueue::getStaleBurst(const GSM::Time& targTime)
 		return NULL;
 	}
 
-	if (mQ.top()->time() < targTime) {
+	if (mQ.top()->getTime() < targTime) {
 		radioVector* retVal = mQ.top();
 		mQ.pop();
 		mLock.unlock();
@@ -97,7 +97,7 @@ radioVector* VectorQueue::getCurrentBurst(const GSM::Time& targTime)
 		return NULL;
 	}
 
-	if (mQ.top()->time() == targTime) {
+	if (mQ.top()->getTime() == targTime) {
 		radioVector* retVal = mQ.top();
 		mQ.pop();
 		mLock.unlock();

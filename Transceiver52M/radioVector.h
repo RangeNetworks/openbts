@@ -28,7 +28,7 @@
 class radioVector : public signalVector {
 public:
 	radioVector(const signalVector& wVector, GSM::Time& wTime);
-	GSM::Time time() const;
+	GSM::Time getTime() const;
 	void setTime(const GSM::Time& wTime);
 	bool operator>(const radioVector& other) const;
 
