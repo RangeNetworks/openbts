@@ -18,106 +18,13 @@
 #include "GSMCommon.h"
 #include "LinkedLists.h"
 #include "radioDevice.h"
+#include "radioVector.h"
+#include "radioClock.h"
 
 /** samples per GSM symbol */
 #define SAMPSPERSYM 1 
 #define INCHUNK    (625)
 #define OUTCHUNK   (625)
-
-/** class used to organize GSM bursts by GSM timestamps */
-class radioVector : public signalVector {
-
-private:
-
-  GSM::Time mTime;   ///< the burst's GSM timestamp 
-
-public:
-  /** constructor */
-  radioVector(const signalVector& wVector,
-              GSM::Time& wTime): signalVector(wVector),mTime(wTime) {};
-
-  /** timestamp read and write operators */
-  GSM::Time time() const { return mTime;}
-  void time(const GSM::Time& wTime) { mTime = wTime;}
-
-  /** comparison operator, used for sorting */
-  bool operator>(const radioVector& other) const {return mTime > other.mTime;}
-
-};
-
-/** a priority queue of radioVectors, i.e. GSM bursts, sorted so that earliest element is at top */
-class VectorQueue : public InterthreadPriorityQueue<radioVector> {
-
-public:
-
-  /** the top element of the queue */
-  GSM::Time nextTime() const;
-
-  /**
-    Get stale burst, if any.
-    @param targTime The target time.
-    @return Pointer to burst older than target time, removed from queue, or NULL.
-  */
-  radioVector* getStaleBurst(const GSM::Time& targTime);
-
-  /**
-    Get current burst, if any.
-    @param targTime The target time.
-    @return Pointer to burst at the target time, removed from queue, or NULL.
-  */
-  radioVector* getCurrentBurst(const GSM::Time& targTime);
-
-
-};
-
-/** a FIFO of radioVectors */
-class VectorFIFO {
-
-private:
-
-      PointerFIFO mQ;
-      Mutex      mLock;
-
-public:
-
-      unsigned size() {return mQ.size();}
-
-      void put(radioVector *ptr) {ScopedLock lock(mLock); mQ.put((void*) ptr);}
-
-      radioVector *get() { ScopedLock lock(mLock); return (radioVector*) mQ.get();}
-
-};
-
-
-/** the basestation clock class */
-class RadioClock {
-
-private:
-
-  GSM::Time mClock;
-  Mutex mLock;
-  Signal updateSignal;
-
-public:
-
-  /** Set clock */
-  //void set(const GSM::Time& wTime) { ScopedLock lock(mLock); mClock = wTime; updateSignal.signal();}
-  void set(const GSM::Time& wTime) { ScopedLock lock(mLock); mClock = wTime; updateSignal.broadcast();;}
-
-  /** Increment clock */
-  //void incTN() { ScopedLock lock(mLock); mClock.incTN(); updateSignal.signal();}
-  void incTN() { ScopedLock lock(mLock); mClock.incTN(); updateSignal.broadcast();}
-
-  /** Get clock value */
-  GSM::Time get() { ScopedLock lock(mLock); return mClock; }
-
-  /** Wait until clock has changed */
-  //void wait() {ScopedLock lock(mLock); updateSignal.wait(mLock,1);}
-  // FIXME -- If we take away the timeout, a lot of threads don't start.  Why?
-  void wait() {ScopedLock lock(mLock); updateSignal.wait(mLock);}
-
-};
-
 
 /** class to interface the transceiver with the USRP */
 class RadioInterface {

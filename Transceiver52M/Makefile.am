@@ -36,12 +36,17 @@ EXTRA_DIST = \
 
 noinst_LTLIBRARIES = libtransceiver.la
 
-libtransceiver_la_SOURCES = \
+COMMON_SOURCES = \
 	radioInterface.cpp \
+	radioVector.cpp \
+	radioClock.cpp \
 	sigProcLib.cpp \
 	Transceiver.cpp \
 	USRPDevice.cpp \
 	DummyLoad.cpp
+
+libtransceiver_la_SOURCES = \
+	$(COMMON_SOURCES)
 
 noinst_PROGRAMS = \
 	USRPping \
@@ -51,6 +56,8 @@ noinst_PROGRAMS = \
 noinst_HEADERS = \
 	Complex.h \
 	radioInterface.h \
+	radioVector.h \
+	radioClock.h \
 	radioDevice.h \
 	sigProcLib.h \
 	Transceiver.h \

@@ -25,46 +25,6 @@
 #include "radioInterface.h"
 #include <Logger.h>
 
-
-GSM::Time VectorQueue::nextTime() const
-{
-  GSM::Time retVal;
-  ScopedLock lock(mLock);
-  while (mQ.size()==0) mWriteSignal.wait(mLock);
-  return mQ.top()->time();
-}
-
-radioVector* VectorQueue::getStaleBurst(const GSM::Time& targTime)
-{
-  ScopedLock lock(mLock);
-  if ((mQ.size()==0)) {
-    return NULL;
-  }
-  if (mQ.top()->time() < targTime) {
-    radioVector* retVal = mQ.top();
-    mQ.pop();
-    return retVal;
-  }
-  return NULL;
-}
-
-
-radioVector* VectorQueue::getCurrentBurst(const GSM::Time& targTime)
-{
-  ScopedLock lock(mLock);
-  if ((mQ.size()==0)) {
-    return NULL;
-  }
-  if (mQ.top()->time() == targTime) {
-    radioVector* retVal = mQ.top();
-    mQ.pop();
-    return retVal;
-  }
-  return NULL;
-}
-
-
-
 RadioInterface::RadioInterface(RadioDevice *wRadio,
                                int wReceiveOffset,
 			       int wRadioOversampling,
@@ -167,10 +127,6 @@ void RadioInterface::pushBuffer(void) {
 					  INCHUNK*samplesPerSymbol,
 					  &underrun,
 					  writeTimestamp); 
-<<<<<<< HEAD
-  //LOG(DEBUG) << "writeTimestamp: " << writeTimestamp << ", samplesWritten: " << samplesWritten;
-=======
->>>>>>> 957b9c5... transceiver: remove extraneous comments
    
   writeTimestamp += (TIMESTAMP) samplesWritten;
 
