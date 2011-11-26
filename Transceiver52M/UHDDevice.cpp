@@ -596,7 +596,7 @@ int uhd_device::writeSamples(short *buf, int len, bool *underrun,
 
 bool uhd_device::updateAlignment(TIMESTAMP timestamp)
 {
-	/* NOP */
+	aligned = false;
 	return true;
 }
 
