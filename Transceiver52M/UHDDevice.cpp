@@ -31,6 +31,9 @@
 #include "config.h"
 #endif
 
+#define U1_DEFAULT_CLK_RT 64e6
+#define U2_DEFAULT_CLK_RT 100e6 
+
 /*
     master_clk_rt     - Master clock frequency - ignored if host resampling is
                         enabled
@@ -325,6 +328,14 @@ double uhd_device::set_rates(double rate)
 	double actual_rt, actual_clk_rt;
 
 #ifndef RESAMPLE
+	// Make sure we can set the master clock rate on this device
+	actual_clk_rt = usrp_dev->get_master_clock_rate();
+	if (actual_clk_rt > U1_DEFAULT_CLK_RT) {
+		LOG(ALERT) << "Cannot set clock rate on this device";
+		LOG(ALERT) << "Please compile with host resampling support";
+		return -1.0;
+	}
+
 	// Set master clock rate
 	usrp_dev->set_master_clock_rate(master_clk_rt);
 	actual_clk_rt = usrp_dev->get_master_clock_rate();
