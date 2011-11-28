@@ -404,7 +404,8 @@ bool uhd_device::parse_dev_type()
 	b100_str2 = mboard_str.find("B100");
 
 	if (usrp1_str != std::string::npos) {
-		LOG(ERR) << "USRP1 is not supported using UHD driver";
+		LOG(ALERT) << "USRP1 is not supported using the UHD driver";
+		LOG(ALERT) << "Please compile with GNU Radio libusrp support";
 		return false;
 	}
 
@@ -434,6 +435,10 @@ bool uhd_device::open()
 		return false;
 	}
 
+	// Check for a valid device type and set bus type
+	if (!parse_dev_type())
+		return false;
+
 #ifdef EXTREF
 	set_ref_clk(true);
 #endif
@@ -459,10 +464,6 @@ bool uhd_device::open()
 
 	// Print configuration
 	LOG(INFO) << "\n" << usrp_dev->get_pp_string();
-
-	// Check for a valid device type and set bus type
-	if (!parse_dev_type())
-		return false;
 
 	return true;
 }
