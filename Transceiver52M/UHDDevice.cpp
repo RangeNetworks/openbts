@@ -425,11 +425,18 @@ bool uhd_device::open()
 	// Register msg handler
 	uhd::msg::register_handler(&uhd_msg_handler);
 
-	// Allow all UHD devices
-	LOG(INFO) << "Creating transceiver with first found UHD device";
-	uhd::device_addr_t dev_addr("");
+	// Find UHD devices
+	uhd::device_addr_t args("");
+	uhd::device_addrs_t dev_addrs = uhd::device::find(args);
+	if (dev_addrs.size() == 0) {
+		LOG(ALERT) << "No UHD devices found";
+		return false;
+	}
+
+	// Use the first found device
+	LOG(INFO) << "Using discovered UHD device " << dev_addrs[0].to_string();
 	try {
-		usrp_dev = uhd::usrp::single_usrp::make(dev_addr);
+		usrp_dev = uhd::usrp::single_usrp::make(dev_addrs[0]);
 	} catch(...) {
 		LOG(ALERT) << "UHD make failed";
 		return false;
