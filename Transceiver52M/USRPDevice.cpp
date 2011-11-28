@@ -522,7 +522,7 @@ bool USRPDevice::setTxFreq(double wFreq)
     return true;
   }
   else {
-    LOG(ERR) << "set TX: " << wFreq << "failed" << std::endl
+    LOG(ALERT) << "set TX: " << wFreq << "failed" << std::endl
                << "    baseband freq: " << result.baseband_freq << std::endl
                << "    DDC freq:      " << result.dxc_freq << std::endl
                << "    residual freq: " << result.residual_freq;
@@ -542,7 +542,7 @@ bool USRPDevice::setRxFreq(double wFreq)
     return true;
   }
   else {
-    LOG(ERR) << "set RX: " << wFreq << "failed" << std::endl
+    LOG(ALERT) << "set RX: " << wFreq << "failed" << std::endl
                << "    baseband freq: " << result.baseband_freq << std::endl
                << "    DDC freq:      " << result.dxc_freq << std::endl
                << "    residual freq: " << result.residual_freq;

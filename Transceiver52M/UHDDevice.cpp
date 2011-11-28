@@ -341,7 +341,8 @@ double uhd_device::set_rates(double rate)
 	actual_clk_rt = usrp_dev->get_master_clock_rate();
 
 	if (actual_clk_rt != master_clk_rt) {
-		LOG(ERR) << "Failed to set master clock rate";
+		LOG(ALERT) << "Failed to set master clock rate";
+		LOG(ALERT) << "Actual clock rate " << actual_clk_rt;
 		return -1.0;
 	}
 #endif
@@ -352,11 +353,11 @@ double uhd_device::set_rates(double rate)
 	actual_rt = usrp_dev->get_tx_rate();
 
 	if (actual_rt != rate) {
-		LOG(ERR) << "Actual sample rate differs from desired rate";
+		LOG(ALERT) << "Actual sample rate differs from desired rate";
 		return -1.0;
 	}
 	if (usrp_dev->get_rx_rate() != actual_rt) {
-		LOG(ERR) << "Transmit and receive sample rates do not match";
+		LOG(ALERT) << "Transmit and receive sample rates do not match";
 		return -1.0;
 	}
 
@@ -643,7 +644,7 @@ int uhd_device::readSamples(short *buf, int len, bool *overrun,
 		rc = check_rx_md_err(metadata, num_smpls);
 		switch (rc) {
 		case ERROR_UNRECOVERABLE:
-			LOG(ERR) << "UHD: Unrecoverable error, exiting.";
+			LOG(ALERT) << "Unrecoverable error, exiting...";
 			exit(-1);
 		case ERROR_TIMING:
 			restart(prev_ts);
