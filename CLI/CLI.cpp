@@ -743,7 +743,8 @@ Parser::Parser()
 	addCommand("tmsis", tmsis, "[\"clear\"] or [\"dump\" filename] -- print/clear the TMSI table or dump it to a file.");
 	addCommand("sendsms", sendsms, "<IMSI> <src> -- send direct SMS to <IMSI>, addressed from <src>, after prompting.");
 	addCommand("sendsimple", sendsimple, "<IMSI> <src> -- send SMS to <IMSI> via SIP interface, addressed from <src>, after prompting.");
-	addCommand("sendrrlp", sendrrlp, "<IMSI> <hexstring> -- send RRLP message <hexstring> to <IMSI>.");
+	//apparently non-function now -kurtis
+	//addCommand("sendrrlp", sendrrlp, "<IMSI> <hexstring> -- send RRLP message <hexstring> to <IMSI>.");
 	addCommand("load", printStats, "-- print the current activity loads.");
 	addCommand("cellid", cellID, "[MCC MNC LAC CI] -- get/set location area identity (MCC, MNC, LAC) and cell ID (CI)");
 	addCommand("calls", calls, "-- print the transaction table");

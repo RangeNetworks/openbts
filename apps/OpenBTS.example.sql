@@ -59,9 +59,9 @@ INSERT INTO "CONFIG" VALUES('GSM.RRLP.EPHEMERIS.REFRESH.TIME','1.0',0,0,'How oft
 INSERT INTO "CONFIG" VALUES('GSM.RRLP.EPHEMERIS.URL','ftp://ftp.trimble.com/pub/eph/CurRnxN.nav',0,0,'URL of ephemeris source.');
 INSERT INTO "CONFIG" VALUES('GSM.RRLP.RESPONSETIME','4',0,0,'Mobile timeout. (OpenBTS timeout is 130 sec = max response time + 2.) N in 2**N. See 3GPP 04.31 sect A.2.2.1');
 INSERT INTO "CONFIG" VALUES('GSM.RRLP.SEED.ALTITUDE','0',0,0,'Seed altitude in meters wrt geoidal surface.');
-INSERT INTO "CONFIG" VALUES('GSM.RRLP.SEED.LATITUDE','37.357331',0,0,'Seed latitude in degrees.  -90 (south pole) .. +90 (north pole)');
-INSERT INTO "CONFIG" VALUES('GSM.RRLP.SEED.LONGITUDE','-122.037807',0,0,'Seed longitude in degrees.  -180 (west of greenwich) .. 180 (east)');
-INSERT INTO "CONFIG" VALUES('GSM.RRLP.SERVER.URL','http://localhost/cgi/rrlpserver.cgi',0,0,'URL of RRLP server.');
+INSERT INTO "CONFIG" VALUES('GSM.RRLP.SEED.LATITUDE','37.8720708',0,0,'Seed latitude in degrees.  -90 (south pole) .. +90 (north pole)');
+INSERT INTO "CONFIG" VALUES('GSM.RRLP.SEED.LONGITUDE','-122.2578337',0,0,'Seed longitude in degrees.  -180 (west of greenwich) .. 180 (east)');
+INSERT INTO "CONFIG" VALUES('GSM.RRLP.SERVER.URL','http://localhost/cgi-bin/rrlpserver.cgi',0,0,'URL of RRLP server.');
 INSERT INTO "CONFIG" VALUES('GSM.RRLP.ALMANAC.ASSIST.PRESENT','0',0,0,'1=send almanac info to mobile; 0=do not');
 INSERT INTO "CONFIG" VALUES('GSM.RRLP.EPHEMERIS.ASSIST.COUNT','9',0,0,'number of satellites to include in navigation model');
 INSERT INTO "CONFIG" VALUES('GSM.Radio.Band','900',1,0,'The GSM operating band.  Valid values are 850 (GSM850), 900 (PGSM900), 1800 (DCS1800) and 1900 (PCS1900).  For most Range models, this value is dictated by the hardware and should not be changed.  Static.');
