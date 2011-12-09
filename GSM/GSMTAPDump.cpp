@@ -38,15 +38,15 @@ void gWriteGSMTAP(unsigned ARFCN, unsigned TS, unsigned FN,
 	int ofs = 0;
 
 	// Check if GSMTap is enabled
-	if (!gConfig.defines("GSMTAP.TargetIP")) return;
+	if (!gConfig.defines("Control.GSMTAP.TargetIP")) return;
 
 	// Port configuration
 	unsigned port = GSMTAP_UDP_PORT;	// default port for GSM-TAP
-	if (gConfig.defines("GSMTAP.TargetPort"))
-		port = gConfig.getNum("GSMTAP.TargetPort");
+	if (gConfig.defines("Control.GSMTAP.TargetPort"))
+		port = gConfig.getNum("Control.GSMTAP.TargetPort");
 
 	// Set socket destination
-	GSMTAPSocket.destination(port,gConfig.getStr("GSMTAP.TargetIP").c_str());
+	GSMTAPSocket.destination(port,gConfig.getStr("Control.GSMTAP.TargetIP").c_str());
 
 	// Decode TypeAndOffset
 	uint8_t stype, scn;
@@ -102,7 +102,7 @@ void gWriteGSMTAP(unsigned ARFCN, unsigned TS, unsigned FN,
 		stype |= GSMTAP_CHANNEL_ACCH;
 
 	// Flags in ARFCN
-	if (gConfig.getNum("GSM.Band") == 1900)
+	if (gConfig.getNum("GSM.Radio.Band") == 1900)
 		ARFCN |= GSMTAP_ARFCN_F_PCS;
 
 	if (ul_dln)

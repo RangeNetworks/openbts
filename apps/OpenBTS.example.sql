@@ -4,7 +4,7 @@ CREATE TABLE CONFIG ( KEYSTRING TEXT UNIQUE NOT NULL, VALUESTRING TEXT, STATIC I
 INSERT INTO "CONFIG" VALUES('CLI.Prompt','OpenBTS> ',0,0,'Prompt for the OpenBTS command line interface.');
 INSERT INTO "CONFIG" VALUES('Control.Reporting.PhysStatusTable','/var/run/OpenBTSChannelTable.db',1,0,'File path for channel status reporting database.  Static.');
 INSERT INTO "CONFIG" VALUES('Control.Reporting.TMSITable','/var/run/OpenBTSTMSITable.db',1,0,'File path for TMSITable database.  Static.');
-INSERT INTO "CONFIG" VALUES('Control.GSMTAP.TargetIP','127.0.0.1',0,1,'Target IP address for GSMTAP packets; the IP address of Wireshark, if you use it for GSM.');
+INSERT INTO "CONFIG" VALUES('Control.GSMTAP.TargetIP',NULL,0,1,'Target IP address for GSMTAP packets; the IP address of Wireshark, if you use it for GSM.');
 INSERT INTO "CONFIG" VALUES('Control.LUR.AttachDetach',1,0,0,'Attach/detach flag.  Set to 1 to use attach/detach procedure, 0 otherwise.  This will make initial LUR more prompt.  It will also cause an un-regstration if the handset powers off and really heavy LUR loads in areas with spotty coverage.');
 INSERT INTO "CONFIG" VALUES('Control.LUR.FailedRegistration.Message','Your handset is not provisioned for this network. ',0,1,'If defined, send this text message, followed by the IMSI, to unprovisioned handsets that are denied  registration.');
 INSERT INTO "CONFIG" VALUES('Control.LUR.FailedRegistration.ShortCode','1000',0,1,'The return address for the failed registration message.  If the message is defined, this must also be defined.');
