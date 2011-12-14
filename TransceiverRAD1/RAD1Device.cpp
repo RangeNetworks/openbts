@@ -396,7 +396,7 @@ int RAD1Device::readSamples(short *buf, int len, bool *overrun,
 
   if (underrun) *underrun = false;
  
-  uint32_t readBuf[20000];
+  uint32_t readBuf[2000];
  
   while (1) {
     //guestimate USB read size
