@@ -750,8 +750,8 @@ SIPState SIPEngine::MTCCheckForCancel()
 	osip_message_t * msg;
 
 	try {
-		// 1 ms timeout, effectively non-blocking
-		msg = gSIPInterface.read(mCallID,1);
+		//non-blocking
+		msg = gSIPInterface.read(mCallID,0);
 	}
 	catch (SIPTimeout& e) {
 		return mState;

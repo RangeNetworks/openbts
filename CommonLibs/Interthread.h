@@ -95,6 +95,7 @@ template <class T> class InterthreadQueue {
 
 	/**
 		Blocking read with a timeout.
+		Watch for timing inversion deadlocks -kurtis
 		@param timeout The read timeout in ms.
 		@return Pointer to object or NULL on timeout.
 	*/
