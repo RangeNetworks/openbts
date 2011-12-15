@@ -751,6 +751,7 @@ SIPState SIPEngine::MTCCheckForCancel()
 
 	try {
 		//non-blocking
+	        //this used to be 1ms, but it caused deadlock -kurtis
 		msg = gSIPInterface.read(mCallID,0);
 	}
 	catch (SIPTimeout& e) {
