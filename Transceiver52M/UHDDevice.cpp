@@ -23,7 +23,7 @@
 #include "Threads.h"
 #include "Logger.h"
 #include <uhd/property_tree.hpp>
-#include <uhd/usrp/single_usrp.hpp>
+#include <uhd/usrp/multi_usrp.hpp>
 #include <uhd/utils/thread_priority.hpp>
 #include <uhd/utils/msg.hpp>
 
@@ -202,7 +202,7 @@ public:
 	};
 
 private:
-	uhd::usrp::single_usrp::sptr usrp_dev;
+	uhd::usrp::multi_usrp::sptr usrp_dev;
 	enum busType bus;
 
 	double desired_smpl_rt, actual_smpl_rt;
@@ -437,7 +437,7 @@ bool uhd_device::open()
 	// Use the first found device
 	LOG(INFO) << "Using discovered UHD device " << dev_addrs[0].to_string();
 	try {
-		usrp_dev = uhd::usrp::single_usrp::make(dev_addrs[0]);
+		usrp_dev = uhd::usrp::multi_usrp::make(dev_addrs[0]);
 	} catch(...) {
 		LOG(ALERT) << "UHD make failed";
 		return false;
