@@ -71,8 +71,8 @@ double Timeval::seconds() const
 long Timeval::delta(const Timeval& other) const
 {
 	// 2^31 milliseconds is just over 4 years.
-	long deltaS = other.sec() - sec();
-	long deltaUs = other.usec() - usec();
+	int32_t deltaS = other.sec() - sec();
+	int32_t deltaUs = other.usec() - usec();
 	return 1000*deltaS + deltaUs/1000;
 }
 	

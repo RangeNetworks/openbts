@@ -750,9 +750,8 @@ SIPState SIPEngine::MTCCheckForCancel()
 	osip_message_t * msg;
 
 	try {
-		//non-blocking
-	        //this used to be 1ms, but it caused deadlock -kurtis
-		msg = gSIPInterface.read(mCallID,0);
+		//block for very small amount of time
+		msg = gSIPInterface.read(mCallID,1);
 	}
 	catch (SIPTimeout& e) {
 		return mState;
