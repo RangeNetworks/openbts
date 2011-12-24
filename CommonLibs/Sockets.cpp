@@ -40,9 +40,8 @@
 #include <stdlib.h>
 
 
-
-
-
+//mutex for protecting non-thread safe gethostbyname
+static Mutex sgGethostbynameLock;
 
 bool resolveAddress(struct sockaddr_in *address, const char *hostAndPort)
 {
@@ -63,6 +62,8 @@ bool resolveAddress(struct sockaddr_in *address, const char *host, unsigned shor
 {
 	assert(address);
 	assert(host);
+	//gethostbyname not thread safe
+	ScopedLock lock(sgGethostbynameLock);
 	// FIXME -- Need to ignore leading/trailing spaces in hostname.
 	struct hostent *hp = gethostbyname(host);
 	if (hp==NULL) {
