@@ -98,7 +98,7 @@ AS_IF([test "x$with_usrp1" = "xyes"], [
 ])
 
 AS_IF([test "x$with_uhd" = "xyes"],[
-    PKG_CHECK_MODULES(UHD, uhd)
+    PKG_CHECK_MODULES(UHD, uhd >= 003.002.000)
     AC_DEFINE(USE_UHD, 1, Define to 1 if using UHD)
 ])
 
