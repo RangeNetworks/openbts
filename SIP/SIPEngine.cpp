@@ -139,6 +139,12 @@ void SIPEngine::saveINVITE(const osip_message_t *INVITE, bool mine)
 	if (mINVITE!=NULL) osip_message_free(mINVITE);
 	osip_message_clone(INVITE,&mINVITE);
 
+	// #238-private
+	if (mINVITE==NULL){
+		LOG(ALERT) << "Message cloning failed, skipping this message.";
+		return;
+	} 
+
 	mCallIDHeader = mINVITE->call_id;
 
 	// If this our own INVITE?  Did we initiate the transaciton?

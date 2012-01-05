@@ -35,7 +35,7 @@ int sqlite3_run_query(sqlite3* DB, sqlite3_stmt *stmt)
 		}
 	}
 	if ((src!=SQLITE_DONE) && (src!=SQLITE_ROW)) {
-		fprintf(stderr,"sqlite3_run_query failed: %s\n",sqlite3_errmsg(DB));
+		fprintf(stderr,"sqlite3_run_query failed: %s: %s\n", sqlite3_sql(stmt), sqlite3_errmsg(DB));
 	}
 	return src;
 }
