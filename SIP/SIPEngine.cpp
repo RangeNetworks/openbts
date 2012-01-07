@@ -732,7 +732,7 @@ SIPState SIPEngine::MTCWaitForACK()
 	// check for the CANCEL
 	else if( strcmp(ack->sip_method,"CANCEL") == 0){ 
 		LOG(INFO) << "received CANCEL";
-		osip_message_t * okay = sip_okay(msg, mSIPUsername.c_str(),mSIPIP.c_str(), mSIPPort);
+		osip_message_t * okay = sip_okay(ack, mSIPUsername.c_str(),mSIPIP.c_str(), mSIPPort);
 		gSIPInterface.write(&mProxyAddr,okay);
 		osip_message_free(okay);
 		mState=Fail;
