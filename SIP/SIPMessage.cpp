@@ -593,7 +593,7 @@ osip_message_t * SIP::sip_bye(const char * req_uri, const char * dialed_number, 
 }
 
 
-osip_message_t * SIP::sip_okay( osip_message_t * inv, const char * sip_username, const char * local_ip, short wlocal_port, short rtp_port, unsigned audio_codec)
+osip_message_t * SIP::sip_okay_sdp( osip_message_t * inv, const char * sip_username, const char * local_ip, short wlocal_port, short rtp_port, unsigned audio_codec)
 {
 
 	// Check for consistency.
@@ -844,7 +844,7 @@ osip_message_t * SIP::sip_ringing( osip_message_t * invite, const char * sip_use
 }
 
 
-osip_message_t * SIP::sip_okay_SMS( osip_message_t * inv, const char * sip_username, const char * local_ip, short wlocal_port)
+osip_message_t * SIP::sip_okay( osip_message_t * inv, const char * sip_username, const char * local_ip, short wlocal_port)
 {
 
 	// Check for consistency.
@@ -878,7 +878,7 @@ osip_message_t * SIP::sip_okay_SMS( osip_message_t * inv, const char * sip_usern
 //	osip_via_clone(inv->via, &okay->via);
 	osip_via_t * via;
 	char * via_str;
-	osip_message_get_via(inv, 1, &via);
+	osip_message_get_via(inv, 0, &via);
 	osip_via_to_str(via, &via_str);
 	osip_message_set_via(okay, via_str);	
 	osip_free(via_str);

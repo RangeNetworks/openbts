@@ -679,7 +679,7 @@ SIPState SIPEngine::MTCSendOK( short wRTPPort, unsigned wCodec )
 	mCodec = wCodec;
 	LOG(DEBUG) << "port=" << wRTPPort << " codec=" << mCodec;
 	// Form ack from invite and new parameters.
-	osip_message_t * okay = sip_okay(mINVITE, mSIPUsername.c_str(),
+	osip_message_t * okay = sip_okay_sdp(mINVITE, mSIPUsername.c_str(),
 		mSIPIP.c_str(), mSIPPort, mRTPPort, mCodec);
 	gSIPInterface.write(&mProxyAddr,okay);
 	osip_message_free(okay);
@@ -732,8 +732,10 @@ SIPState SIPEngine::MTCWaitForACK()
 	// check for the CANCEL
 	else if( strcmp(ack->sip_method,"CANCEL") == 0){ 
 		LOG(INFO) << "received CANCEL";
+		osip_message_t * okay = sip_okay(msg, mSIPUsername.c_str(),mSIPIP.c_str(), mSIPPort);
+		gSIPInterface.write(&mProxyAddr,okay);
+		osip_message_free(okay);
 		mState=Fail;
-		// FIXME -- Send 200 OK, see ticket #173.
 	}
 	// check for strays
 	else {
@@ -784,6 +786,9 @@ SIPState SIPEngine::MTCCheckForCancel()
 	// check for the CANCEL
 	else if (strcmp(msg->sip_method,"CANCEL")==0) { 
 		LOG(INFO) << "received CANCEL";
+		osip_message_t * okay = sip_okay(msg, mSIPUsername.c_str(),mSIPIP.c_str(), mSIPPort);
+		gSIPInterface.write(&mProxyAddr,okay);
+		osip_message_free(okay);
 		mState=Fail;
 	}
 	// check for strays
@@ -982,7 +987,7 @@ SIPState SIPEngine::MTSMSSendOK()
 		return mState;
 	}
 	// Form ack from invite and new parameters.
-	osip_message_t * okay = sip_okay_SMS(mINVITE, mSIPUsername.c_str(),
+	osip_message_t * okay = sip_okay(mINVITE, mSIPUsername.c_str(),
 		mSIPIP.c_str(), mSIPPort);
 	gSIPInterface.write(&mProxyAddr,okay);
 	osip_message_free(okay);

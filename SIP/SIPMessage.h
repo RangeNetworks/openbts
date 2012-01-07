@@ -50,9 +50,9 @@ osip_message_t * sip_ack( const char * req_uri, const char * dialed_number, cons
 osip_message_t * sip_bye( const char * req_uri, const char * dialed_number, const char * sip_username, short local_port, const char * local_ip, const char * proxy_ip, short proxy_port, const osip_from_t *from_header, const osip_to_t * to_header, const char * via_branch, const osip_call_id_t* call_id_header, int cseq);
 
 
-osip_message_t * sip_okay( osip_message_t * inv, const char * sip_username, const char * local_ip, short wlocal_port, short rtp_port, unsigned audio_codecs );
+osip_message_t * sip_okay_sdp( osip_message_t * inv, const char * sip_username, const char * local_ip, short wlocal_port, short rtp_port, unsigned audio_codecs );
 
-osip_message_t * sip_okay_SMS( osip_message_t * inv, const char * sip_username, const char * local_ip, short wlocal_port);
+osip_message_t * sip_okay( osip_message_t * inv, const char * sip_username, const char * local_ip, short wlocal_port);
 
 osip_message_t * sip_info(unsigned info, const char *dialed_number, short rtp_port,const char * sip_username, short local_port, const char * local_ip, const char * proxy_ip, const char * from_tag, const char * via_branch, const osip_call_id_t* call_id_header, int cseq);
 
