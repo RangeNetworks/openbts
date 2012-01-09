@@ -420,10 +420,26 @@ SIP::SIPState TransactionEntry::MODSendBYE()
 	return state;
 }
 
+SIP::SIPState TransactionEntry::MODSendCANCEL()
+{
+	ScopedLock lock(mLock);
+	SIP::SIPState state = mSIP.MODSendCANCEL();
+	echoSIPState(state);
+	return state;
+}
+
 SIP::SIPState TransactionEntry::MODResendBYE()
 {
 	ScopedLock lock(mLock);
 	SIP::SIPState state = mSIP.MODResendBYE();
+	echoSIPState(state);
+	return state;
+}
+
+SIP::SIPState TransactionEntry::MODResendCANCEL()
+{
+	ScopedLock lock(mLock);
+	SIP::SIPState state = mSIP.MODResendCANCEL();
 	echoSIPState(state);
 	return state;
 }

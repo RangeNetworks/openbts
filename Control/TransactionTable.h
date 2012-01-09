@@ -198,7 +198,9 @@ class TransactionEntry {
 	void MTCInitRTP() { ScopedLock lock(mLock); mSIP.MTCInitRTP(); }
 
 	SIP::SIPState MODSendBYE();
+	SIP::SIPState MODSendCANCEL();
 	SIP::SIPState MODResendBYE();
+	SIP::SIPState MODResendCANCEL();
 	SIP::SIPState MODWaitForOK();
 
 	SIP::SIPState MTDCheckBYE();

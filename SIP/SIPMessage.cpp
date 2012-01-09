@@ -592,6 +592,22 @@ osip_message_t * SIP::sip_bye(const char * req_uri, const char * dialed_number, 
 	return bye;
 }
 
+/* Cancel a previous invite */
+osip_message_t * SIP::sip_cancel( osip_message_t * invite)
+{
+
+	osip_message_t * cancel;
+	osip_message_init(&cancel);
+	osip_message_clone(invite, &cancel);
+	// FIXME -- Should use the "force_update" function.
+	cancel->message_property = 2;
+	cancel->sip_method = strdup("CANCEL");
+
+	//update message type
+	osip_cseq_set_method(cancel->cseq, strdup("CANCEL"));
+
+	return cancel;
+}
 
 osip_message_t * SIP::sip_okay_sdp( osip_message_t * inv, const char * sip_username, const char * local_ip, short wlocal_port, short rtp_port, unsigned audio_codec)
 {

@@ -57,6 +57,7 @@ enum SIPState  {
 	Connecting,
 	Active,
 	MODClearing,
+	MODCanceling,
 	MTDClearing,
 	Cleared,
 	Fail,
@@ -108,6 +109,7 @@ private:
 	osip_message_t * mINVITE;	///< the INVITE message for this transaction
 	osip_message_t * mLastResponse;	///< the last response received for this transaction
 	osip_message_t * mBYE;		///< the BYE message for this transaction
+	osip_message_t * mCANCEL;	///< the CANCEL message for this transaction
 	//@}
 
 	/**@name RTP state and parameters. */
@@ -263,7 +265,11 @@ public:
 	//@{
 	SIPState MODSendBYE();
 
+	SIPState MODSendCANCEL();
+
 	SIPState MODResendBYE();
+
+	SIPState MODResendCANCEL();
 
 	SIPState MODWaitForOK();
 	//@}
@@ -319,6 +325,9 @@ public:
 
 	/** Save a copy of a BYE message in the engine. */
 	void saveBYE(const osip_message_t *BYE, bool mine);
+
+	/** Save a copy of a CANCEL message in the engine. */
+	void saveCANCEL(const osip_message_t *CANCEL, bool mine);
 
 
 

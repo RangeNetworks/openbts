@@ -119,11 +119,16 @@ void forceSIPClearing(TransactionEntry *transaction)
 	SIP::SIPState state = transaction->SIPState();
 	LOG(INFO) << "SIP state " << state;
 	if (state==SIP::Cleared) return;
-	if (state!=SIP::MODClearing) {
-		// This also changes the SIP state to "clearing".
+	if (state==SIP::Active){
+		//Changes state to clearing
 		transaction->MODSendBYE();
-	} else {
+	} else if (state==SIP::MODCanceling){
+		transaction->MODResendCANCEL();
+	} else if (state==SIP::MODClearing) {
 		transaction->MODResendBYE();
+	} else {
+		//Changes state to canceling
+	        transaction->MODSendCANCEL();
 	}
 	transaction->MODWaitForOK();
 }
@@ -300,8 +305,16 @@ bool callManagementDispatchGSM(TransactionEntry *transaction, GSM::LogicalChanne
 		LCH->send(GSM::L3Release(transaction->L3TI()));
 		transaction->setTimer("308");
 		transaction->GSMState(GSM::ReleaseRequest);
-		// FIXME -- Maybe we need to send CANCEL.  See ticket #172.
-		transaction->MODSendBYE();
+		//bug #172 fixed
+		if (transaction->SIPState()==SIP::Active){
+			transaction->MODSendBYE();
+		}
+		else{
+			transaction->MODSendCANCEL();
+			//if we disconnect, we don't get another
+			//of these, wait here? -kurtis
+			transaction->MODWaitForOK();
+		}
 		return false;
 	}
 

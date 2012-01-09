@@ -69,6 +69,7 @@ const char* SIP::SIPStateString(SIPState s)
 		case Fail: return "Fail"; 
 		case Busy: return "Busy";
 		case MODClearing: return "MODClearing";
+		case MODCanceling: return "MODCanceling";
 		case MTDClearing: return "MTDClearing";
 		case Cleared: return "Cleared";
 		case MessageSubmit: return "SMS-Submit";
@@ -93,7 +94,7 @@ SIPEngine::SIPEngine(const char* proxy, const char* IMSI)
 	mSIPPort(gConfig.getNum("SIP.Local.Port")),
 	mSIPIP(gConfig.getStr("SIP.Local.IP")),
 	mINVITE(NULL), mLastResponse(NULL), mBYE(NULL),
-	mSession(NULL),mTxTime(0), mRxTime(0),
+	mCANCEL(NULL), mSession(NULL), mTxTime(0), mRxTime(0),
 	mState(NullState),
 	mDTMF('\0'),mDTMFDuration(0)
 {
@@ -126,6 +127,7 @@ SIPEngine::~SIPEngine()
 	if (mINVITE!=NULL) osip_message_free(mINVITE);
 	if (mLastResponse!=NULL) osip_message_free(mLastResponse);
 	if (mBYE!=NULL) osip_message_free(mBYE);
+	if (mCANCEL!=NULL) osip_message_free(mCANCEL);
 	// FIXME -- Do we need to dispose of the RtpSesion *mSesison?
 }
 
@@ -182,6 +184,15 @@ void SIPEngine::saveBYE(const osip_message_t *BYE, bool mine)
 	// This simplifies the call-handling logic.
 	if (mBYE!=NULL) osip_message_free(mBYE);
 	osip_message_clone(BYE,&mBYE);
+}
+
+void SIPEngine::saveCANCEL(const osip_message_t *CANCEL, bool mine)
+{
+	// Instead of cloning, why not just keep the old one?
+	// Because that doesn't work in all calling contexts.
+	// This simplifies the call-handling logic.
+	if (mCANCEL!=NULL) osip_message_free(mCANCEL);
+	osip_message_clone(CANCEL,&mCANCEL);
 }
 
 
@@ -548,6 +559,20 @@ SIPState SIPEngine::MODSendBYE()
 	return mState;
 }
 
+SIPState SIPEngine::MODSendCANCEL()
+{
+	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
+	assert(mINVITE);
+
+	osip_message_t * cancel = sip_cancel(mINVITE);
+	gSIPInterface.write(&mProxyAddr,cancel);
+	saveCANCEL(cancel, true);
+	osip_message_free(cancel);
+	mState = MODCanceling;
+	return mState;
+}
+	
+
 SIPState SIPEngine::MODResendBYE()
 {
 	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
@@ -557,12 +582,21 @@ SIPState SIPEngine::MODResendBYE()
 	return mState;
 }
 
+SIPState SIPEngine::MODResendCANCEL()
+{
+	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
+	assert(mState==MODCanceling);
+	assert(mCANCEL);
+	gSIPInterface.write(&mProxyAddr,mCANCEL);
+	return mState;
+}
+
 SIPState SIPEngine::MODWaitForOK()
 {
 	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
 	bool responded = false;
-	Timeval byeTimeout(gConfig.getNum("SIP.Timer.F")); 
-	while (!byeTimeout.passed()) {
+	Timeval timeout(gConfig.getNum("SIP.Timer.F")); 
+	while (!timeout.passed()) {
 		try {
 			osip_message_t * ok = gSIPInterface.read(mCallID, gConfig.getNum("SIP.Timer.E"));
 			responded = true;
@@ -575,8 +609,14 @@ SIPState SIPEngine::MODWaitForOK()
 			break;
 		}
 		catch (SIPTimeout& e) {
-			LOG(NOTICE) << "response timeout, resending BYE";
-			MODResendBYE();
+			//this is sketchy -kurtis
+			if (mState==MODCanceling){
+			  	LOG(NOTICE) << "response timeout, resending CANCEL";
+				MODResendCANCEL();
+			} else {
+			  	LOG(NOTICE) << "response timeout, resending BYE";
+				MODResendBYE();
+			}
 		}
 	}
 
