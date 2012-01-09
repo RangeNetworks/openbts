@@ -22,6 +22,7 @@
 #include "radioDevice.h"
 #include "Threads.h"
 #include "Logger.h"
+#include <uhd/version.hpp>
 #include <uhd/property_tree.hpp>
 #include <uhd/usrp/multi_usrp.hpp>
 #include <uhd/utils/thread_priority.hpp>
@@ -574,6 +575,7 @@ int uhd_device::check_rx_md_err(uhd::rx_metadata_t &md, ssize_t num_smpls)
 
 		switch (md.error_code) {
 		case uhd::rx_metadata_t::ERROR_CODE_TIMEOUT:
+			LOG(ALERT) << "UHD: Receive timed out";
 			return ERROR_UNRECOVERABLE;
 		case uhd::rx_metadata_t::ERROR_CODE_OVERFLOW:
 		case uhd::rx_metadata_t::ERROR_CODE_LATE_COMMAND:
@@ -586,7 +588,7 @@ int uhd_device::check_rx_md_err(uhd::rx_metadata_t &md, ssize_t num_smpls)
 
 	// Missing timestamp
 	if (!md.has_time_spec) {
-		LOG(ERR) << "UHD: Received packet missing timestamp";
+		LOG(ALERT) << "UHD: Received packet missing timestamp";
 		return ERROR_UNRECOVERABLE;
 	}
 
@@ -594,7 +596,8 @@ int uhd_device::check_rx_md_err(uhd::rx_metadata_t &md, ssize_t num_smpls)
 
 	// Monotonicity check
 	if (ts < prev_ts) {
-		LOG(ERR) << "UHD: Loss of monotonic: " << ts.get_real_secs();
+		LOG(ALERT) << "UHD: Loss of monotonic time";
+		LOG(ERR) << "UHD: Current time: " << ts.get_real_secs();
 		LOG(ERR) << "UHD: Previous time: " << prev_ts.get_real_secs();
 		return ERROR_TIMING;
 	} else {
@@ -644,7 +647,8 @@ int uhd_device::readSamples(short *buf, int len, bool *overrun,
 		rc = check_rx_md_err(metadata, num_smpls);
 		switch (rc) {
 		case ERROR_UNRECOVERABLE:
-			LOG(ALERT) << "Unrecoverable error, exiting...";
+			LOG(ALERT) << "UHD: Version " << uhd::get_version_string();
+			LOG(ALERT) << "UHD: Unrecoverable error, exiting...";
 			exit(-1);
 		case ERROR_TIMING:
 			restart(prev_ts);
@@ -720,8 +724,12 @@ int uhd_device::writeSamples(short *buf, int len, bool *underrun,
 					uhd::io_type_t::COMPLEX_INT16,
 					uhd::device::SEND_MODE_FULL_BUFF);
 
-	if (num_smpls != (unsigned)len)
-		LOG(ERR) << "UHD: Sent fewer samples than requested";
+	if (num_smpls != (unsigned) len) {
+		LOG(ALERT) << "UHD: Device send timed out";
+		LOG(ALERT) << "UHD: Version " << uhd::get_version_string();
+		LOG(ALERT) << "UHD: Unrecoverable error, exiting...";
+		exit(-1);
+	}
 
 	return num_smpls;
 }
