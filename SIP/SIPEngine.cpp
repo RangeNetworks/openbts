@@ -71,6 +71,8 @@ const char* SIP::SIPStateString(SIPState s)
 		case MODClearing: return "MODClearing";
 		case MODCanceling: return "MODCanceling";
 		case MTDClearing: return "MTDClearing";
+		case MTDCanceling: return "MTDCanceling";
+		case Canceled: return "Canceled";
 		case Cleared: return "Cleared";
 		case MessageSubmit: return "SMS-Submit";
 		default: return NULL;
@@ -622,8 +624,12 @@ SIPState SIPEngine::MODWaitForOK()
 
 	if (!responded) { LOG(ALERT) << "lost contact with proxy " << mProxyIP << ":" << mProxyPort; }
 
-	// However we got here, the SIP side of the call is cleared now.
-	mState = Cleared;
+	//Canceled if we're canceling, otherwise clear
+	if (mState==MODCanceling){
+		mState = Canceled;
+	} else {
+		mState = Cleared;
+	}
 	return mState;
 }
 
@@ -669,7 +675,7 @@ SIPState SIPEngine::MTDCheckBYE()
 } 
 
 
-SIPState SIPEngine::MTDSendOK()
+SIPState SIPEngine::MTDSendBYEOK()
 {
 	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
 	assert(mBYE);
@@ -677,6 +683,17 @@ SIPState SIPEngine::MTDSendOK()
 	gSIPInterface.write(&mProxyAddr,okay);
 	osip_message_free(okay);
 	mState = Cleared;
+	return mState;
+}
+
+SIPState SIPEngine::MTDSendCANCELOK()
+{
+	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
+	assert(mCANCEL);
+	osip_message_t * okay = sip_b_okay(mCANCEL);
+	gSIPInterface.write(&mProxyAddr,okay);
+	osip_message_free(okay);
+	mState = Canceled;
 	return mState;
 }
 
@@ -772,10 +789,8 @@ SIPState SIPEngine::MTCWaitForACK()
 	// check for the CANCEL
 	else if( strcmp(ack->sip_method,"CANCEL") == 0){ 
 		LOG(INFO) << "received CANCEL";
-		osip_message_t * okay = sip_okay(ack, mSIPUsername.c_str(),mSIPIP.c_str(), mSIPPort);
-		gSIPInterface.write(&mProxyAddr,okay);
-		osip_message_free(okay);
-		mState=Fail;
+		saveCANCEL(ack, false);
+		mState=MTDCanceling;
 	}
 	// check for strays
 	else {
@@ -826,10 +841,8 @@ SIPState SIPEngine::MTCCheckForCancel()
 	// check for the CANCEL
 	else if (strcmp(msg->sip_method,"CANCEL")==0) { 
 		LOG(INFO) << "received CANCEL";
-		osip_message_t * okay = sip_okay(msg, mSIPUsername.c_str(),mSIPIP.c_str(), mSIPPort);
-		gSIPInterface.write(&mProxyAddr,okay);
-		osip_message_free(okay);
-		mState=Fail;
+		saveCANCEL(msg, false);
+		mState=MTDCanceling;
 	}
 	// check for strays
 	else {

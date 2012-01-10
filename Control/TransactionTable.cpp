@@ -460,10 +460,18 @@ SIP::SIPState TransactionEntry::MTDCheckBYE()
 	return state;
 }
 
-SIP::SIPState TransactionEntry::MTDSendOK()
+SIP::SIPState TransactionEntry::MTDSendBYEOK()
 {
 	ScopedLock lock(mLock);
-	SIP::SIPState state = mSIP.MTDSendOK();
+	SIP::SIPState state = mSIP.MTDSendBYEOK();
+	echoSIPState(state);
+	return state;
+}
+
+SIP::SIPState TransactionEntry::MTDSendCANCELOK()
+{
+	ScopedLock lock(mLock);
+	SIP::SIPState state = mSIP.MTDSendCANCELOK();
 	echoSIPState(state);
 	return state;
 }

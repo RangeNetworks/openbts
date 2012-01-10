@@ -118,7 +118,8 @@ void forceSIPClearing(TransactionEntry *transaction)
 {
 	SIP::SIPState state = transaction->SIPState();
 	LOG(INFO) << "SIP state " << state;
-	if (state==SIP::Cleared) return;
+	//why aren't we checking for failed here? -kurtis
+	if (transaction->SIPFinished()) return;
 	if (state==SIP::Active){
 		//Changes state to clearing
 		transaction->MODSendBYE();
@@ -325,7 +326,7 @@ bool callManagementDispatchGSM(TransactionEntry *transaction, GSM::LogicalChanne
 		LCH->send(GSM::L3ReleaseComplete(transaction->L3TI()));
 		LCH->send(GSM::L3ChannelRelease());
 		transaction->GSMState(GSM::NullState);
-		transaction->MTDSendOK();
+		transaction->MTDSendBYEOK();
 		return true;
 	}
 
@@ -514,10 +515,9 @@ bool updateSIPSignalling(TransactionEntry *transaction, GSM::LogicalChannel *LCH
 
 	// The main purpose of this code is to initiate disconnects from the SIP side.
 
-	if (transaction->SIPState()==SIP::Cleared) return true;
+	if (transaction->SIPFinished()) return true;
 
 	bool GSMClearedOrClearing = GSMCleared || transaction->clearingGSM();
-
 	if (transaction->MTDCheckBYE() == SIP::MTDClearing) {
 		LOG(DEBUG) << "got SIP BYE " << *transaction;
 		if (!GSMClearedOrClearing) {
@@ -528,11 +528,11 @@ bool updateSIPSignalling(TransactionEntry *transaction, GSM::LogicalChannel *LCH
 		} else {
 			// GSM already cleared?
 			// Ack the BYE and end the call.
-			transaction->MTDSendOK();
+			transaction->MTDSendBYEOK();
 		}
 	}
 
-	return transaction->SIPState()==SIP::Cleared;
+	return (transaction->SIPFinished());
 }
 
 
@@ -548,8 +548,8 @@ bool updateSignalling(TransactionEntry *transaction, GSM::LogicalChannel *LCH, u
 {
 
 	bool GSMCleared = (updateGSMSignalling(transaction,LCH,timeout));
-	bool SIPCleared = updateSIPSignalling(transaction,LCH,GSMCleared);
-	return GSMCleared && SIPCleared;
+	bool SIPFinished = updateSIPSignalling(transaction,LCH,GSMCleared);
+	return GSMCleared && SIPFinished;
 }
 
 
@@ -628,7 +628,7 @@ bool waitInCall(TransactionEntry *transaction, GSM::TCHFACCHLogicalChannel *TCH,
 void callManagementLoop(TransactionEntry *transaction, GSM::TCHFACCHLogicalChannel* TCH)
 {
 	LOG(INFO) << " call connected " << *transaction;
-	// poll everything until the call is cleared
+	// poll everything until the call is finished
 	while (!pollInCall(transaction,TCH)) { }
 	gTransactionTable.remove(transaction);
 }
@@ -948,10 +948,16 @@ void Control::MTCStarter(TransactionEntry *transaction, GSM::LogicalChannel *LCH
 			return;
 		}
 		// Check for SIP cancel, too.
-		if (transaction->MTCCheckForCancel()==SIP::Fail) {
-			LOG(NOTICE) << "call cancelled or failed on SIP side";
+		if (transaction->MTCCheckForCancel()==SIP::MTDCanceling) {
+			LOG(INFO) << "call cancelled on SIP side";
+			transaction->MTDSendCANCELOK();
 			// Cause 0x15 is "rejected"
 			return abortAndRemoveCall(transaction,LCH,GSM::L3Cause(0x15));
+		}
+		//lastly check if we're toast
+		if(transaction->SIPState()==SIP::Fail) {
+			LOG(DEBUG) << "Call failed";
+			return abortAndRemoveCall(transaction,LCH,GSM::L3Cause(0x7F));
 		}
 	}
 
@@ -1006,8 +1012,15 @@ void Control::MTCController(TransactionEntry *transaction, GSM::TCHFACCHLogicalC
 			transaction->MTCSendRinging();
 		}
 		// Check for SIP cancel, too.
-		if (transaction->MTCCheckForCancel()==SIP::Fail) {
-			LOG(DEBUG) << "MTCCheckForCancel return Fail";
+		if (transaction->MTCCheckForCancel()==SIP::MTDCanceling) {
+			LOG(INFO) << "MTCCheckForCancel return Canceling";
+			transaction->MTDSendCANCELOK();
+			// Cause 0x15 is "rejected"
+			return abortAndRemoveCall(transaction,TCH,GSM::L3Cause(0x15));
+		}
+		//check if we're toast
+		if (transaction->SIPState()==SIP::Fail){
+			LOG(DEBUG) << "Call failed";
 			return abortAndRemoveCall(transaction,TCH,GSM::L3Cause(0x7F));
 		}
 	}
@@ -1031,6 +1044,10 @@ void Control::MTCController(TransactionEntry *transaction, GSM::TCHFACCHLogicalC
 				break;
 			case SIP::Connecting:
 				break;
+			case SIP::MTDCanceling:
+				state = transaction->MTDSendCANCELOK();
+				// Cause 0x15 is "rejected"
+				return abortAndRemoveCall(transaction,TCH,GSM::L3Cause(0x15));
 			default:
 				LOG(NOTICE) << "SIP unexpected state " << state;
 				break;

@@ -59,6 +59,8 @@ enum SIPState  {
 	MODClearing,
 	MODCanceling,
 	MTDClearing,
+	MTDCanceling,
+	Canceled,
 	Cleared,
 	Fail,
 	MessageSubmit
@@ -148,6 +150,10 @@ public:
 
 	/** Return the current SIP call state. */
 	SIPState state() const { return mState; }
+
+	/** Return if the call has successfully finished */
+	bool finished() const { return (mState==Cleared || mState==Canceled); }
+
 
 	/** Set the user to IMSI<IMSI> and generate a call ID; for mobile-originated transactions. */
 	void user( const char * IMSI );
@@ -279,7 +285,9 @@ public:
 	//@{
 	SIPState MTDCheckBYE();	
 
-	SIPState MTDSendOK();
+	SIPState MTDSendBYEOK();
+
+	SIPState MTDSendCANCELOK();
 	//@}
 
 

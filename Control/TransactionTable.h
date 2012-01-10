@@ -177,6 +177,8 @@ class TransactionEntry {
 
 	SIP::SIPState SIPState() { ScopedLock lock(mLock); return mSIP.state(); } 
 
+	bool SIPFinished() { ScopedLock lock(mLock); return mSIP.finished(); } 
+
 	SIP::SIPState MOCSendINVITE(const char* calledUser, const char* calledDomain, short rtpPort, unsigned codec);
 	SIP::SIPState MOCResendINVITE();
 	SIP::SIPState MOCWaitForOK();
@@ -204,7 +206,8 @@ class TransactionEntry {
 	SIP::SIPState MODWaitForOK();
 
 	SIP::SIPState MTDCheckBYE();
-	SIP::SIPState MTDSendOK();
+	SIP::SIPState MTDSendBYEOK();
+	SIP::SIPState MTDSendCANCELOK();
 
 	// TODO: Remove contentType from here and use the setter above.
 	SIP::SIPState MOSMSSendMESSAGE(const char* calledUser, const char* calledDomain, const char* contentType);

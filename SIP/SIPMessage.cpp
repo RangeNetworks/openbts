@@ -596,12 +596,52 @@ osip_message_t * SIP::sip_bye(const char * req_uri, const char * dialed_number, 
 osip_message_t * SIP::sip_cancel( osip_message_t * invite)
 {
 
+	if(invite==NULL){ return NULL;}
+
 	osip_message_t * cancel;
 	osip_message_init(&cancel);
-	osip_message_clone(invite, &cancel);
+	//clone doesn't work -kurtis
+	//osip_message_clone(invite, &cancel);
 	// FIXME -- Should use the "force_update" function.
 	cancel->message_property = 2;
+	//header stuff first
 	cancel->sip_method = strdup("CANCEL");
+	osip_message_set_version(cancel, strdup("SIP/2.0"));
+	
+	//uri
+	osip_uri_init(&cancel->req_uri);
+	osip_uri_clone(invite->req_uri, &cancel->req_uri);
+
+	//via
+	osip_via_t * via;
+	char * via_str;
+	osip_message_get_via(invite, 0, &via);
+	osip_via_to_str(via, &via_str);
+	osip_message_set_via(cancel, via_str);
+	osip_free(via_str);
+
+	// from/to header
+	osip_from_clone(invite->from, &cancel->from);
+	osip_to_clone(invite->to, &cancel->to);
+
+	//contact
+	osip_contact_t * cont;
+	char * cont_str;
+	osip_message_get_contact(invite, 0, &cont);
+	osip_contact_to_str(cont, &cont_str);
+	osip_message_set_contact(cancel, cont_str);
+	osip_free(cont_str);
+
+	// Get Call-ID.
+	osip_call_id_clone(invite->call_id, &cancel->call_id);
+
+	  // Get Cseq.
+	osip_cseq_t * cseq;
+	char * cseq_str;
+	cseq = osip_message_get_cseq(invite);
+	osip_cseq_to_str(cseq ,&cseq_str);
+	osip_message_set_cseq(cancel, cseq_str);	
+	osip_free(cseq_str);
 
 	//update message type
 	osip_cseq_set_method(cancel->cseq, strdup("CANCEL"));
