@@ -593,6 +593,38 @@ SIPState SIPEngine::MODResendCANCEL()
 	return mState;
 }
 
+/* there shouldn't be any more communications on this fifo, but we might
+   get a 487 RequestTerminated. We only need to respond and move on -kurtis */
+SIPState SIPEngine::MODWaitFor487()
+{
+	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
+	osip_message_t * msg;
+	try {
+		msg = gSIPInterface.read(mCallID, gConfig.getNum("SIP.Timer.E"));
+	}
+	catch (SIPTimeout& e) {
+		LOG(NOTICE) << "487 Timeout";
+		return mState;
+	}
+	//ok, message arrived
+	if (msg->status_code != 487){
+		LOG(WARNING) << "unexpected " << msg->status_code << 
+		  " response to CANCEL, from proxy " << mProxyIP << ":" << mProxyPort;
+		return mState;
+	} else {
+		osip_message_t* ack = sip_ack( mRemoteDomain.c_str(),
+					       mRemoteUsername.c_str(), 
+					       mSIPUsername.c_str(),
+					       mSIPPort, mSIPIP.c_str(), mProxyIP.c_str(), 
+					       mMyToFromHeader, mRemoteToFromHeader,
+					       mViaBranch.c_str(), mCallIDHeader, mCSeq
+	);
+		gSIPInterface.write(&mProxyAddr,ack);
+		osip_message_free(ack);
+		return mState;
+	}
+}
+
 SIPState SIPEngine::MODWaitForOK()
 {
 	LOG(INFO) << "user " << mSIPUsername << " state " << mState;

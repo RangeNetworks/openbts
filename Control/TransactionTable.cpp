@@ -452,6 +452,14 @@ SIP::SIPState TransactionEntry::MODWaitForOK()
 	return state;
 }
 
+SIP::SIPState TransactionEntry::MODWaitFor487()
+{
+	ScopedLock lock(mLock);
+	SIP::SIPState state = mSIP.MODWaitFor487();
+	echoSIPState(state);
+	return state;
+}
+
 SIP::SIPState TransactionEntry::MTDCheckBYE()
 {
 	ScopedLock lock(mLock);

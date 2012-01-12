@@ -315,6 +315,9 @@ bool callManagementDispatchGSM(TransactionEntry *transaction, GSM::LogicalChanne
 			//if we disconnect, we don't get another
 			//of these, wait here? -kurtis
 			transaction->MODWaitForOK();
+			//server can optionally send a 487 Request Terminated message
+			//handle it if they do
+			transaction->MODWaitFor487();
 		}
 		return false;
 	}
@@ -518,6 +521,7 @@ bool updateSIPSignalling(TransactionEntry *transaction, GSM::LogicalChannel *LCH
 	if (transaction->SIPFinished()) return true;
 
 	bool GSMClearedOrClearing = GSMCleared || transaction->clearingGSM();
+	//only checking for Clearing because the call is active at this state. Should not cancel
 	if (transaction->MTDCheckBYE() == SIP::MTDClearing) {
 		LOG(DEBUG) << "got SIP BYE " << *transaction;
 		if (!GSMClearedOrClearing) {
@@ -951,6 +955,7 @@ void Control::MTCStarter(TransactionEntry *transaction, GSM::LogicalChannel *LCH
 		if (transaction->MTCCheckForCancel()==SIP::MTDCanceling) {
 			LOG(INFO) << "call cancelled on SIP side";
 			transaction->MTDSendCANCELOK();
+			//should probably send a 487 here
 			// Cause 0x15 is "rejected"
 			return abortAndRemoveCall(transaction,LCH,GSM::L3Cause(0x15));
 		}
@@ -1015,6 +1020,7 @@ void Control::MTCController(TransactionEntry *transaction, GSM::TCHFACCHLogicalC
 		if (transaction->MTCCheckForCancel()==SIP::MTDCanceling) {
 			LOG(INFO) << "MTCCheckForCancel return Canceling";
 			transaction->MTDSendCANCELOK();
+			//should probably send a 487 here -kurtis
 			// Cause 0x15 is "rejected"
 			return abortAndRemoveCall(transaction,TCH,GSM::L3Cause(0x15));
 		}
@@ -1046,6 +1052,7 @@ void Control::MTCController(TransactionEntry *transaction, GSM::TCHFACCHLogicalC
 				break;
 			case SIP::MTDCanceling:
 				state = transaction->MTDSendCANCELOK();
+				//should probably send a 487 here
 				// Cause 0x15 is "rejected"
 				return abortAndRemoveCall(transaction,TCH,GSM::L3Cause(0x15));
 			default:

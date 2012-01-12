@@ -224,11 +224,6 @@ void SIPInterface::drive()
 		// FIXME -- If we support USSD via SIP, we will need to check the map first.
 		checkInvite(msg);
 
-		// FIXME -- Need to check for early BYE or CANCEL to stop paging.
-		// If it's a BYE, find the corresponding transaction table entry.
-		// If the Q931 state is "paging", or T3113 is expired, remove it.
-		// Otherwise, we will keep paging even though the call has ended.
-
 		// Multiplex out the received SIP message to active calls.
 
 		// If we write to non-existent call_id.

@@ -204,6 +204,7 @@ class TransactionEntry {
 	SIP::SIPState MODResendBYE();
 	SIP::SIPState MODResendCANCEL();
 	SIP::SIPState MODWaitForOK();
+	SIP::SIPState MODWaitFor487();
 
 	SIP::SIPState MTDCheckBYE();
 	SIP::SIPState MTDSendBYEOK();

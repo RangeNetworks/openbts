@@ -278,6 +278,8 @@ public:
 	SIPState MODResendCANCEL();
 
 	SIPState MODWaitForOK();
+
+	SIPState MODWaitFor487();
 	//@}
 
 
