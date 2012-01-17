@@ -674,6 +674,7 @@ void Control::MOCStarter(const GSM::L3CMServiceRequest* req, GSM::LogicalChannel
 	GSM::L3MobileIdentity mobileID = req->mobileID();
 	resolveIMSI(mobileID,LCH);
 
+
 	// FIXME -- At this point, verify the that subscriber has access to this service.
 	// If the subscriber isn't authorized, send a CM Service Reject with
 	// cause code, 0x41, "requested service option not subscribed",

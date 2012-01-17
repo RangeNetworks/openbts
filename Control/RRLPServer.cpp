@@ -97,7 +97,7 @@ RRLPServer::RRLPServer(L3MobileIdentity wMobileID, LogicalChannel *wDCCH)
 	name = string("IMSI") + mobileID.digits();
 	// don't continue if IMSI has a RRLP support flag and it's false
 	unsigned int supported = 0;
-	if (false && sqlite3_single_lookup(gSubscriberRegistry.db(), "sip_buddies", "name", name.c_str(),
+	if (sqlite3_single_lookup(gSubscriberRegistry.db(), "sip_buddies", "name", name.c_str(),
 							"RRLPSupported", supported) && !supported) {
 		LOG(INFO) << "RRLP not supported for " << name;
 		trouble = true;
