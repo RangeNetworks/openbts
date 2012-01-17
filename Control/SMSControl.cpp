@@ -283,6 +283,14 @@ void Control::MOSMSController(const GSM::L3CMServiceRequest *req, GSM::LogicalCh
 	ack.parse(*CM);
 	LOG(INFO) << "CPAck " << ack;
 
+	/* MOSMS RLLP request */
+	if (gConfig.defines("Control.SMS.QueryRRLP")) {
+		// Query for RRLP
+		if (!sendRRLP(mobileID, LCH)) {
+			LOG(INFO) << "RRLP request failed";
+		}
+	}
+
 	// Done.
 	LCH->send(GSM::L3ChannelRelease());
 	gTransactionTable.remove(transaction);
@@ -456,18 +464,13 @@ void Control::MTSMSController(TransactionEntry *transaction, GSM::LogicalChannel
 	transaction->GSMState(GSM::SMSDelivering);
 	LOG(INFO) << "transaction: "<< *transaction;
 
-	/* first RLLP request */
+	/* MTSMS RLLP request */
 	if (gConfig.defines("Control.SMS.QueryRRLP")) {
 		// Query for RRLP
-		RRLPServer wRRLPServer(transaction->subscriber(), LCH);
-		if (!wRRLPServer.assist()) {
-			LOG(INFO) << "RRLPServer::assist problem";
+		if(!sendRRLP(transaction->subscriber(), LCH)){
+	  		LOG(INFO) << "RRLP request failed";
 		}
-		// can still try to check location even if assist didn't work
-		if (!wRRLPServer.locate()) {
-			LOG(INFO) << "RRLPServer::locate problem";
-		}
-	}	
+	}
 
 	bool success = deliverSMSToMS(transaction->calling().digits(),transaction->message(),
 								transaction->messageType(),transaction->L3TI(),LCH);
@@ -591,6 +594,18 @@ void Control::InCallMOSMSController(const CPData *cpData, TransactionEntry* tran
 	CPAck ack;
 	ack.parse(*CM);
 	LOG(INFO) << "CPAck " << ack;
+
+	/* I had a hell of a time testing this with my B100
+	   I know it went off, that's all. If things fail, look
+	   here -kurtis */
+
+	/* MOSMS RLLP request */
+	if (gConfig.defines("Control.SMS.QueryRRLP")) {
+		// Query for RRLP
+		if (!sendRRLP(transaction->subscriber(), LCH)) {
+			LOG(INFO) << "RRLP request failed";
+		}
+	}
 
 	gTransactionTable.remove(transaction);
 }

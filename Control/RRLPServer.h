@@ -35,7 +35,7 @@ class L3MobileIdentity;
 class RRLPServer
 {
 	public:
-  RRLPServer(GSM::L3MobileIdentity wMobileID, GSM::LogicalChannel *wDCCH);
+		RRLPServer(GSM::L3MobileIdentity wMobileID, GSM::LogicalChannel *wDCCH);
 		// tell server to send location assistance to mobile
 		bool assist();
 		// tell server to ask mobile for location
@@ -50,5 +50,7 @@ class RRLPServer
 		bool transact();
 		bool trouble;
 };
+
+bool sendRRLP(GSM::L3MobileIdentity mobileID, GSM::LogicalChannel *LCH);
 
 #endif

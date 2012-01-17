@@ -303,6 +303,13 @@ bool callManagementDispatchGSM(TransactionEntry *transaction, GSM::LogicalChanne
 	// GSM 04.08 5.4.3.2
 	if (dynamic_cast<const GSM::L3Disconnect*>(message)) {
 		LOG(INFO) << "GSM Disconnect " << *transaction;
+		/* late RLLP request */
+		if (gConfig.defines("Control.Call.QueryRRLP.Late")) {
+			// Query for RRLP
+			if (!sendRRLP(transaction->subscriber(), LCH)) {
+				LOG(INFO) << "RRLP request failed";
+			}
+		}
 		transaction->resetTimers();
 		LCH->send(GSM::L3Release(transaction->L3TI()));
 		transaction->setTimer("308");
@@ -326,6 +333,13 @@ bool callManagementDispatchGSM(TransactionEntry *transaction, GSM::LogicalChanne
 	// Release (2nd step of MTD)
 	if (dynamic_cast<const GSM::L3Release*>(message)) {
 		LOG(INFO) << "GSM Release " << *transaction;
+		/* late RLLP request */
+		if (gConfig.defines("Control.Call.QueryRRLP.Late")) {
+			// Query for RRLP
+			if (!sendRRLP(transaction->subscriber(), LCH)) {
+				LOG(INFO) << "RRLP request failed";
+			}
+		}
 		transaction->resetTimers();
 		LCH->send(GSM::L3ReleaseComplete(transaction->L3TI()));
 		LCH->send(GSM::L3ChannelRelease());
@@ -660,7 +674,6 @@ void Control::MOCStarter(const GSM::L3CMServiceRequest* req, GSM::LogicalChannel
 	GSM::L3MobileIdentity mobileID = req->mobileID();
 	resolveIMSI(mobileID,LCH);
 
-
 	// FIXME -- At this point, verify the that subscriber has access to this service.
 	// If the subscriber isn't authorized, send a CM Service Reject with
 	// cause code, 0x41, "requested service option not subscribed",
@@ -693,6 +706,17 @@ void Control::MOCStarter(const GSM::L3CMServiceRequest* req, GSM::LogicalChannel
 		}
 		throw UnexpectedMessage();
 	}
+
+	/* early RLLP request */
+	/* this seems to need to be sent after initial call setup
+	   -kurtis */
+	if (gConfig.defines("Control.Call.QueryRRLP.Early")) {
+		// Query for RRLP
+		if (!sendRRLP(mobileID, LCH)) {
+			LOG(INFO) << "RRLP request failed";
+		}
+	}
+
 	LOG(INFO) << *setup;
 	// Pull out the L3 short transaction information now.
 	// See GSM 04.07 11.2.3.1.3.
@@ -910,22 +934,17 @@ void Control::MTCStarter(TransactionEntry *transaction, GSM::LogicalChannel *LCH
 	assert(LCH);
 	LOG(INFO) << "MTC on " << LCH->type() << " transaction: "<< *transaction;
 
-	/* first RLLP request */
-	if (gConfig.defines("Control.Call.QueryRRLP")) {
-		// Query for RRLP
-		RRLPServer wRRLPServer(transaction->subscriber(), LCH);
-		if (!wRRLPServer.assist()) {
-			LOG(INFO) << "RRLPServer::assist problem";
-		}
-		// can still try to check location even if assist didn't work
-		if (!wRRLPServer.locate()) {
-			LOG(INFO) << "RRLPServer::locate problem";
-		}
-	}
-
 	// Determine if very early assigment already happened.
 	bool veryEarly = false;
 	if (LCH->type()==GSM::FACCHType) veryEarly=true;
+
+	/* early RLLP request */
+	if (gConfig.defines("Control.Call.QueryRRLP.Early")) {
+		// Query for RRLP
+		if (!sendRRLP(transaction->subscriber(), LCH)) {
+			LOG(INFO) << "RRLP request failed";
+		}
+	}
 
 	// Allocate a TCH for the call.
 	GSM::TCHFACCHLogicalChannel *TCH = NULL;

@@ -187,13 +187,8 @@ void Control::LocationUpdatingController(const L3LocationUpdatingRequest* lur, L
 
 	if (gConfig.defines("Control.LUR.QueryRRLP")) {
 		// Query for RRLP
-		RRLPServer wRRLPServer(mobileID, DCCH);
-		if (!wRRLPServer.assist()) {
-			LOG(INFO) << "RRLPServer::assist problem";
-		}
-		// can still try to check location even if assist didn't work
-		if (!wRRLPServer.locate()) {
-			LOG(INFO) << "RRLPServer::locate problem";
+		if (!sendRRLP(mobileID, DCCH)) {
+			LOG(INFO) << "RRLP request failed";
 		}
 	}
 
