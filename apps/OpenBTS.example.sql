@@ -4,6 +4,7 @@ CREATE TABLE CONFIG ( KEYSTRING TEXT UNIQUE NOT NULL, VALUESTRING TEXT, STATIC I
 INSERT INTO "CONFIG" VALUES('CLI.Prompt','OpenBTS> ',0,0,'Prompt for the OpenBTS command line interface.');
 INSERT INTO "CONFIG" VALUES('Control.Reporting.PhysStatusTable','/var/run/OpenBTSChannelTable.db',1,0,'File path for channel status reporting database.  Static.');
 INSERT INTO "CONFIG" VALUES('Control.Reporting.TMSITable','/var/run/OpenBTSTMSITable.db',1,0,'File path for TMSITable database.  Static.');
+INSERT INTO "CONFIG" VALUES('Control.Call.QueryRRLP',NULL,0,1,'If not NULL, query every MS for its location via RRLP during a mobile terminated call.');
 INSERT INTO "CONFIG" VALUES('Control.GSMTAP.TargetIP',NULL,0,1,'Target IP address for GSMTAP packets; the IP address of Wireshark, if you use it for GSM.');
 INSERT INTO "CONFIG" VALUES('Control.LUR.AttachDetach',1,0,0,'Attach/detach flag.  Set to 1 to use attach/detach procedure, 0 otherwise.  This will make initial LUR more prompt.  It will also cause an un-regstration if the handset powers off and really heavy LUR loads in areas with spotty coverage.');
 INSERT INTO "CONFIG" VALUES('Control.LUR.FailedRegistration.Message','Your handset is not provisioned for this network. ',0,1,'If defined, send this text message, followed by the IMSI, to unprovisioned handsets that are denied  registration.');
@@ -19,6 +20,7 @@ INSERT INTO "CONFIG" VALUES('Control.LUR.QueryRRLP',NULL,0,1,'If not NULL, query
 INSERT INTO "CONFIG" VALUES('Control.LUR.SendTMSIs',NULL,0,1,'If not NULL, send new TMSI assignments to handsets that are allowed to attach.');
 INSERT INTO "CONFIG" VALUES('Control.LUR.UnprovisionedRejectCause','0x04',0,0,'Reject cause for location updating failures for unprovisioned phones.  Reject causes come from GSM 04.08 10.5.3.6.  Reject cause 0x04, IMSI not in VLR, is usually the right one.');
 INSERT INTO "CONFIG" VALUES('Control.NumSQLTries','3',0,0,'Number of times to retry SQL queries before declaring a database access failure.');
+INSERT INTO "CONFIG" VALUES('Control.SMS.QueryRRLP',NULL,0,1,'If not NULL, query every MS for its location via RRLP during a mobile terminated SMS.');
 INSERT INTO "CONFIG" VALUES('Control.TMSITable.MaxAge','72',0,0,'Maximum allowed age for a TMSI in hours.');
 INSERT INTO "CONFIG" VALUES('Control.TMSITable.MaxSize','100000',0,0,'Maximum size of TMSI table before oldest TMSIs are discarded.');
 INSERT INTO "CONFIG" VALUES('Control.VEA',1,0,1,'If not NULL, user very early assignment for speech call establishment.  See GSM 04.08 Section 7.3.2 for a detailed explanation of assignment types. If VEA is selected, GSM.CellSelection.NECI should be set to 1.  See GSM 04.08 Sections 9.1.8 and 10.5.2.4 for an explanation of the NECI bit.');

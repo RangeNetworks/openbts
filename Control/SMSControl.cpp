@@ -48,6 +48,7 @@
 #include "SMSControl.h"
 #include "ControlCommon.h"
 #include "TransactionTable.h"
+#include "RRLPServer.h"
 #include <Regexp.h>
 
 
@@ -454,6 +455,19 @@ void Control::MTSMSController(TransactionEntry *transaction, GSM::LogicalChannel
 	transaction->channel(LCH);
 	transaction->GSMState(GSM::SMSDelivering);
 	LOG(INFO) << "transaction: "<< *transaction;
+
+	/* first RLLP request */
+	if (gConfig.defines("Control.SMS.QueryRRLP")) {
+		// Query for RRLP
+		RRLPServer wRRLPServer(transaction->subscriber(), LCH);
+		if (!wRRLPServer.assist()) {
+			LOG(INFO) << "RRLPServer::assist problem";
+		}
+		// can still try to check location even if assist didn't work
+		if (!wRRLPServer.locate()) {
+			LOG(INFO) << "RRLPServer::locate problem";
+		}
+	}	
 
 	bool success = deliverSMSToMS(transaction->calling().digits(),transaction->message(),
 								transaction->messageType(),transaction->L3TI(),LCH);

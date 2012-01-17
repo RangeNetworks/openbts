@@ -37,7 +37,8 @@ libcontrol_la_SOURCES = \
 	ControlCommon.cpp \
 	MobilityManagement.cpp \
 	RadioResource.cpp \
-	DCCHDispatch.cpp 
+	DCCHDispatch.cpp \
+	RRLPServer.cpp
 
 
 noinst_HEADERS = \
@@ -48,4 +49,5 @@ noinst_HEADERS = \
 	RadioResource.h \
 	MobilityManagement.h \
 	CallControl.h \
-	TMSITable.h
+	TMSITable.h \
+	RRLPServer.h

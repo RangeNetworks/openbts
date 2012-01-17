@@ -42,6 +42,7 @@
 #include "MobilityManagement.h"
 #include "SMSControl.h"
 #include "CallControl.h"
+#include "RRLPServer.h"
 
 #include <GSMCommon.h>
 #include <GSMLogicalChannel.h>
@@ -908,6 +909,19 @@ void Control::MTCStarter(TransactionEntry *transaction, GSM::LogicalChannel *LCH
 {
 	assert(LCH);
 	LOG(INFO) << "MTC on " << LCH->type() << " transaction: "<< *transaction;
+
+	/* first RLLP request */
+	if (gConfig.defines("Control.Call.QueryRRLP")) {
+		// Query for RRLP
+		RRLPServer wRRLPServer(transaction->subscriber(), LCH);
+		if (!wRRLPServer.assist()) {
+			LOG(INFO) << "RRLPServer::assist problem";
+		}
+		// can still try to check location even if assist didn't work
+		if (!wRRLPServer.locate()) {
+			LOG(INFO) << "RRLPServer::locate problem";
+		}
+	}
 
 	// Determine if very early assigment already happened.
 	bool veryEarly = false;
