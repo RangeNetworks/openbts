@@ -31,6 +31,7 @@
 #include <stdio.h>
 #include "Transceiver.h"
 #include <Logger.h>
+#include <Configuration.h>
 
 extern ConfigurationTable gConfig;
 
