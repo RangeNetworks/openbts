@@ -32,7 +32,7 @@
 #include "Transceiver.h"
 #include <Logger.h>
 
-
+extern ConfigurationTable gConfig;
 
 Transceiver::Transceiver(int wBasePort,
 			 const char *TRXAddress,
