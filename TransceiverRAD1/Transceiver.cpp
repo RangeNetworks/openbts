@@ -534,7 +534,7 @@ void Transceiver::driveControl()
     int freqKhz;
     sscanf(buffer,"%3s %s %d",cmdcheck,command,&freqKhz);
     mRxFreq = freqKhz*1.0e3+FREQOFFSET;
-    if (!mRadioInterface->tuneRx(mRxFreq,128)) {
+    if (!mRadioInterface->tuneRx(mRxFreq,gConfig.getNum("TRX.RadioFrequencyOffset"))) {
        LOG(ALERT) << "RX failed to tune";
        sprintf(response,"RSP RXTUNE 1 %d",freqKhz);
     }
@@ -547,7 +547,7 @@ void Transceiver::driveControl()
     sscanf(buffer,"%3s %s %d",cmdcheck,command,&freqKhz);
     //freqKhz = 890e3;
     mTxFreq = freqKhz*1.0e3+FREQOFFSET;
-    if (!mRadioInterface->tuneTx(mTxFreq,128)) {
+    if (!mRadioInterface->tuneTx(mTxFreq,gConfig.getNum("TRX.RadioFrequencyOffset"))) {
        LOG(ALERT) << "TX failed to tune";
        sprintf(response,"RSP TXTUNE 1 %d",freqKhz);
     }
