@@ -514,7 +514,7 @@ void Transceiver::driveControl()
       sprintf(response,"RSP SETPOWER 1 %d",dbPwr);
     else {
       mPower = dbPwr;
-      mRadioInterface->setPowerAttenuation(pow(10.0,dbPwr/10.0));
+      mRadioInterface->setPowerAttenuation(dbPwr);
       sprintf(response,"RSP SETPOWER 0 %d",dbPwr);
     }
   }
