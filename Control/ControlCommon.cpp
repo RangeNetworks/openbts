@@ -54,7 +54,7 @@ using namespace Control;
 // This will mean moving all of the parsing into the control layer.
 // FIXME -- This needs an adjustable timeout.
 
-L3Message* Control::getMessage(LogicalChannel *LCH, unsigned SAPI)
+L3Message* getMessageCore(LogicalChannel *LCH, unsigned SAPI)
 {
 	unsigned timeout_ms = LCH->N200() * T200ms;
 	L3Frame *rcv = LCH->recv(timeout_ms,SAPI);
@@ -78,9 +78,25 @@ L3Message* Control::getMessage(LogicalChannel *LCH, unsigned SAPI)
 	return msg;
 }
 
+// FIXME -- getMessage should return an L3Frame, not an L3Message.
+// This will mean moving all of the parsing into the control layer.
+// FIXME -- This needs an adjustable timeout.
 
-
-
+L3Message* Control::getMessage(LogicalChannel *LCH, unsigned SAPI)
+{
+	L3Message *msg = getMessageCore(LCH,SAPI);
+	// Handsets should not be sending us GPRS suspension requests.
+	// But if they do, we should ignore them.
+	// They should not send more than one in any case, but we need to be
+	// ready for whatever crazy behavior they throw at us.
+	unsigned count = gConfig.getNum("GSM.Control.GPRSMaxIgnore",5);
+	while (count && dynamic_cast<const GSM::L3GPRSSuspensionRequest*>(msg)) {
+		LOG(NOTICE) << "ignoring GPRS suspension request";
+		msg = getMessageCore(LCH,SAPI);
+		count--;
+	}
+	return msg;
+}
 
 
 /* Resolve a mobile ID to an IMSI and return TMSI if it is assigned. */

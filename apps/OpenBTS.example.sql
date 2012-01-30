@@ -37,6 +37,7 @@ INSERT INTO "CONFIG" VALUES('GSM.CellSelection.RXLEV-ACCESS-MIN','0',0,0,'Cell s
 INSERT INTO "CONFIG" VALUES('GSM.Channels.C1sFirst',NULL,1,0,'If not NULL, allocate C-I slots first, starting at C0T1.  Otherwise, allocate C-VII slots first.  Static.');
 INSERT INTO "CONFIG" VALUES('GSM.Channels.NumC1s','7',1,0,'Number of Combination-I timeslots to configure.  The C-I slot carries a single full-rate TCH, used for speech calling.  Static.');
 INSERT INTO "CONFIG" VALUES('GSM.Channels.NumC7s','0',1,0,'Number of Combination-VII timeslots to configure.  The C-VII slot carries 8 SDCCHs, useful to handle high registration loads or SMS.  If C0T0 is C-IV, you must have at least one C-VII also.  Static.');
+INSERT INTO "CONFIG" VALUES('GSM.Control.GPRSMaxIgnore','5',0,1,'The maximum number of suspension requests to ignore before aborting a transaction.');
 INSERT INTO "CONFIG" VALUES('GSM.Identity.BSIC.BCC','2',0,0,'GSM basestation color code; lower 3 bits of the BSIC.  BCC values in a multi-BTS network should be assigned so that BTS units with overlapping coverage do not share a BCC.  This value will also select the training sequence used for all slots on this unit.');
 INSERT INTO "CONFIG" VALUES('GSM.Identity.BSIC.NCC','0',0,0,'GSM network color code; upper 3 bits of the BSIC.  Assigned by your national regulator.  Must be distinct from NCCs of other GSM operators in your area.');
 INSERT INTO "CONFIG" VALUES('GSM.Identity.CI','10',0,0,'Cell ID, 16 bits.  Should be unique.');
