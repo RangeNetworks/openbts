@@ -50,7 +50,7 @@ unsigned char* write_it(unsigned v, unsigned char *s) {
 }
 
 
-const float RAD1Device::LO_OFFSET = 4.0e6;
+const float RAD1Device::LO_OFFSET = 6.0e6;
 const double RAD1Device::masterClockRate = (double) 52.0e6;
 
 bool RAD1Device::compute_regs(double freq,
@@ -68,8 +68,8 @@ bool RAD1Device::compute_regs(double freq,
   else {
 	DIV2 = 0;
 	freq_mult = 1;
-	CP1 = 1;
-	CP2 = 1;
+	CP1 = 7;
+	CP2 = 7;
   }
 
   double phdet_freq = 13.0e6/(double) R_DIV;

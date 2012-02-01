@@ -52,8 +52,8 @@ int main(int argc, char *argv[]) {
 
   TIMESTAMP timestamp;
 
-  if (!usrp->setTxFreq(925.2e6,113)) printf("TX failed!");
-  if (!usrp->setRxFreq(925.2e6,113)) printf("RX failed!");
+  if (!usrp->setTxFreq(1825.2e6,113)) printf("TX failed!");
+  if (!usrp->setRxFreq(1825.2e6,113)) printf("RX failed!");
 
   usrp->start();
 
@@ -98,7 +98,7 @@ int main(int argc, char *argv[]) {
       }
       printf("For %llu to %llu, power is %f\n",timestamp,timestamp+511,pwr);
       timestamp += rd;
-      //usrp->writeSamples((short*) data2,512*numpkts,&underrun,timestamp+1000);
+      usrp->writeSamples((short*) data2,512*numpkts,&underrun,timestamp+1000);
     }
   }
 
