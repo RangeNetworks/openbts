@@ -51,6 +51,8 @@ ConfigurationTable gConfig("/etc/OpenBTS/OpenBTS.db");
 #include <PhysicalStatus.h>
 #include <SubscriberRegistry.h>
 
+#include <sys/wait.h>
+
 #include <assert.h>
 #include <unistd.h>
 #include <string.h>
@@ -123,6 +125,11 @@ void startTransceiver()
 		execlp(transceiverPath,transceiverPath,TRXnumARFCN,NULL);
 		LOG(EMERG) << "cannot find " << transceiverPath;
 		_exit(1);
+	} else {
+		int status;
+		waitpid(gTransceiverPid, &status,0);
+		LOG(EMERG) << "Transceiver quit with status " << status << ". Exiting.";
+		exit(2);
 	}
 }
 
@@ -143,7 +150,8 @@ int main(int argc, char *argv[])
 	COUT("\n\n" << gOpenBTSWelcome << "\n");
 	COUT("\nStarting the system...");
 
-	startTransceiver();
+	Thread transceiverThread;
+	transceiverThread.start((void*(*)(void*)) startTransceiver, NULL);
 
 	// Start the SIP interface.
 	gSIPInterface.start();
