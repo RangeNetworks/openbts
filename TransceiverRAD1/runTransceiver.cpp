@@ -39,7 +39,7 @@
 
 using namespace std;
 
-ConfigurationTable gConfig("OpenBTS.db");
+ConfigurationTable gConfig("/etc/OpenBTS/OpenBTS.db");
 
 
 volatile bool gbShutdown = false;
