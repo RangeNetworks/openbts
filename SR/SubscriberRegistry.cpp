@@ -138,8 +138,16 @@ static const char* createSBTable = {
 		"musiconhold           VARCHAR(100), "
 		"restrictcid           CHAR(3), "
 		"calllimit             int(5), "
+		"WhiteListFlag         timestamp not null default '0', "
+		"WhiteListCode         varchar(8) not null default '0', "
+		"rand                  varchar(33) default '', "
+		"sres                  varchar(33) default '', "
+		"ki                    varchar(33) default '', "
+		"kc                    varchar(33) default '', "
 		"RRLPSupported         int(1) default 1 not null, "
-		"regTime               INTEGER default 0 NOT NULL" // Unix time of most recent registration
+  		"hardware              VARCHAR(20), " 
+		"regTime               INTEGER default 0 NOT NULL," // Unix time of most recent registration
+		"a3_a8                 varchar(45) default NULL"
     ")"
 };
 

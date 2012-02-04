@@ -95,12 +95,17 @@ RRLPServer::RRLPServer(L3MobileIdentity wMobileID, LogicalChannel *wDCCH)
 	DCCH = wDCCH;
 	// name of subscriber
 	name = string("IMSI") + mobileID.digits();
-	// don't continue if IMSI has a RRLP support flag and it's false
-	unsigned int supported = 0;
-	if (sqlite3_single_lookup(gSubscriberRegistry.db(), "sip_buddies", "name", name.c_str(),
-							"RRLPSupported", supported) && !supported) {
-		LOG(INFO) << "RRLP not supported for " << name;
-		trouble = true;
+	//if IMEI tagging enabled, check if this IMEI (which is updated elsewhere) has RRLP disabled
+	//otherwise just go on
+	if (gConfig.defines("Control.LUR.QueryIMEI")){
+		unsigned int supported = 0;
+		//check supported bit
+		sqlite3_single_lookup(gSubscriberRegistry.db(), "sip_buddies", "name", name.c_str(),
+				"RRLPSupported", supported);
+		if(!supported){
+			LOG(INFO) << "RRLP not supported for " << name;
+			trouble = true;
+		}
 	}
 }
 
@@ -237,10 +242,13 @@ bool RRLPServer::transact()
 			switch (cause) {
 				case 97:
 					LOG(INFO) << "MS says: message not implemented";
-					// flag unsupported in SR so we don't waste time on it again
-					os2 << "update sip_buddies set RRLPSupported = \"0\" where name = \"" << name << "\"";
-					if (!sqlite3_command(gSubscriberRegistry.db(), os2.str().c_str())) {
-						LOG(INFO) << "sqlite3_command problem";
+					//Rejection code only useful if we're gathering IMEIs
+					if (gConfig.defines("Control.LUR.QueryIMEI")){
+						// flag unsupported in SR so we don't waste time on it again
+						os2 << "update sip_buddies set RRLPSupported = \"0\" where name = \"" << name.c_str() << "\"";
+						if (!sqlite3_command(gSubscriberRegistry.db(), os2.str().c_str())) {
+						  LOG(INFO) << "sqlite3_command problem";
+						}
 					}
 					return false;
 				case 98:
