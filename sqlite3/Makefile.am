@@ -21,7 +21,7 @@
 include $(top_srcdir)/Makefile.common
 
 AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES)
-AM_CXXFLAGS = -Wall -lpthread
+AM_CXXFLAGS = -Wall -lpthread -ldl
 
 noinst_LTLIBRARIES = libsqlite.la
 
