@@ -638,7 +638,7 @@ SIPState SIPEngine::MODWaitForOK()
 			saveResponse(ok);
 			osip_message_free(ok);
 			if (code!=200) {
-				LOG(WARNING) << "unexpected " << code << " response to BYE, from proxy " << mProxyIP << ":" << mProxyPort;
+				LOG(WARNING) << "unexpected " << code << " response to BYE/CANCEL, from proxy " << mProxyIP << ":" << mProxyPort << ". Assuming other end has cleared";
 			}
 			break;
 		}
