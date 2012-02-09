@@ -207,20 +207,20 @@ void Control::LocationUpdatingController(const L3LocationUpdatingRequest* lur, L
 		} 
 
 		//query subscriber registry for old imei, update if neccessary
-		char* old_imei;
 		string name = string("IMSI") + IMSI;
-		sqlite3_single_lookup(gSubscriberRegistry.db(), "sip_buddies", "name", name.c_str(),
-				      "hardware", old_imei);
+		char* old_imei = gSubscriberRegistry.sqlQuery("hardware", "sip_buddies", "name", name.c_str());
 		
 		//if we have a new imei and either there's no old one, or it is different...
 		if (new_imei && (!old_imei || strncmp(old_imei,new_imei, 15) != 0)){
 			ostringstream os2;
 			os2 << "update sip_buddies set RRLPSupported = \"1\", hardware = \"" << new_imei << "\" where name = \"IMSI" << IMSI << "\"";
 			LOG(INFO) << "Updating IMSI" << IMSI << " to IMEI:" << new_imei;
-			if (!sqlite3_command(gSubscriberRegistry.db(), os2.str().c_str())) {
-				LOG(INFO) << "sqlite3_command problem";
+			if (!gSubscriberRegistry.sqlUpdate(os2.str().c_str())) {
+				LOG(INFO) << "SR update problem";
 			}
 		}
+		if (old_imei)
+			free(old_imei);
 		delete msg;
 	}
 

@@ -33,6 +33,8 @@ using namespace std;
 #include <GSMLogicalChannel.h>
 #include <GSML3MMMessages.h>
 
+#include <SubscriberRegistry.h>
+
 #include <Logger.h>
 
 using namespace GSM;
@@ -99,9 +101,12 @@ RRLPServer::RRLPServer(L3MobileIdentity wMobileID, LogicalChannel *wDCCH)
 	//otherwise just go on
 	if (gConfig.defines("Control.LUR.QueryIMEI")){
 		unsigned int supported = 0;
+		char* supported_str;
 		//check supported bit
-		sqlite3_single_lookup(gSubscriberRegistry.db(), "sip_buddies", "name", name.c_str(),
-				"RRLPSupported", supported);
+		supported_str = gSubscriberRegistry.sqlQuery("RRLPSupported", "sip_buddies", "name", name.c_str());
+		if (supported_str)
+			supported = atoi(supported_str);
+			free(supported_str);
 		if(!supported){
 			LOG(INFO) << "RRLP not supported for " << name;
 			trouble = true;
@@ -186,8 +191,8 @@ bool RRLPServer::transact()
 				"datetime('now')"
 			")";
 			LOG(INFO) << os.str();
-			if (!sqlite3_command(gSubscriberRegistry.db(), os.str().c_str())) {
-				LOG(INFO) << "sqlite3_command problem";
+			if (!gSubscriberRegistry.sqlUpdate(os.str().c_str())) {
+				LOG(INFO) << "SR update problem";
 				return false;
 			}
 			return true;
@@ -246,8 +251,8 @@ bool RRLPServer::transact()
 					if (gConfig.defines("Control.LUR.QueryIMEI")){
 						// flag unsupported in SR so we don't waste time on it again
 						os2 << "update sip_buddies set RRLPSupported = \"0\" where name = \"" << name.c_str() << "\"";
-						if (!sqlite3_command(gSubscriberRegistry.db(), os2.str().c_str())) {
-						  LOG(INFO) << "sqlite3_command problem";
+						if (!gSubscriberRegistry.sqlUpdate(os2.str().c_str())) {
+							LOG(INFO) << "SR update problem";
 						}
 					}
 					return false;

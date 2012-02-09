@@ -117,19 +117,8 @@ class SubscriberRegistry {
 	bool useGateway(const char* ISDN);
 
 
-	private:
-
-
-
-	/**
-		Run sql statments locally.
-		@param stmt The sql statements.
-		@param resultptr Set this to point to the result of executing the statements.
-	*/
-	Status sqlLocal(const char *stmt, char **resultptr);
-
-
-
+	/* Generic Update/Get functions. 
+	   Make sure your SQL is generic too */
 	/**
 		Run an sql query (select unknownColumn from table where knownColumn = knownValue).
 		@param unknownColumn The column whose value you want.
@@ -150,6 +139,15 @@ class SubscriberRegistry {
 
 
 
+	private:
+
+
+	/**
+		Run sql statments locally.
+		@param stmt The sql statements.
+		@param resultptr Set this to point to the result of executing the statements.
+	*/
+	Status sqlLocal(const char *stmt, char **resultptr);
 
 
 

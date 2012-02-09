@@ -312,9 +312,16 @@ SubscriberRegistry::Status SubscriberRegistry::addUser(const char* IMSI, const c
 		LOG(WARNING) << "SubscriberRegistry::addUser attempting add of NULL CLID";
 		return FAILURE;
 	}
-	if (getIMSI(CLID) != NULL || getCLIDLocal(IMSI) != NULL) {
+	//this was a memory leak -kurtis
+	char* old_imsi = getIMSI(CLID);
+	char* old_clid = getCLIDLocal(IMSI);
+	if (old_imsi || old_clid) {
 		LOG(WARNING) << "SubscriberRegistry::addUser attempting user duplication";
 		// technically this is a failure, but I don't want it to keep trying
+		if (old_imsi)
+			free(old_imsi);
+		if (old_clid)
+			free(old_clid);
 		return SUCCESS;
 	}
 	LOG(INFO) << "addUser(" << IMSI << "," << CLID << ")";
