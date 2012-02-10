@@ -160,21 +160,21 @@ int SubscriberRegistry::init()
 		LOG(EMERG) << "Cannot open SubscriberRegistry database: " << sqlite3_errmsg(mDB);
 		sqlite3_close(mDB);
 		mDB = NULL;
-		return 1;
+		return FAILURE;
 	}
     if (!sqlite3_command(mDB,createRRLPTable)) {
         LOG(EMERG) << "Cannot create RRLP table";
-		return 1;
+		return FAILURE;
     }
     if (!sqlite3_command(mDB,createDDTable)) {
         LOG(EMERG) << "Cannot create DIALDATA_TABLE table";
-		return 1;
+		return FAILURE;
     }
     if (!sqlite3_command(mDB,createSBTable)) {
         LOG(EMERG) << "Cannot create SIP_BUDDIES table";
-		return 1;
+		return FAILURE;
     }
-	return 0;
+	return SUCCESS;
 }
 
 
