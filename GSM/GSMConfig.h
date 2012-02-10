@@ -116,6 +116,10 @@ class GSMConfig {
 	Thread mAccessGrantThread;
 
 	public:
+
+
+
+	GSMConfig();
 	
 	/** Initialize with parameters from gConfig.  */
 	void init();
