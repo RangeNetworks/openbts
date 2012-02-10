@@ -162,18 +162,18 @@ int SubscriberRegistry::init()
 		mDB = NULL;
 		return FAILURE;
 	}
-    if (!sqlite3_command(mDB,createRRLPTable)) {
-        LOG(EMERG) << "Cannot create RRLP table";
+	if (!sqlite3_command(mDB,createRRLPTable)) {
+		LOG(EMERG) << "Cannot create RRLP table";
+	  return FAILURE;
+	}
+	if (!sqlite3_command(mDB,createDDTable)) {
+		LOG(EMERG) << "Cannot create DIALDATA_TABLE table";
 		return FAILURE;
-    }
-    if (!sqlite3_command(mDB,createDDTable)) {
-        LOG(EMERG) << "Cannot create DIALDATA_TABLE table";
+	}
+	if (!sqlite3_command(mDB,createSBTable)) {
+		LOG(EMERG) << "Cannot create SIP_BUDDIES table";
 		return FAILURE;
-    }
-    if (!sqlite3_command(mDB,createSBTable)) {
-        LOG(EMERG) << "Cannot create SIP_BUDDIES table";
-		return FAILURE;
-    }
+	}
 	return SUCCESS;
 }
 
