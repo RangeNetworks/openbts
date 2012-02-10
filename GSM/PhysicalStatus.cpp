@@ -62,18 +62,20 @@ static const char* createPhysicalStatus = {
 	")"
 };
 
-PhysicalStatus::PhysicalStatus(const char* wPath)
+int PhysicalStatus::open(const char* wPath)
 {
 	int rc = sqlite3_open(wPath, &mDB);
 	if (rc) {
 		LOG(EMERG) << "Cannot open PhysicalStatus database at " << wPath << ": " << sqlite3_errmsg(mDB);
 		sqlite3_close(mDB);
 		mDB = NULL;
-		return;
+		return 1;
 	}
 	if (!sqlite3_command(mDB, createPhysicalStatus)) {
 		LOG(EMERG) << "Cannot create TMSI table";
+		return 1;
 	}
+	return 0;
 }
 
 PhysicalStatus::~PhysicalStatus()

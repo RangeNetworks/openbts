@@ -56,10 +56,11 @@ private:
 public:
 
 	/**
-		Create a physical status reporting table.
+		Initialize a physical status reporting table.
 		@param path Path fto sqlite3 database file.
+		@return 0 if the database was successfully opened and initialized; 1 otherwise
 	*/
-	PhysicalStatus(const char*wPath);
+	int open(const char*wPath);
 
 	~PhysicalStatus();
 

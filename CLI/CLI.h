@@ -51,7 +51,7 @@ class Parser {
 
 	public:
 
-	Parser();
+	void addCommands();
 
 	/**
 		Process a command line.

@@ -63,18 +63,20 @@ static const char* createTMSITable = {
 
 
 
-TMSITable::TMSITable(const char* wPath)
+int TMSITable::open(const char* wPath) 
 {
 	int rc = sqlite3_open(wPath,&mDB);
 	if (rc) {
 		LOG(EMERG) << "Cannot open TMSITable database at " << wPath << ": " << sqlite3_errmsg(mDB);
 		sqlite3_close(mDB);
 		mDB = NULL;
-		return;
+		return 1;
 	}
 	if (!sqlite3_command(mDB,createTMSITable)) {
 		LOG(EMERG) << "Cannot create TMSI table";
+        return 1;
 	}
+    return 0;
 }
 
 

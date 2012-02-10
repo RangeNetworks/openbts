@@ -53,7 +53,12 @@ class TMSITable {
 
 	public:
 
-	TMSITable(const char*wPath);
+	/**
+			Open the database connection.  
+			@param wPath Path to sqlite3 database file.
+			@return 0 if the database was successfully opened and initialized; 1 otherwise
+	*/
+	int open(const char* wPath);
 
 	~TMSITable();
 

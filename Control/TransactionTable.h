@@ -305,10 +305,9 @@ class TransactionTable {
 	public:
 
 	/**
-		Create a transaction table.
-		@param path Path fto sqlite3 database file.
+		Initialize thetransaction table with a random mIDCounter value.
 	*/
-	TransactionTable();
+	void init();
 
 	~TransactionTable();
 

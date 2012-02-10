@@ -734,9 +734,8 @@ int noise(int argc, char** argv, ostream& os, istream& is)
 
 
 
-Parser::Parser()
+void Parser::addCommands()
 {
-	// The constructor adds the commands.
 	addCommand("uptime", uptime, "-- show BTS uptime and BTS frame number.");
 	addCommand("help", showHelp, "[command] -- list available commands or gets help on a specific command.");
 	addCommand("exit", exit_function, "[wait] -- exit the application, either immediately, or waiting for existing calls to clear with a timeout in seconds");

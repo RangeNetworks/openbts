@@ -550,10 +550,10 @@ bool TransactionEntry::terminationRequested()
 
 
 
-TransactionTable::TransactionTable()
+void TransactionTable::init()
 	// This assumes the main application uses sdevrandom.
-	:mIDCounter(random())
 {
+	mIDCounter = random();
 }
 
 

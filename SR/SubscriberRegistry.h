@@ -46,8 +46,13 @@ class SubscriberRegistry {
 
 	public:
 
-	SubscriberRegistry();
 	~SubscriberRegistry();
+
+	/**
+			Initialize the subscriber registry using parameters from gConfig.
+			@return 0 if the database was successfully opened and initialized; 1 otherwise
+	*/
+	int init();
 
 	typedef enum {
 		SUCCESS=0,		///< operation successful

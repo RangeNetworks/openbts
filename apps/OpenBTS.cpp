@@ -75,13 +75,13 @@ const char* gDateTime = __DATE__ " " __TIME__;
 // be declared here.
 
 // The TMSI Table.
-Control::TMSITable gTMSITable(gConfig.getStr("Control.Reporting.TMSITable").c_str());
+Control::TMSITable gTMSITable;
 
 // The transaction table.
 Control::TransactionTable gTransactionTable;
 
 // Physical status reporting
-GSM::PhysicalStatus gPhysStatus(gConfig.getStr("Control.Reporting.PhysStatusTable").c_str());
+GSM::PhysicalStatus gPhysStatus;
 
 // The global SIPInterface object.
 SIP::SIPInterface gSIPInterface;
@@ -148,6 +148,13 @@ int main(int argc, char *argv[])
 	LOG(ALERT) << "OpenBTS starting, ver " << VERSION << " build date " << __DATE__;
 
 	COUT("\n\n" << gOpenBTSWelcome << "\n");
+	gTMSITable.open(gConfig.getStr("Control.Reporting.TMSITable").c_str());
+	gTransactionTable.init();
+	gPhysStatus.open(gConfig.getStr("Control.Reporting.PhysStatusTable").c_str());
+	gBTS.init();
+	gSubscriberRegistry.init();
+	gParser.addCommands();
+
 	COUT("\nStarting the system...");
 
 	Thread transceiverThread;

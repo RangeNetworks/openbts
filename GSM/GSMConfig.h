@@ -117,10 +117,8 @@ class GSMConfig {
 
 	public:
 	
-	
-
-	/** All parameters come from gConfig. */
-	GSMConfig();
+	/** Initialize with parameters from gConfig.  */
+	void init();
 
 	/** Start the internal control loops. */
 	void start();
