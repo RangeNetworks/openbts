@@ -440,7 +440,7 @@ bool uhd_device::open()
 	try {
 		usrp_dev = uhd::usrp::multi_usrp::make(dev_addrs[0]);
 	} catch(...) {
-		LOG(ALERT) << "UHD make failed";
+		LOG(ALARM) << "UHD make failed, device " << dev_addrs[0].to_string();
 		return false;
 	}
 
