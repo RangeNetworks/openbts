@@ -243,13 +243,6 @@ void Control::LocationUpdatingController(const L3LocationUpdatingRequest* lur, L
 		delete msg;
 	}
 
-	if (gConfig.defines("Control.LUR.QueryRRLP")) {
-		// Query for RRLP
-		if (!sendRRLP(mobileID, DCCH)) {
-			LOG(INFO) << "RRLP request failed";
-		}
-	}
-
 	// We fail closed unless we're configured otherwise
 	if (!success && !openRegistration) {
 		LOG(INFO) << "registration FAILED: " << mobileID;
@@ -293,6 +286,13 @@ void Control::LocationUpdatingController(const L3LocationUpdatingRequest* lur, L
 			LOG(INFO) << *resp;
 		}
 		delete resp;
+	}
+
+	if (gConfig.defines("Control.LUR.QueryRRLP")) {
+		// Query for RRLP
+		if (!sendRRLP(mobileID, DCCH)) {
+			LOG(INFO) << "RRLP request failed";
+		}
 	}
 
 	// If this is an IMSI attach, send a welcome message.
