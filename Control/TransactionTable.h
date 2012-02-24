@@ -338,6 +338,12 @@ class TransactionTable {
 	TransactionEntry* findLongestCall();
 
 	/**
+		Return the availability of this particular RTP port
+		@return True if Port is available, False otherwise
+	*/
+	bool RTPAvailable(short rtpPort);
+
+	/**
 		Remove an entry from the table and from gSIPMessageMap.
 		@param wID The transaction ID to search.
 		@return True if the ID was really in the table and deleted.

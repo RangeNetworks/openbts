@@ -151,6 +151,9 @@ public:
 	/** Return the current SIP call state. */
 	SIPState state() const { return mState; }
 
+	/** Return the RTP Port being used. */
+	short RTPPort() const { return mRTPPort; }
+
 	/** Return if the call has successfully finished */
 	bool finished() const { return (mState==Cleared || mState==Canceled); }
 

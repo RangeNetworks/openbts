@@ -72,17 +72,20 @@ using namespace Control;
 */
 unsigned allocateRTPPorts()
 {
-	// FIXME -- We need a real port allocator.
 	const unsigned base = gConfig.getNum("RTP.Start");
 	const unsigned range = gConfig.getNum("RTP.Range");
 	const unsigned top = base+range;
 	static Mutex lock;
 	// Pick a random starting point.
 	static unsigned port = base + 2*(random()%(range/2));
+	unsigned retVal;
 	lock.lock();
-	unsigned retVal = port;
-	port += 2;
-	if (port>=top) port=base;
+	//This is a little hacky as RTPAvail is O(n)
+	do {
+		retVal = port;
+		port += 2;
+		if (port>=top) port=base;
+	} while (!gTransactionTable.RTPAvailable(retVal));
 	lock.unlock();
 	return retVal;
 }

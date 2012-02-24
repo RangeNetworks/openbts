@@ -805,5 +805,19 @@ TransactionEntry* TransactionTable::findLongestCall()
 
 
 
+/* linear, we should move the actual search into this structure */
+bool TransactionTable::RTPAvailable(short rtpPort)
+{
+	ScopedLock lock(mLock);
+	clearDeadEntries();
+	bool avail = true;
+ 	for (TransactionMap::iterator itr = mTable.begin(); itr!=mTable.end(); ++itr) {
+		if (itr->second->mSIP.RTPPort() == rtpPort){
+			avail = false;
+			break;
+		}
+	}
+	return avail;
+}
 
 // vim: ts=4 sw=4

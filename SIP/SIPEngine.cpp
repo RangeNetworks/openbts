@@ -121,6 +121,9 @@ SIPEngine::SIPEngine(const char* proxy, const char* IMSI)
 	mMyTag=tmp;	
 	// set our CSeq in case we need one
 	mCSeq = random()%600;
+
+	//to make sure noise doesn't magically equal a valid RTP port
+	mRTPPort = 0;
 }
 
 
