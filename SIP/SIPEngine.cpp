@@ -696,14 +696,25 @@ SIPState SIPEngine::MTDCheckBYE()
 	osip_message_t * msg = gSIPInterface.read(mCallID);
 	
 
-	if ((msg->sip_method!=NULL) && (strcmp(msg->sip_method,"BYE")==0)) { 
-		LOG(DEBUG) << "found msg="<<msg->sip_method;	
-		saveBYE(msg,false);
-		mState =  MTDClearing;
+	if (msg->sip_method) {
+		if (strcmp(msg->sip_method,"BYE")==0) { 
+			LOG(DEBUG) << "found msg="<<msg->sip_method;	
+			saveBYE(msg,false);
+			mState =  MTDClearing;
+		}
+		//repeated ACK, send OK
+		//pretty sure this never happens, but someone else left a fixme before... -kurtis
+		if (strcmp(msg->sip_method,"ACK")==0) { 	
+			LOG(DEBUG) << "Not responding to repeated ACK. FIXME";
+		}
 	}
 
-	// FIXME -- Check for repeated ACK and send OK if needed.
-	// FIXME -- Check for repeated OK and send ACK if needed.
+	//repeated OK, send ack
+	//MOC because that's the only time we ACK
+	if (msg->status_code==200){
+		LOG(DEBUG) << "Repeated OK, resending ACK";
+		MOCSendACK();
+	}
 
 	osip_message_free(msg);
 	return mState;

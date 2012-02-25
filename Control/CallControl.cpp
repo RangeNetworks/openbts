@@ -915,8 +915,6 @@ void Control::MOCController(TransactionEntry *transaction, GSM::TCHFACCHLogicalC
 	transaction->MOCInitRTP();
 	transaction->MOCSendACK();
 
-	// FIXME -- We need to watch for a repeated OK in case the ACK got lost.
-
 	// Get the Connect Acknowledge message.
 	while (transaction->GSMState()!=GSM::Active) {
 		LOG(DEBUG) << "MOC Q.931 state=" << transaction->GSMState();
