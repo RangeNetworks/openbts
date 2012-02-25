@@ -33,6 +33,7 @@
 #include <GSMConfig.h>
 #include <ControlCommon.h>
 #include <TransactionTable.h>
+#include <SubscriberRegistry.h>
 
 #include <Sockets.h>
 
@@ -59,6 +60,15 @@ using namespace Control;
 void SIPMessageMap::write(const std::string& call_id, osip_message_t * msg)
 {
 	LOG(DEBUG) << "call_id=" << call_id << " msg=" << msg;
+	string name = osip_message_get_from(msg)->url->username;
+	if (!gSubscriberRegistry.imsiSet(name, "ipaddr", 
+					 osip_message_get_from(msg)->url->host)){
+		LOG(INFO) << "SR ipaddr Update Problem";
+	}
+	if (!gSubscriberRegistry.imsiSet(name, "port", 
+					 gConfig.getStr("SIP.Local.Port"))){
+		LOG(INFO) << "SR port Update Problem";
+	}
 	OSIPMessageFIFO * fifo = mMap.readNoBlock(call_id);
 	if( fifo==NULL ) {
 		// FIXME -- If this write fails, send "call leg non-existent" response on SIP interface.

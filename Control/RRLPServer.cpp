@@ -100,14 +100,9 @@ RRLPServer::RRLPServer(L3MobileIdentity wMobileID, LogicalChannel *wDCCH)
 	//if IMEI tagging enabled, check if this IMEI (which is updated elsewhere) has RRLP disabled
 	//otherwise just go on
 	if (gConfig.defines("Control.LUR.QueryIMEI")){
-		unsigned int supported = 0;
-		char* supported_str;
 		//check supported bit
-		supported_str = gSubscriberRegistry.sqlQuery("RRLPSupported", "sip_buddies", "name", name.c_str());
-		if (supported_str)
-			supported = atoi(supported_str);
-			free(supported_str);
-		if(!supported){
+		string supported= gSubscriberRegistry.imsiGet(name, "RRLPSupported");
+		if(supported.empty() || supported == "0"){
 			LOG(INFO) << "RRLP not supported for " << name;
 			trouble = true;
 		}
@@ -181,17 +176,12 @@ bool RRLPServer::transact()
 		}
 
 		// quit if location decoded 
-		if (response.find("latitude") != response.end() && response.find("longitude") != response.end() && response.find("positionError") != response.end()) {
-			ostringstream os;
-			os << "insert into RRLP (name, latitude, longitude, error, time) values (" <<
-				'"' << name << '"' << "," <<
-				response["latitude"] << "," <<
-				response["longitude"] << "," <<
-				response["positionError"] << "," <<
-				"datetime('now')"
-			")";
-			LOG(INFO) << os.str();
-			if (!gSubscriberRegistry.sqlUpdate(os.str().c_str())) {
+		if (response.find("latitude") != response.end() && 
+		    response.find("longitude") != response.end() && 
+		    response.find("positionError") != response.end()) {
+			if (!gSubscriberRegistry.RRLPUpdate(name, response["latitude"], 
+							    response["longitude"], 
+							    response["positionError"])){
 				LOG(INFO) << "SR update problem";
 				return false;
 			}
@@ -241,7 +231,6 @@ bool RRLPServer::transact()
 		}
 		const unsigned MTI_RR_STATUS = 18;
 		if (resp->MTI() == MTI_RR_STATUS) {
-			ostringstream os2;
 			int cause = resp->peekField(16, 8);
 			delete resp;
 			switch (cause) {
@@ -250,8 +239,7 @@ bool RRLPServer::transact()
 					//Rejection code only useful if we're gathering IMEIs
 					if (gConfig.defines("Control.LUR.QueryIMEI")){
 						// flag unsupported in SR so we don't waste time on it again
-						os2 << "update sip_buddies set RRLPSupported = \"0\" where name = \"" << name.c_str() << "\"";
-						if (!gSubscriberRegistry.sqlUpdate(os2.str().c_str())) {
+						if (!gSubscriberRegistry.imsiSet(name, "RRLPSupported", "0")) {
 							LOG(INFO) << "SR update problem";
 						}
 					}

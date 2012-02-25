@@ -72,77 +72,74 @@ class SubscriberRegistry {
 	/**
 		Resolve an ISDN or other numeric address to an IMSI.
 		@param ISDN Any numeric address, E.164, local extension, etc.
-		@return A C-string to be freed by the caller,
-			 NULL if the ISDN cannot be resolved.
 	*/
-	char* getIMSI(const char* ISDN);
+	string getIMSI(string ISDN);
 
 	/**
 		Given an IMSI, return the local CLID, which should be a numeric address.
 		@param IMSI The subscriber IMSI.
-		@return A C-string to be freed by the caller,
-			NULL if the IMSI isn't found.
 	*/
-	char* getCLIDLocal(const char* IMSI);
+	string getCLIDLocal(string IMSI);
 
 	/**
 		Given an IMSI, return the global CLID, which should be a numeric address.
 		@param IMSI The subscriber IMSI.
-		@return A C-string to be freed by the caller,
-			NULL if the IMSI isn't found.
+			
 	*/
-	char* getCLIDGlobal(const char* IMSI);
+	string getCLIDGlobal(string IMSI);
 
 	/**
 		Given an IMSI, return the IP address of the most recent registration.
 		@param IMSI The subscriber IMSI
-		@return A C-string to be freed by the caller, "111.222.333.444:port",
-			NULL if the ISMI isn't registered.
+		@return The Registration IP for this IMSI, "111.222.333.444:port",
+			
 	*/
-	char* getRegistrationIP(const char* IMSI);
+	string getRegistrationIP(string IMSI);
+
+	/**
+		Set a specific variable indexed by imsi from sip_buddies
+		@param imsi The user's IMSI or SIP username.
+		@param key to index into table
+	*/
+	string imsiGet(string imsi, string key);
+
+	/**
+		Set a specific variable indexed by imsi_from sip_buddies
+		@param imsi The user's IMSI or SIP username.
+		@param key to index into table
+		@param value to set indexed by the key
+	*/
+	Status imsiSet(string imsi, string key, string value);
 
 	/**
 		Add a new user to the SubscriberRegistry.
 		@param IMSI The user's IMSI or SIP username.
 		@param CLID The user's local CLID.
 	*/
-	Status addUser(const char* IMSI, const char* CLID);
+	Status addUser(string IMSI, string CLID);
 
 
 	/**
 		Set the current time as the time of the most recent registration for an IMSI.
 		@param IMSI The user's IMSI or SIP username.
 	*/
-	Status setRegTime(const char* IMSI);
+	Status setRegTime(string IMSI);
 
 
-	char *mapCLIDGlobal(const char *local);
+	string mapCLIDGlobal(string local);
 
 
-	bool useGateway(const char* ISDN);
-
-
-	/* Generic Update/Get functions. 
-	   Make sure your SQL is generic too */
-	/**
-		Run an sql query (select unknownColumn from table where knownColumn = knownValue).
-		@param unknownColumn The column whose value you want.
-		@param table The table to look in.
-		@param knownColumn The column with the value you know.
-		@param knownValue The known value of knownColumn.
-	*/
-	char *sqlQuery(const char *unknownColumn, const char *table, const char *knownColumn, const char *knownValue);
-
+	bool useGateway(string ISDN);
 
 
 	/**
-		Run an sql update.
-		@param stmt The update statement.
+		Update the RRLP location for user
+		@param name IMSI to be updated
+		@param lat Latitude
+		@param lon Longitude
+		@param err Approximate Error
 	*/
-	Status sqlUpdate(const char *stmt);
-
-
-
+	Status RRLPUpdate(string name, string lat, string lon, string err);
 
 	private:
 
@@ -152,9 +149,15 @@ class SubscriberRegistry {
 		@param stmt The sql statements.
 		@param resultptr Set this to point to the result of executing the statements.
 	*/
-	Status sqlLocal(const char *stmt, char **resultptr);
+	Status sqlLocal(const char* stmt, char **resultptr);
 
+	string sqlQuery(string unknownColumn, string table, string knownColumn, string knownValue);
 
+	/**
+		Run an sql update.
+		@param stmt The update statement.
+	*/
+	Status sqlUpdate(string stmt);
 
 
 };
