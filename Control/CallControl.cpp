@@ -322,13 +322,7 @@ bool callManagementDispatchGSM(TransactionEntry *transaction, GSM::LogicalChanne
 			transaction->MODSendBYE();
 		}
 		else{
-			transaction->MODSendCANCEL();
-			//if we disconnect, we don't get another
-			//of these, wait here? -kurtis
-			transaction->MODWaitForOK();
-			//server can optionally send a 487 Request Terminated message
-			//handle it if they do
-			transaction->MODWaitFor487();
+			transaction->MODSendCANCEL();		
 		}
 		return false;
 	}
@@ -359,6 +353,11 @@ bool callManagementDispatchGSM(TransactionEntry *transaction, GSM::LogicalChanne
 		LCH->send(GSM::L3ChannelRelease());
 		transaction->GSMState(GSM::NullState);
 		transaction->MODWaitForOK();
+		//if we cancel the call, Switch might send 487 Request Terminated
+		//listen for that
+		if (transaction->SIPState() == SIP::Canceled){
+			transaction->MODWaitFor487();
+		}
 		return true;
 	}
 
@@ -1051,6 +1050,7 @@ void Control::MTCController(TransactionEntry *transaction, GSM::TCHFACCHLogicalC
 			LOG(DEBUG) << "sending SIP Ringing";
 			transaction->MTCSendRinging();
 		}
+		/*
 		// Check for SIP cancel, too.
 		if (transaction->MTCCheckForCancel()==SIP::MTDCanceling) {
 			LOG(INFO) << "MTCCheckForCancel return Canceling";
@@ -1064,6 +1064,7 @@ void Control::MTCController(TransactionEntry *transaction, GSM::TCHFACCHLogicalC
 			LOG(DEBUG) << "Call failed";
 			return abortAndRemoveCall(transaction,TCH,GSM::L3Cause(0x7F));
 		}
+		*/
 	}
 
 	// FIXME -- We should also have a SIP.Timer.F timeout here.
