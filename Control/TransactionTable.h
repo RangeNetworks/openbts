@@ -179,6 +179,8 @@ class TransactionEntry {
 
 	bool SIPFinished() { ScopedLock lock(mLock); return mSIP.finished(); } 
 
+	bool instigator() { ScopedLock lock(mLock); return mSIP.instigator(); }
+
 	SIP::SIPState MOCSendINVITE(const char* calledUser, const char* calledDomain, short rtpPort, unsigned codec);
 	SIP::SIPState MOCResendINVITE();
 	SIP::SIPState MOCWaitForOK();
@@ -200,10 +202,12 @@ class TransactionEntry {
 	void MTCInitRTP() { ScopedLock lock(mLock); mSIP.MTCInitRTP(); }
 
 	SIP::SIPState MODSendBYE();
+	SIP::SIPState MODSendUnavail();
 	SIP::SIPState MODSendCANCEL();
 	SIP::SIPState MODResendBYE();
 	SIP::SIPState MODResendCANCEL();
-	SIP::SIPState MODWaitForOK();
+	SIP::SIPState MODWaitForBYEOK();
+	SIP::SIPState MODWaitForCANCELOK();
 	SIP::SIPState MODWaitFor487();
 
 	SIP::SIPState MTDCheckBYE();

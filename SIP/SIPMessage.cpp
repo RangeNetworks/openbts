@@ -592,8 +592,69 @@ osip_message_t * SIP::sip_bye(const char * req_uri, const char * dialed_number, 
 	return bye;
 }
 
-/* Cancel a previous invite */
-osip_message_t * SIP::sip_cancel( osip_message_t * invite)
+osip_message_t * SIP::sip_temporarily_unavailable( osip_message_t * invite,  const char * host, const char * username, short  port)
+{
+
+	if(invite==NULL){ return NULL;}
+
+	osip_message_t * unavail;
+	osip_message_init(&unavail);
+	//clone doesn't work -kurtis
+	// FIXME -- Should use the "force_update" function.
+	unavail->message_property = 2;
+	//header stuff first
+	unavail->status_code = 480;
+	unavail->reason_phrase = strdup("Temporarily Unavailable");
+	osip_message_set_version(unavail, strdup("SIP/2.0"));
+
+	char local_port[10];
+	sprintf(local_port, "%i", port);
+	
+	//uri
+	osip_uri_init(&unavail->req_uri);
+	osip_uri_set_host(unavail->req_uri, strdup(host));
+	osip_uri_set_username(unavail->req_uri, strdup(username));
+	osip_uri_set_port(unavail->req_uri, strdup(local_port));
+
+	//via
+	osip_via_t * via;
+	char * via_str;
+	osip_message_get_via(invite, 0, &via);
+	osip_via_to_str(via, &via_str);
+	osip_message_set_via(unavail, via_str);
+	osip_free(via_str);
+
+	// MAX FORWARDS
+	osip_message_set_max_forwards(unavail, strdup(gConfig.getStr("SIP.MaxForwards").c_str()));
+
+	// from/to header
+	osip_from_clone(invite->from, &unavail->from);
+	osip_to_clone(invite->to, &unavail->to);
+
+	//contact
+	osip_contact_t * cont;
+	char * cont_str;
+	osip_message_get_contact(invite, 0, &cont);
+	osip_contact_to_str(cont, &cont_str);
+	osip_message_set_contact(unavail, cont_str);
+	osip_free(cont_str);
+
+	// Get Call-ID.
+	osip_call_id_clone(invite->call_id, &unavail->call_id);
+
+	// Get Cseq.
+	osip_cseq_t * cseq;
+	char * cseq_str;
+	cseq = osip_message_get_cseq(invite);
+	osip_cseq_to_str(cseq ,&cseq_str);
+	osip_message_set_cseq(unavail, cseq_str);	
+	osip_free(cseq_str);
+
+	return unavail;
+}
+
+/* Cancel a previously sent invite */
+osip_message_t * SIP::sip_cancel( osip_message_t * invite,  const char * host, const char * username, short  port)
 {
 
 	if(invite==NULL){ return NULL;}
@@ -607,10 +668,15 @@ osip_message_t * SIP::sip_cancel( osip_message_t * invite)
 	//header stuff first
 	cancel->sip_method = strdup("CANCEL");
 	osip_message_set_version(cancel, strdup("SIP/2.0"));
+
+	char local_port[10];
+	sprintf(local_port, "%i", port);
 	
 	//uri
 	osip_uri_init(&cancel->req_uri);
-	osip_uri_clone(invite->req_uri, &cancel->req_uri);
+	osip_uri_set_host(cancel->req_uri, strdup(host));
+	osip_uri_set_username(cancel->req_uri, strdup(username));
+	osip_uri_set_port(cancel->req_uri, strdup(local_port));
 
 	//via
 	osip_via_t * via;

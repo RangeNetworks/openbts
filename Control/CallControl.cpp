@@ -127,15 +127,18 @@ void forceSIPClearing(TransactionEntry *transaction)
 	if (state==SIP::Active){
 		//Changes state to clearing
 		transaction->MODSendBYE();
-	} else if (state==SIP::MODCanceling){
-		transaction->MODResendCANCEL();
-	} else if (state==SIP::MODClearing) {
-		transaction->MODResendBYE();
-	} else {
+		//then cleared
+		transaction->MODWaitForBYEOK();
+	} else if (transaction->instigator()){ //hasn't started yet, need to cancel
 		//Changes state to canceling
-	        transaction->MODSendCANCEL();
+		transaction->MODSendCANCEL();
+		//then canceled
+		transaction->MODWaitForCANCELOK();
 	}
-	transaction->MODWaitForOK();
+	else { //we received, respond and then don't send ok
+		//changed state immediately to canceled
+		transaction->MODSendUnavail();
+	}
 }
 
 
@@ -148,7 +151,7 @@ void forceSIPClearing(TransactionEntry *transaction)
 */
 void abortCall(TransactionEntry *transaction, GSM::LogicalChannel *LCH, const GSM::L3Cause& cause)
 {
-	LOG(INFO) << "cause: " << cause << ", transction: " << *transaction;
+	LOG(INFO) << "cause: " << cause << ", transaction: " << *transaction;
 	if (LCH) forceGSMClearing(transaction,LCH,cause);
 	forceSIPClearing(transaction);
 }
@@ -162,6 +165,7 @@ void abortCall(TransactionEntry *transaction, GSM::LogicalChannel *LCH, const GS
 */
 void abortAndRemoveCall(TransactionEntry *transaction, GSM::LogicalChannel *LCH, const GSM::L3Cause& cause)
 {
+	LOG(INFO) << "cause: " << cause << ", transaction: " << *transaction;
 	abortCall(transaction,LCH,cause);
 	gTransactionTable.remove(transaction);
 }
@@ -320,9 +324,20 @@ bool callManagementDispatchGSM(TransactionEntry *transaction, GSM::LogicalChanne
 		//bug #172 fixed
 		if (transaction->SIPState()==SIP::Active){
 			transaction->MODSendBYE();
+			transaction->MODWaitForBYEOK();
 		}
-		else{
-			transaction->MODSendCANCEL();		
+		else { //ok, call isn't yet active. What we send depends on who sent it
+			if (transaction->instigator()){ //if we instigated the call, send a cancel
+				transaction->MODSendCANCEL();
+				transaction->MODWaitForCANCELOK();
+				//if we cancel the call, Switch might send 487 Request Terminated
+				//listen for that
+				transaction->MODWaitFor487();
+			}
+			else { //if we received it, send a 4** instead
+				transaction->MODSendUnavail();
+				//enventually wait for ACK here -kurtis
+			}
 		}
 		return false;
 	}
@@ -352,12 +367,6 @@ bool callManagementDispatchGSM(TransactionEntry *transaction, GSM::LogicalChanne
 		transaction->resetTimers();
 		LCH->send(GSM::L3ChannelRelease());
 		transaction->GSMState(GSM::NullState);
-		transaction->MODWaitForOK();
-		//if we cancel the call, Switch might send 487 Request Terminated
-		//listen for that
-		if (transaction->SIPState() == SIP::Canceled){
-			transaction->MODWaitFor487();
-		}
 		return true;
 	}
 
@@ -1050,7 +1059,12 @@ void Control::MTCController(TransactionEntry *transaction, GSM::TCHFACCHLogicalC
 			LOG(DEBUG) << "sending SIP Ringing";
 			transaction->MTCSendRinging();
 		}
-		/*
+		//this should probably check if GSM has ended as well
+		if (transaction->SIPFinished()){
+			//Call was canceled during setup, just remove it
+			LOG(INFO) << "Call canceled during setup, removing";
+			return abortAndRemoveCall(transaction,TCH,GSM::L3Cause(0x15));
+		}
 		// Check for SIP cancel, too.
 		if (transaction->MTCCheckForCancel()==SIP::MTDCanceling) {
 			LOG(INFO) << "MTCCheckForCancel return Canceling";
@@ -1064,7 +1078,6 @@ void Control::MTCController(TransactionEntry *transaction, GSM::TCHFACCHLogicalC
 			LOG(DEBUG) << "Call failed";
 			return abortAndRemoveCall(transaction,TCH,GSM::L3Cause(0x7F));
 		}
-		*/
 	}
 
 	// FIXME -- We should also have a SIP.Timer.F timeout here.
