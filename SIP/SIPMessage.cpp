@@ -43,6 +43,13 @@ using namespace SIP;
 #define DEBUG 1
 #define MAX_VIA 10
 
+void openbts_message_init(osip_message_t ** msg){
+	osip_message_init(msg);
+	//I think it's like 40 characters
+	char tag[60];
+	sprintf(tag, "OpenBTS %s Build Date %s", VERSION, __DATE__);
+	osip_message_set_user_agent(*msg, strdup(tag));
+}
 
 osip_message_t * SIP::sip_register( const char * sip_username, short timeout, short wlocal_port, const char * local_ip, const char * proxy_ip, const char * from_tag, const char * via_branch, const char * call_id, int cseq) {
 
@@ -51,7 +58,7 @@ osip_message_t * SIP::sip_register( const char * sip_username, short timeout, sh
 	
 	// Message URI
 	osip_message_t * request;
-	osip_message_init(&request);
+	openbts_message_init(&request);
 	// FIXME -- Should use the "force_update" function.
 	request->message_property = 2; // buffer is not synchronized with object
 	request->sip_method = strdup("REGISTER");
@@ -135,7 +142,7 @@ osip_message_t * SIP::sip_message( const char * dialed_number, const char * sip_
 	sprintf(local_port, "%i", wlocal_port);
 
 	osip_message_t * request;
-	osip_message_init(&request);
+	openbts_message_init(&request);
 	// FIXME -- Should use the "force_update" function.
 	request->message_property = 2;
 
@@ -218,7 +225,7 @@ osip_message_t * SIP::sip_invite5031(short rtp_port, const char * sip_username, 
 	sprintf(local_port, "%i", wlocal_port);
 
 	osip_message_t * request;
-	osip_message_init(&request);
+	openbts_message_init(&request);
 	// FIXME -- Should use the "force_update" function.
 	request->message_property = 2;
 	request->sip_method = strdup("INVITE");
@@ -342,7 +349,7 @@ osip_message_t * SIP::sip_invite( const char * dialed_number, short rtp_port, co
 	sprintf(local_port, "%i", wlocal_port);
 
 	osip_message_t * request;
-	osip_message_init(&request);
+	openbts_message_init(&request);
 	// FIXME -- Should use the "force_update" function.
 	request->message_property = 2;
 	request->sip_method = strdup("INVITE");
@@ -467,7 +474,7 @@ osip_message_t * SIP::sip_ack(const char * req_uri, const char * dialed_number, 
 	sprintf(local_port, "%i", wlocal_port);
 
 	osip_message_t * ack;
-	osip_message_init(&ack);
+	openbts_message_init(&ack);
 	// FIXME -- Should use the "force_update" function.
 	ack->message_property = 2;
 	ack->sip_method = strdup("ACK");
@@ -536,7 +543,7 @@ osip_message_t * SIP::sip_bye(const char * req_uri, const char * dialed_number, 
 	sprintf(proxy_port,"%i",wproxy_port);
 
 	osip_message_t * bye;
-	osip_message_init(&bye);
+	openbts_message_init(&bye);
 	// FIXME -- Should use the "force_update" function.
 	bye->message_property = 2;
 	bye->sip_method = strdup("BYE");
@@ -598,7 +605,7 @@ osip_message_t * SIP::sip_temporarily_unavailable( osip_message_t * invite,  con
 	if(invite==NULL){ return NULL;}
 
 	osip_message_t * unavail;
-	osip_message_init(&unavail);
+	openbts_message_init(&unavail);
 	//clone doesn't work -kurtis
 	// FIXME -- Should use the "force_update" function.
 	unavail->message_property = 2;
@@ -660,7 +667,7 @@ osip_message_t * SIP::sip_cancel( osip_message_t * invite,  const char * host, c
 	if(invite==NULL){ return NULL;}
 
 	osip_message_t * cancel;
-	osip_message_init(&cancel);
+	openbts_message_init(&cancel);
 	//clone doesn't work -kurtis
 	//osip_message_clone(invite, &cancel);
 	// FIXME -- Should use the "force_update" function.
@@ -726,7 +733,7 @@ osip_message_t * SIP::sip_okay_sdp( osip_message_t * inv, const char * sip_usern
 	// k used for error conditions on various osip operations.
 	
 	osip_message_t * okay;
-	osip_message_init(&okay);
+	openbts_message_init(&okay);
 	// FIXME -- Should use the "force_update" function.
 	okay->message_property = 2;
 
@@ -828,7 +835,7 @@ osip_message_t * SIP::sip_b_okay( osip_message_t * bye  )
 	// k used for error conditions on various osip operations.
 	
 	osip_message_t * okay;
-	osip_message_init(&okay);
+	openbts_message_init(&okay);
 	// FIXME -- Should use the "force_update" function.
 	okay->message_property = 2;
 
@@ -868,7 +875,7 @@ osip_message_t * SIP::sip_b_okay( osip_message_t * bye  )
 osip_message_t * SIP::sip_trying( osip_message_t * invite, const char * sip_username, const char * local_ip )
 {
 	osip_message_t * trying;
-	osip_message_init(&trying);
+	openbts_message_init(&trying);
 	// FIXME -- Should use the "force_update" function.
 	trying->message_property = 2;
 
@@ -919,7 +926,7 @@ osip_message_t * SIP::sip_trying( osip_message_t * invite, const char * sip_user
 osip_message_t * SIP::sip_ringing( osip_message_t * invite, const char * sip_username, const char *local_ip)
 {
 	osip_message_t * ringing;
-	osip_message_init(&ringing);
+	openbts_message_init(&ringing);
 	// FIXME -- Should use the "force_update" function.
 	ringing->message_property = 2;
 
@@ -976,7 +983,7 @@ osip_message_t * SIP::sip_okay( osip_message_t * inv, const char * sip_username,
 	sprintf(local_port, "%i", wlocal_port);
 
 	osip_message_t * okay;
-	osip_message_init(&okay);
+	openbts_message_init(&okay);
 	// FIXME -- Should use the "force_update" function.
 	okay->message_property = 2;
 
@@ -1030,7 +1037,7 @@ osip_message_t * SIP::sip_info(unsigned info, const char *dialed_number, short r
 	sprintf(local_port, "%i", wlocal_port);
 
 	osip_message_t * request;
-	osip_message_init(&request);
+	openbts_message_init(&request);
 	// FIXME -- Should use the "force_update" function.
 	request->message_property = 2;
 	request->sip_method = strdup("INFO");
