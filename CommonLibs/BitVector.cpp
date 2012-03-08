@@ -564,7 +564,7 @@ void BitVector::unpack(const unsigned char* src)
 	unsigned whole = bytes*8;
 	unsigned rem = size() - whole;
 	if (rem==0) return;
-	fillField(whole,src[bytes],rem);
+        fillField(whole,src[bytes] >> (8-rem),rem);
 }
 
 void BitVector::hex(ostream& os) const
