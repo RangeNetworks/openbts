@@ -326,7 +326,7 @@ bool callManagementDispatchGSM(TransactionEntry *transaction, GSM::LogicalChanne
 			transaction->MODSendBYE();
 			transaction->MODWaitForBYEOK();
 		}
-		else { //ok, call isn't yet active. What we send depends on who sent it
+		else { //this is the end if the call isn't setup yet
 			if (transaction->instigator()){ //if we instigated the call, send a cancel
 				transaction->MODSendCANCEL();
 				transaction->MODWaitForCANCELOK();
@@ -338,6 +338,8 @@ bool callManagementDispatchGSM(TransactionEntry *transaction, GSM::LogicalChanne
 				transaction->MODSendUnavail();
 				//enventually wait for ACK here -kurtis
 			}
+			transaction->GSMState(GSM::NullState);
+			return true;
 		}
 		return false;
 	}
@@ -835,7 +837,7 @@ void Control::MOCController(TransactionEntry *transaction, GSM::TCHFACCHLogicalC
 	// FIXME -- We should also have a SIP.Timer.B timeout on this end.
 	while (transaction->GSMState()!=GSM::CallReceived) {
 
-		if (updateGSMSignalling(transaction,TCH)) return;
+		if (updateGSMSignalling(transaction,TCH)) return abortAndRemoveCall(transaction,TCH,GSM::L3Cause(0x15));
 		if (transaction->clearingGSM()) return abortAndRemoveCall(transaction,TCH,GSM::L3Cause(0x7F));
 
 		LOG(INFO) << "wait for Ringing or OK";
@@ -887,7 +889,7 @@ void Control::MOCController(TransactionEntry *transaction, GSM::TCHFACCHLogicalC
 		LOG(DEBUG) << "SIP state "<< state;
 
 		// check GSM state
-		if (updateGSMSignalling(transaction,TCH)) return;
+		if (updateGSMSignalling(transaction,TCH)) return abortAndRemoveCall(transaction,TCH,GSM::L3Cause(0x15));
 		if (transaction->clearingGSM()) return abortAndRemoveCall(transaction,TCH,GSM::L3Cause(0x7F));
 
 		// parse out SIP state
@@ -1053,7 +1055,7 @@ void Control::MTCController(TransactionEntry *transaction, GSM::TCHFACCHLogicalC
 	// Get the alerting message.
 	LOG(INFO) << "waiting for GSM Alerting and Connect";
 	while (transaction->GSMState()!=GSM::Active) {
-		if (updateGSMSignalling(transaction,TCH,1000)) return;
+		if (updateGSMSignalling(transaction,TCH,1000)) return abortAndRemoveCall(transaction,TCH,GSM::L3Cause(0x15));
 		if (transaction->GSMState()==GSM::Active) break;
 		if (transaction->GSMState()==GSM::CallReceived) {
 			LOG(DEBUG) << "sending SIP Ringing";
@@ -1086,7 +1088,7 @@ void Control::MTCController(TransactionEntry *transaction, GSM::TCHFACCHLogicalC
 	SIP::SIPState state = transaction->MTCSendOK(RTPPorts,SIP::RTPGSM610);
 	while (state!=SIP::Active) {
 		LOG(DEBUG) << "wait for SIP OKAY-ACK";
-		if (updateGSMSignalling(transaction,TCH)) return;
+		if (updateGSMSignalling(transaction,TCH)) return abortAndRemoveCall(transaction,TCH,GSM::L3Cause(0x15));
 		state = transaction->MTCWaitForACK();
 		LOG(DEBUG) << "SIP call state "<< state;
 		switch (state) {
