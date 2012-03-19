@@ -30,10 +30,13 @@ or implied, of Kurtis Heimerl.
 
   <!-- openbts_db_loc set in vars.xml -->
   <condition field='${python(OpenBTS_DB SELECT name FROM sip_buddies WHERE callerid="${destination_number}")}' expression="IMSI\d{15}"/>
+  <!-- this defines it as local... username is in DB -->
   <condition field='${python(OpenBTS_DB SELECT callerid FROM sip_buddies WHERE name="${username}"' expression="\d{7,10}">
-    <action application="set" data='target=${python(OpenBTS_DB SELECT name FROM sip_buddies WHERE callerid="${destination_number}")}' />
+    <action application="set" data='name=${python(OpenBTS_DB SELECT name FROM sip_buddies WHERE callerid="${destination_number}")}' />
+    <action application="set" data='ipaddr=${python(OpenBTS_DB SELECT ipaddr FROM sip_buddies WHERE name="${name}")}' />
+    <action application="set" data='port=${python(OpenBTS_DB SELECT port FROM sip_buddies WHERE name="${name}")}' />
     <action application="set" data='effective_caller_id_number=${python(OpenBTS_DB SELECT callerid FROM sip_buddies WHERE name="${username}"'/>
-    <action application="bridge" data="sofia/internal/${target}@${domain}:${sip_received_port}"/>
+    <action application="bridge" data="sofia/internal/${name}@${ipaddr}:${port}"/>
   </condition>
 
 </extension>
