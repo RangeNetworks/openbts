@@ -213,10 +213,10 @@ void Control::LocationUpdatingController(const L3LocationUpdatingRequest* lur, L
 		//if we have a new imei and either there's no old one, or it is different...
 		if (!new_imei.empty() && (old_imei.empty() || old_imei != new_imei)){
 			LOG(INFO) << "Updating IMSI" << IMSI << " to IMEI:" << new_imei;
-			if (!gSubscriberRegistry.imsiSet(name,"RRLPSupported", "1")) {
+			if (gSubscriberRegistry.imsiSet(name,"RRLPSupported", "1")) {
 			 	LOG(INFO) << "SR RRLPSupported update problem";
 			}
-			if (!gSubscriberRegistry.imsiSet(name,"hardware", new_imei)) {
+			if (gSubscriberRegistry.imsiSet(name,"hardware", new_imei)) {
 				LOG(INFO) << "SR hardware update problem";
 			}
 		}

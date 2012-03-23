@@ -239,7 +239,7 @@ bool RRLPServer::transact()
 					//Rejection code only useful if we're gathering IMEIs
 					if (gConfig.defines("Control.LUR.QueryIMEI")){
 						// flag unsupported in SR so we don't waste time on it again
-						if (!gSubscriberRegistry.imsiSet(name, "RRLPSupported", "0")) {
+						if (gSubscriberRegistry.imsiSet(name, "RRLPSupported", "0")) {
 							LOG(INFO) << "SR update problem";
 						}
 					}
