@@ -61,7 +61,7 @@ def parse_and_op(args):
 
 def chat(message, args):
     res = parse_and_op(args)
-    consoleLog('info', "Returned: " + res)
+    consoleLog('info', "Returned: " + res + "\n")
     message.chat_execute('set', '_openbts_ret=%s' % res)
 
 def fsapi(session, stream, env, args):

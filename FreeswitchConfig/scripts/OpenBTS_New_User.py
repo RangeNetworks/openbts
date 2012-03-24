@@ -42,7 +42,7 @@ def gen_random_hex(length):
         res += "%x" % (random.randint(0,15))
     return res
 
-def create_user(db_loc, caller, target, port):
+def create_user(db_loc, caller, target, ip, port):
 
     try:
         conn = sqlite3.connect(db_loc)
@@ -60,7 +60,9 @@ def create_user(db_loc, caller, target, port):
     if (cur.fetchone()):
         return ("Number %s already taken!" % target)
     #ok, give them the number
-    cur.execute("INSERT INTO sip_buddies VALUES (NULL,?,'phones','allowed_not_screened',NULL,NULL,NULL,NULL,NULL,NULL,'dynamic','no','friend',NULL,NULL,NULL,?,'0.0.0.0','info',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'all','gsm',NULL,'127.0.0.1',?,?,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'yes','yes','yes','no',NULL,'no',NULL,'yes','accept',1800,90,'uas',NULL,NULL,NULL,'yes',500,NULL,120,NULL,NULL,0,NULL,1317085224,'','yes','no',NULL,NULL,NULL,NULL,0,'0',?,?,'','',0,0,1)" , (caller, target, port, caller, gen_random_hex(32), gen_random_hex(8)))
+    cur.execute("INSERT INTO sip_buddies (name, username, type, context, host, callerid, canreinvite, allow, dtmfmode, ipaddr, port) values (?,?,?,?,?,?,?,?,?,?,?)", (caller, caller, "friend", "phones", "dynamic", target, "no", "gsm", "info", ip, port))
+    conn.commit()
+    cur.execute("INSERT INTO dialdata_table (exten, dial) values (?, ?)", (target, caller))
     conn.commit()
     conn.close()
     return ("Your new number is %s" % target)
@@ -69,6 +71,7 @@ def chat(message, args):
     db_loc = getGlobalVariable("openbts_db_loc")
     caller = message.getHeader("from_user")
     target = message.getHeader("openbts_text")
+    ip = message.getHeader("from_host")
     port = message.getHeader("from_sip_port")
 
     if not (db_loc):
@@ -80,21 +83,22 @@ def chat(message, args):
     elif not (port):
         err("from_sip_port not defined\n")
 
-    res = str(create_user(db_loc, caller, target, port))
+    res = str(create_user(db_loc, caller, target, ip, port))
     message.chat_execute('set', '_openbts_ret=%s' % res)
     consoleLog('info', "Sent '%s' to %s\n" % (res, caller))
 
 def fsapi(session, stream, env, args):
     args = args.split('|')
-    if (len(args) < 3):
+    if (len(args) < 4):
         err('Missing Args\n')
     caller = args[0]
     target = args[1]
-    port = args[2]
+    ip = args[2]
+    port = args[3]
 
     db_loc = None
-    if (len(args) == 4):
-        db_loc = args[3]
+    if (len(args) == 5):
+        db_loc = args[4]
 
     #if they don't all exist
     if (not db_loc or db_loc == ''):
@@ -111,4 +115,4 @@ def fsapi(session, stream, env, args):
         port == ''):
         err("Malformed Args \n")
 
-    stream.write(str(create_user(db_loc, caller, target, port)))
+    stream.write(str(create_user(db_loc, caller, target, ip, port)))

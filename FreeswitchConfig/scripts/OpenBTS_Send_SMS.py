@@ -70,12 +70,24 @@ def gen_body(to, text):
 
 #forward the message to smqueue for store-and-forwarding
 def send_smqueue_message(to, fromm, text):
+    if not(getGlobalVariable("domain")):
+        consoleLog('err', "Global var 'domain' not set\n")
+        exit(1)
+    if not(getGlobalVariable("smqueue_profile")):
+        consoleLog('err',"Global var 'smqueue_profile' not set\n")
+        exit(1)
+    if not(getGlobalVariable("smqueue_host")):
+        consoleLog('err',"Global var 'smqueue_host' not set\n")
+        exit(1)
+    if not(getGlobalVariable("smqueue_port")):
+        consoleLog('err',"Global var 'smqueue_port' not set\n")
+        exit(1)
     event = Event("CUSTOM", "SMS::SEND_MESSAGE")
     event.addHeader("proto", "sip");
     event.addHeader("dest_proto", "sip");
     event.addHeader("from", fromm)
     event.addHeader("from_full", "sip:" + fromm + "@" + getGlobalVariable("domain"))
-    event.addHeader("to", "internal/sip:smsc@" + getGlobalVariable("smqueue_host") + ":" + getGlobalVariable("smqueue_port"))
+    event.addHeader("to", getGlobalVariable("smqueue_profile") + "/sip:smsc@" + getGlobalVariable("smqueue_host") + ":" + getGlobalVariable("smqueue_port"))
     event.addHeader("subject", "SIMPLE_MESSAGE")
     event.addHeader("type", "application/vnd.3gpp.sms");
     event.addHeader("hint", "the hint");
