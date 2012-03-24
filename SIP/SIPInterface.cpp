@@ -60,15 +60,6 @@ using namespace Control;
 void SIPMessageMap::write(const std::string& call_id, osip_message_t * msg)
 {
 	LOG(DEBUG) << "call_id=" << call_id << " msg=" << msg;
-	string name = osip_message_get_from(msg)->url->username;
-	if (gSubscriberRegistry.imsiSet(name, "ipaddr", 
-					 osip_message_get_from(msg)->url->host)){
-		LOG(INFO) << "SR ipaddr Update Problem";
-	}
-	if (gSubscriberRegistry.imsiSet(name, "port", 
-					 gConfig.getStr("SIP.Local.Port"))){
-		LOG(INFO) << "SR port Update Problem";
-	}
 	OSIPMessageFIFO * fifo = mMap.readNoBlock(call_id);
 	if( fifo==NULL ) {
 		// FIXME -- If this write fails, send "call leg non-existent" response on SIP interface.
@@ -166,6 +157,21 @@ void SIPInterface::write(const struct sockaddr_in* dest, osip_message_t *msg)
 	if (!str) {
 		LOG(ERR) << "osip_message_to_str produced a NULL pointer.";
 		return;
+	}
+	//if it's any of these transactions, record it in the database
+	string name = osip_message_get_from(msg)->url->username;
+	if (msg->sip_method && 
+	    (!strncmp(msg->sip_method, "INVITE", 6) ||
+	     !strncmp(msg->sip_method, "REGISTER", 8) ||
+	     !strncmp(msg->sip_method, "MESSAGE", 7))) {
+		if (gSubscriberRegistry.imsiSet(name, "ipaddr", 
+						osip_message_get_from(msg)->url->host)){
+			LOG(INFO) << "SR ipaddr Update Problem";
+		}
+		if (gSubscriberRegistry.imsiSet(name, "port", 
+						gConfig.getStr("SIP.Local.Port"))){
+			LOG(INFO) << "SR port Update Problem";
+		}
 	}
 	char firstLine[100];
 	sscanf(str,"%100[^\n]",firstLine);
