@@ -1,0 +1,38 @@
+RAD1 changes 
+-----------------------------------------------------
+
+chan_fifo_reader.v
+changed timestamp_clock -> "adc_time"
+added JITTER
+
+cic_interp.v
+changes clear_me --> reset
+
+cic_int_shifter.v
+increased default value of bitgain to "21"
+ 
+cmd_reader.v
+propagated name change timestamp_clock
+
+io_pins.v
+removed --> inout wire [15:0] io_2, inout wire [15:0] io_3,
+removed --> input wire [15:0] reg_2, input wire [15:0] reg_3,
++	 `FR_OE_2 : io_2_oe
++	   <= #1 (io_2_oe & ~serial_data[31:16]) | (serial_data[15:0] & serial_data[31:16] );
++	 `FR_OE_3 : io_3_oe
++	   <= #1 (io_3_oe & ~serial_data[31:16]) | (serial_data[15:0] & serial_data[31:16] );
+ 
+master_control.v
+removed -->  wire [7:0] master_controls;
+
+packet_builder.v
+parameter NUM_CHAN = 1 --> used to be 2
+changes name timestamp_complete -- tstamp_complete;
+
+register_io.v
+added 
+-     atr_tx_delay, atr_rx_delay, master_controls, debug_en, interp_rate, decim_rate, 
+-     atr_mask_0, atr_txval_0, atr_rxval_0, atr_mask_1, atr_txval_1, atr_rxval_1,
+-     atr_mask_2, atr_txval_2, atr_rxval_2, atr_mask_3, atr_txval_3, atr_rxval_3, 
+-     txa_refclk, txb_refclk, rxa_refclk, rxb_refclk, misc, txmux);   
+
