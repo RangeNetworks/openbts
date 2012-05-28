@@ -96,8 +96,8 @@ SIPEngine::SIPEngine(const char* proxy, const char* IMSI)
 	mSIPPort(gConfig.getNum("SIP.Local.Port")),
 	mSIPIP(gConfig.getStr("SIP.Local.IP")),
 	mINVITE(NULL), mLastResponse(NULL), mBYE(NULL),
-	mCANCEL(NULL), mSession(NULL), mTxTime(0), mRxTime(0),
-	mState(NullState),
+	mCANCEL(NULL), mUNAVAIL(NULL), mSession(NULL), 
+	mTxTime(0), mRxTime(0), mState(NullState),
 	mDTMF('\0'),mDTMFDuration(0)
 {
 	assert(proxy);
@@ -133,6 +133,7 @@ SIPEngine::~SIPEngine()
 	if (mLastResponse!=NULL) osip_message_free(mLastResponse);
 	if (mBYE!=NULL) osip_message_free(mBYE);
 	if (mCANCEL!=NULL) osip_message_free(mCANCEL);
+	if (mUNAVAIL!=NULL) osip_message_free(mUNAVAIL);
 	// FIXME -- Do we need to dispose of the RtpSesion *mSesison?
 }
 
@@ -198,6 +199,15 @@ void SIPEngine::saveCANCEL(const osip_message_t *CANCEL, bool mine)
 	// This simplifies the call-handling logic.
 	if (mCANCEL!=NULL) osip_message_free(mCANCEL);
 	osip_message_clone(CANCEL,&mCANCEL);
+}
+
+void SIPEngine::saveUNAVAIL(const osip_message_t *UNAVAIL, bool mine)
+{
+	// Instead of cloning, why not just keep the old one?
+	// Because that doesn't work in all calling contexts.
+	// This simplifies the call-handling logic.
+	if (mUNAVAIL!=NULL) osip_message_free(mUNAVAIL);
+	osip_message_clone(UNAVAIL,&mUNAVAIL);
 }
 
 /* we're going to figure if the from field is us or not */
@@ -492,11 +502,13 @@ SIPState  SIPEngine::MOCWaitForOK()
 	LOG(DEBUG) << "received status " << status;
 	saveResponse(msg);
 	switch (status) {
-		case 100:	// Trying
-		case 183:	// Progress
+		case 100:	// Trying - this maybe should go to ringing too -kurtis
 			mState = Proceeding;
 			break;
 		case 180:	// Ringing
+		case 183:	// Progress - 
+			//We keep sending invited until we 
+			//enter Ringing, so 183 need to do that -kurtis
 			mState = Ringing;
 			break;
 		case 200:	// OK
@@ -523,15 +535,9 @@ SIPState  SIPEngine::MOCWaitForOK()
 }
 
 
-//this isn't working right now -kurtis
 SIPState SIPEngine::MOCSendACK()
 {
 	assert(mLastResponse);
-
-	// new branch
-	char tmp[50];
-	make_branch(tmp);
-	mViaBranch = tmp;
 
 	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
 
@@ -572,7 +578,7 @@ SIPState SIPEngine::MODSendBYE()
 	return mState;
 }
 
-SIPState SIPEngine::MODSendUnavail()
+SIPState SIPEngine::MODSendUNAVAIL()
 {
 	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
 	assert(mINVITE);
@@ -580,8 +586,9 @@ SIPState SIPEngine::MODSendUnavail()
 	osip_message_t * unavail = sip_temporarily_unavailable(mINVITE, mSIPIP.c_str(),
 							       mSIPUsername.c_str(), mSIPPort);
 	gSIPInterface.write(&mProxyAddr,unavail);
+	saveUNAVAIL(unavail, true);
 	osip_message_free(unavail);
-	mState = Canceled;
+	mState = MODCanceling;
 	return mState;
 }
 
@@ -615,6 +622,15 @@ SIPState SIPEngine::MODResendCANCEL()
 	assert(mState==MODCanceling);
 	assert(mCANCEL);
 	gSIPInterface.write(&mProxyAddr,mCANCEL);
+	return mState;
+}
+
+SIPState SIPEngine::MODResendUNAVAIL()
+{
+	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
+	assert(mState==MODCanceling);
+	assert(mUNAVAIL);
+	gSIPInterface.write(&mProxyAddr,mUNAVAIL);
 	return mState;
 }
 
@@ -700,6 +716,35 @@ SIPState SIPEngine::MODWaitForCANCELOK()
 		catch (SIPTimeout& e) {
 			LOG(NOTICE) << "response timeout, resending CANCEL";
 			MODResendCANCEL();
+		}
+	}
+
+	if (!responded) { LOG(ALERT) << "lost contact with proxy " << mProxyIP << ":" << mProxyPort; }
+
+	mState = Canceled;
+
+	return mState;
+}
+
+SIPState SIPEngine::MODWaitForUNAVAILACK()
+{
+	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
+	bool responded = false;
+	Timeval timeout(gConfig.getNum("SIP.Timer.F")); 
+	while (!timeout.passed()) {
+		try {
+			osip_message_t * ack = gSIPInterface.read(mCallID, gConfig.getNum("SIP.Timer.E"));
+			responded = true;
+			saveResponse(ack);
+			if (!strncmp(ack->sip_method,"ACK", 4)) {
+				LOG(WARNING) << "unexpected " << ack->sip_method << " response to UNAVAIL, from proxy " << mProxyIP << ":" << mProxyPort << ". Assuming other end has cleared";
+			}
+			osip_message_free(ack);
+			break;
+		}
+		catch (SIPTimeout& e) {
+			LOG(NOTICE) << "response timeout, resending UNAVAIL";
+			MODResendUNAVAIL();
 		}
 	}
 

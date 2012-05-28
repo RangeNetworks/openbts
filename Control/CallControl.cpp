@@ -136,8 +136,10 @@ void forceSIPClearing(TransactionEntry *transaction)
 		transaction->MODWaitForCANCELOK();
 	}
 	else { //we received, respond and then don't send ok
-		//changed state immediately to canceled
-		transaction->MODSendUnavail();
+		//changed state immediately to canceling
+		transaction->MODSendUNAVAIL();
+		//then canceled
+		transaction->MODWaitForUNAVAILACK();
 	}
 }
 
@@ -335,8 +337,8 @@ bool callManagementDispatchGSM(TransactionEntry *transaction, GSM::LogicalChanne
 				transaction->MODWaitFor487();
 			}
 			else { //if we received it, send a 4** instead
-				transaction->MODSendUnavail();
-				//enventually wait for ACK here -kurtis
+				transaction->MODSendUNAVAIL();
+				transaction->MODWaitForUNAVAILACK();
 			}
 			transaction->GSMState(GSM::NullState);
 			return true;

@@ -420,10 +420,10 @@ SIP::SIPState TransactionEntry::MODSendBYE()
 	return state;
 }
 
-SIP::SIPState TransactionEntry::MODSendUnavail()
+SIP::SIPState TransactionEntry::MODSendUNAVAIL()
 {
 	ScopedLock lock(mLock);
-	SIP::SIPState state = mSIP.MODSendUnavail();
+	SIP::SIPState state = mSIP.MODSendUNAVAIL();
 	echoSIPState(state);
 	return state;
 }
@@ -452,6 +452,14 @@ SIP::SIPState TransactionEntry::MODResendCANCEL()
 	return state;
 }
 
+SIP::SIPState TransactionEntry::MODResendUNAVAIL()
+{
+	ScopedLock lock(mLock);
+	SIP::SIPState state = mSIP.MODResendUNAVAIL();
+	echoSIPState(state);
+	return state;
+}
+
 SIP::SIPState TransactionEntry::MODWaitForBYEOK()
 {
 	ScopedLock lock(mLock);
@@ -464,6 +472,14 @@ SIP::SIPState TransactionEntry::MODWaitForCANCELOK()
 {
 	ScopedLock lock(mLock);
 	SIP::SIPState state = mSIP.MODWaitForCANCELOK();
+	echoSIPState(state);
+	return state;
+}
+
+SIP::SIPState TransactionEntry::MODWaitForUNAVAILACK()
+{
+	ScopedLock lock(mLock);
+	SIP::SIPState state = mSIP.MODWaitForUNAVAILACK();
 	echoSIPState(state);
 	return state;
 }
