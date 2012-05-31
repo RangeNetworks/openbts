@@ -71,6 +71,8 @@ RadioInterface::RadioInterface(RadioDevice *wRadio,
                                int wReceiveOffset,
 			       int wRadioOversampling,
 			       int wTransceiverOversampling,
+			       bool wLoadTest,
+			       unsigned int wNumARFCNs,
 			       GSM::Time wStartTime)
 
 {
@@ -85,6 +87,9 @@ RadioInterface::RadioInterface(RadioDevice *wRadio,
   samplesPerSymbol = wRadioOversampling;
   mClock.set(wStartTime);
   powerScaling = 1.0;
+  mNumARFCNs = wNumARFCNs;
+
+  loadTest = wLoadTest;
 }
 
 RadioInterface::~RadioInterface(void) {
@@ -236,6 +241,34 @@ void RadioInterface::start()
  
   mOn = true;
 
+  if (loadTest) {
+    int mOversamplingRate = samplesPerSymbol;
+    int numARFCN = mNumARFCNs;
+    signalVector *gsmPulse = generateGSMPulse(2,1);
+    BitVector normalBurstSeg = "0000101010100111110010101010010110101110011000111001101010000";
+    BitVector normalBurst(BitVector(normalBurstSeg,gTrainingSequence[2]),normalBurstSeg);
+    signalVector *modBurst = modulateBurst(normalBurst,*gsmPulse,8,1);
+    signalVector *modBurst9 = modulateBurst(normalBurst,*gsmPulse,9,1);
+    signalVector *interpolationFilter = createLPF(0.6/mOversamplingRate,6*mOversamplingRate,1);
+    scaleVector(*modBurst,mRadio->fullScaleInputValue());
+    scaleVector(*modBurst9,mRadio->fullScaleInputValue());
+    double beaconFreq = -1.0*(numARFCN-1)*200e3;
+    finalVec = new signalVector(156*mOversamplingRate);
+    finalVec9 = new signalVector(157*mOversamplingRate);
+    for (int j = 0; j < numARFCN; j++) {
+        signalVector *frequencyShifter = new signalVector(157*mOversamplingRate);
+        frequencyShifter->fill(1.0);
+        frequencyShift(frequencyShifter,frequencyShifter,2.0*M_PI*(beaconFreq+j*400e3)/(1625.0e3/6.0*mOversamplingRate));
+        signalVector *interpVec = polyphaseResampleVector(*modBurst,mOversamplingRate,1,interpolationFilter);
+        multVector(*interpVec,*frequencyShifter);
+        addVector(*finalVec,*interpVec);
+        interpVec = polyphaseResampleVector(*modBurst9,mOversamplingRate,1,interpolationFilter);
+        multVector(*interpVec,*frequencyShifter);
+        addVector(*finalVec9,*interpVec);
+    }
+  }
+
+
 }
 
 void *AlignRadioServiceLoopAdapter(RadioInterface *radioInterface)
@@ -287,14 +320,15 @@ void RadioInterface::driveReceiveRadio() {
     GSM::Time tmpTime = rcvClock;
     if (rcvClock.FN() >= 0) {
       //LOG(DEBUG) << "FN: " << rcvClock.FN();
+      int dummyARFCN = 0;
       radioVector *rxBurst = NULL;
       if (!loadTest)
-        rxBurst = new radioVector(rxVector,tmpTime);
+        rxBurst = new radioVector(rxVector,tmpTime,dummyARFCN);
       else {
 	if (tN % 4 == 0)
-	  rxBurst = new radioVector(*finalVec9,tmpTime);
+	  rxBurst = new radioVector(*finalVec9,tmpTime,dummyARFCN);
         else
-          rxBurst = new radioVector(*finalVec,tmpTime); 
+          rxBurst = new radioVector(*finalVec,tmpTime,dummyARFCN); 
       }
       mReceiveFIFO.put(rxBurst); 
     }

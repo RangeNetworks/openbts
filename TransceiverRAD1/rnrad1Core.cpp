@@ -74,7 +74,7 @@ int usbMsg (struct libusb_device_handle *udh,
   if (ret < 0) {
     // we get EPIPE if the firmware stalls the endpoint.
     if (ret != LIBUSB_ERROR_PIPE) {
-      LOG(ALERT) << "libusb_control_transfer failed: " << _get_usb_error_str(ret);
+      LOG(ERR) << "libusb_control_transfer failed: " << _get_usb_error_str(ret);
     }
   }
 

@@ -66,16 +66,79 @@ int main(int argc, char *argv[])
   // Configure logger.
   gLogInit("transceiver",gConfig.getStr("Log.Level").c_str(),LOG_LOCAL7);
 
+  int numARFCN=1;
+  if (argc>1) numARFCN = atoi(argv[1]);
+
+#ifdef SINGLEARFCN
+  numARFCN=1;
+#endif
+
   srandom(time(NULL));
 
   int mOversamplingRate = 1;
+  switch(numARFCN) {
+   
+  case 1: 
+	mOversamplingRate = 1;
+	break;
+  case 2:
+	mOversamplingRate = 6;
+ 	break;
+  case 3:
+	mOversamplingRate = 8;
+	break;
+  case 4:
+	mOversamplingRate = 12;
+	break;
+  case 5:
+	mOversamplingRate = 16;
+	break;
+  default:
+	break;
+  }
+  //int mOversamplingRate = numARFCN/2 + numARFCN;
+  //mOversamplingRate = 15; //mOversamplingRate*2;
+  //if ((numARFCN > 1) && (mOversamplingRate % 2)) mOversamplingRate++;
   RAD1Device *usrp = new RAD1Device(mOversamplingRate*1625.0e3/6.0);
+  //DummyLoad *usrp = new DummyLoad(mOversamplingRate*1625.0e3/6.0);
   usrp->make(); 
 
-  RadioInterface* radio = new RadioInterface(usrp,3,SAMPSPERSYM,mOversamplingRate,false);
-  Transceiver *trx = new Transceiver(5700,"127.0.0.1",SAMPSPERSYM,GSM::Time(2,0),radio);
+  RadioInterface* radio = new RadioInterface(usrp,3,SAMPSPERSYM,mOversamplingRate,false,numARFCN);
+  Transceiver *trx = new Transceiver(5700,"127.0.0.1",SAMPSPERSYM,GSM::Time(2,0),radio,
+				     numARFCN,mOversamplingRate,false);
   trx->receiveFIFO(radio->receiveFIFO());
 
+/*
+  signalVector *gsmPulse = generateGSMPulse(2,1);
+  BitVector normalBurstSeg = "0000101010100111110010101010010110101110011000111001101010000";
+  BitVector normalBurst(BitVector(normalBurstSeg,gTrainingSequence[0]),normalBurstSeg);
+  signalVector *modBurst = modulateBurst(normalBurst,*gsmPulse,8,1);
+  signalVector *modBurst9 = modulateBurst(normalBurst,*gsmPulse,9,1);
+  signalVector *interpolationFilter = createLPF(0.6/mOversamplingRate,6*mOversamplingRate,1);
+  signalVector totalBurst1(*modBurst,*modBurst9);
+  signalVector totalBurst2(*modBurst,*modBurst);
+  signalVector totalBurst(totalBurst1,totalBurst2);
+  scaleVector(totalBurst,usrp->fullScaleInputValue());
+  double beaconFreq = -1.0*(numARFCN-1)*200e3;
+  signalVector finalVec(625*mOversamplingRate);
+  for (int j = 0; j < numARFCN; j++) {
+	signalVector *frequencyShifter = new signalVector(625*mOversamplingRate);
+	frequencyShifter->fill(1.0);
+	frequencyShift(frequencyShifter,frequencyShifter,2.0*M_PI*(beaconFreq+j*400e3)/(1625.0e3/6.0*mOversamplingRate));
+  	signalVector *interpVec = polyphaseResampleVector(totalBurst,mOversamplingRate,1,interpolationFilter);
+	multVector(*interpVec,*frequencyShifter);
+	addVector(finalVec,*interpVec); 	
+  }
+  signalVector::iterator itr = finalVec.begin();
+  short finalVecShort[2*finalVec.size()];
+  short *shortItr = finalVecShort;
+  while (itr < finalVec.end()) {
+	*shortItr++ = (short) (itr->real());
+	*shortItr++ = (short) (itr->imag());
+	itr++;
+  }
+  usrp->loadBurst(finalVecShort,finalVec.size());
+*/
   trx->start();
   //int i = 0;
   while(!gbShutdown) { sleep(1); } //i++; if (i==60) exit(1);}

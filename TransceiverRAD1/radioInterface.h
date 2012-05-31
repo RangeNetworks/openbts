@@ -40,15 +40,21 @@ class radioVector : public signalVector {
 private:
 
   GSM::Time mTime;   ///< the burst's GSM timestamp 
+  int mARFCN;
 
 public:
   /** constructor */
   radioVector(const signalVector& wVector,
-              GSM::Time& wTime): signalVector(wVector),mTime(wTime) {};
+              GSM::Time& wTime,
+              int& wARFCN): signalVector(wVector),mTime(wTime),mARFCN(wARFCN){};
 
   /** timestamp read and write operators */
   GSM::Time time() const { return mTime;}
   void time(const GSM::Time& wTime) { mTime = wTime;}
+
+  /** ARFCN read and write operators */
+  int ARFCN() const { return mARFCN;}
+  void ARFCN(const int& wARFCN) { mARFCN = wARFCN;}
 
   /** comparison operator, used for sorting */
   bool operator>(const radioVector& other) const {return mTime > other.mTime;}
@@ -111,12 +117,12 @@ private:
 public:
 
   /** Set clock */
-  //void set(const GSM::Time& wTime) { ScopedLock lock(mLock); mClock = wTime; updateSignal.signal();}
-  void set(const GSM::Time& wTime) { ScopedLock lock(mLock); mClock = wTime; updateSignal.broadcast();;}
+  void set(const GSM::Time& wTime) { ScopedLock lock(mLock); mClock = wTime; updateSignal.signal();}
+  //void set(const GSM::Time& wTime) { ScopedLock lock(mLock); mClock = wTime; updateSignal.broadcast();;}
 
   /** Increment clock */
-  //void incTN() { ScopedLock lock(mLock); mClock.incTN(); updateSignal.signal();}
-  void incTN() { ScopedLock lock(mLock); mClock.incTN(); updateSignal.broadcast();}
+  void incTN() { ScopedLock lock(mLock); mClock.incTN(); updateSignal.signal();}
+  //void incTN() { ScopedLock lock(mLock); mClock.incTN(); updateSignal.broadcast();}
 
   /** Get clock value */
   GSM::Time get() { ScopedLock lock(mLock); return mClock; }
@@ -188,6 +194,8 @@ public:
 		 int receiveOffset = 3,
 		 int wRadioOversampling = SAMPSPERSYM,
 		 int wTransceiverOversampling = SAMPSPERSYM,
+		 bool wLoadTest = false,
+		 unsigned int wNumARFCNS = 1,
 		 GSM::Time wStartTime = GSM::Time(0));
     
   /** destructor */

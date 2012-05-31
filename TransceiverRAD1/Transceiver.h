@@ -40,6 +40,25 @@
 /** Define this to be the slot number to be logged. */
 //#define TRANSMIT_LOGGING 1
 
+#define MAXARFCN 5
+
+
+/** Codes for burst types of received bursts*/
+typedef enum {
+  OFF,               ///< timeslot is off
+  TSC,	       ///< timeslot should contain a normal burst
+  RACH,	       ///< timeslot should contain an access burst
+  IDLE	       ///< timeslot is an idle (or dummy) burst
+} CorrType;
+
+class Demodulator;
+class Transceiver;
+
+typedef struct ThreadStruct {
+   Transceiver *trx;
+   unsigned ARFCN;
+} ThreadStruct;
+
 /** The Transceiver class, responsible for physical layer of basestation */
 class Transceiver {
   
@@ -48,33 +67,33 @@ private:
   GSM::Time mTransmitLatency;     ///< latency between basestation clock and transmit deadline clock
   GSM::Time mLatencyUpdateTime;   ///< last time latency was updated
 
-  UDPSocket mDataSocket;	  ///< socket for writing to/reading from GSM core
-  UDPSocket mControlSocket;	  ///< socket for writing/reading control commands from GSM core
+  UDPSocket *mDataSocket[MAXARFCN];	  ///< socket for writing to/reading from GSM core
+  UDPSocket *mControlSocket[MAXARFCN];	  ///< socket for writing/reading control commands from GSM core
   UDPSocket mClockSocket;	  ///< socket for writing clock updates to GSM core
 
   VectorQueue  mTransmitPriorityQueue;   ///< priority queue of transmit bursts received from GSM core
   VectorFIFO*  mTransmitFIFO;     ///< radioInterface FIFO of transmit bursts 
   VectorFIFO*  mReceiveFIFO;      ///< radioInterface FIFO of receive bursts 
+  VectorFIFO*  mDemodFIFO[MAXARFCN];
 
   Thread *mFIFOServiceLoopThread;  ///< thread to push/pull bursts into transmit/receive FIFO
-  Thread *mControlServiceLoopThread;       ///< thread to process control messages from GSM core
-  Thread *mTransmitPriorityQueueServiceLoopThread;///< thread to process transmit bursts from GSM core
+  Thread *mRFIFOServiceLoopThread;
+  Thread *mDemodServiceLoopThread[MAXARFCN];     ///< threads for demodulating individual ARFCNs
+  Thread *mControlServiceLoopThread[MAXARFCN];       ///< thread to process control messages from GSM core
+  Thread *mTransmitPriorityQueueServiceLoopThread[MAXARFCN];///< thread to process transmit bursts from GSM core
 
   GSM::Time mTransmitDeadlineClock;       ///< deadline for pushing bursts into transmit FIFO 
   GSM::Time mLastClockUpdateTime;         ///< last time clock update was sent up to core
+  GSM::Time mStartTime;
 
   RadioInterface *mRadioInterface;	  ///< associated radioInterface object
   double txFullScale;                     ///< full scale input to radio
-  double rxFullScale;                     ///< full scale output to radio
+  double rxFullScale;
 
-  /** Codes for burst types of received bursts*/
-  typedef enum {
-    OFF,               ///< timeslot is off
-    TSC,	       ///< timeslot should contain a normal burst
-    RACH,	       ///< timeslot should contain an access burst
-    IDLE	       ///< timeslot is an idle (or dummy) burst
-  } CorrType;
+  Mutex mControlLock;
+  Mutex mTransmitPriorityQueueLock;
 
+  bool mLoadTest;
 
   /** Codes for channel combinations */
   typedef enum {
@@ -99,21 +118,17 @@ private:
   /** modulate and add a burst to the transmit queue */
   void addRadioVector(BitVector &burst,
 		      int RSSI,
-		      GSM::Time &wTime);
+		      GSM::Time &wTime,
+		      int ARFCN);
 
   /** Push modulated burst into transmit FIFO corresponding to a particular timestamp */
   void pushRadioVector(GSM::Time &nowTime);
 
   /** Pull and demodulate a burst from the receive FIFO */ 
-  SoftVector *pullRadioVector(GSM::Time &wTime,
-			   int &RSSI,
-			   int &timingOffset);
+  void pullRadioVector(void);
    
   /** Set modulus for specific timeslot */
   void setModulus(int timeslot);
-
-  /** return the expected burst type for the specified timestamp */
-  CorrType expectedCorrType(GSM::Time currTime);
 
   /** send messages over the clock socket */
   void writeClockInterface(void);
@@ -123,24 +138,27 @@ private:
   int mSamplesPerSymbol;               ///< number of samples per GSM symbol
 
   bool mOn;			       ///< flag to indicate that transceiver is powered on
-  ChannelCombination mChanType[8];     ///< channel types for all timeslots
+  ChannelCombination mChanType[MAXARFCN][8];     ///< channel types for all timeslots
   double mTxFreq;                      ///< the transmit frequency
   double mRxFreq;                      ///< the receive frequency
   int mPower;                          ///< the transmit power in dB
   unsigned mTSC;                       ///< the midamble sequence code
-  double mEnergyThreshold;             ///< threshold to determine if received data is potentially a GSM burst
-  GSM::Time prevFalseDetectionTime;    ///< last timestamp of a false energy detection
   int fillerModulus[8];                ///< modulus values of all timeslots, in frames
   signalVector *fillerTable[102][8];   ///< table of modulated filler waveforms for all timeslots
   unsigned mMaxExpectedDelay;            ///< maximum expected time-of-arrival offset in GSM symbols
 
-  GSM::Time    channelEstimateTime[8]; ///< last timestamp of each timeslot's channel estimate
-  signalVector *channelResponse[8];    ///< most recent channel estimate of all timeslots
-  float        SNRestimate[8];         ///< most recent SNR estimate of all timeslots
-  signalVector *DFEForward[8];         ///< most recent DFE feedforward filter of all timeslots
-  signalVector *DFEFeedback[8];        ///< most recent DFE feedback filter of all timeslots
-  float        chanRespOffset[8];      ///< most recent timing offset, e.g. TOA, of all timeslots
-  complex      chanRespAmplitude[8];   ///< most recent channel amplitude of all timeslots
+  unsigned int mNumARFCNs;
+  bool mMultipleARFCN;
+  unsigned char mOversamplingRate;
+  double mFreqOffset;
+  signalVector *frequencyShifter[MAXARFCN];
+  signalVector *decimationFilter;
+  signalVector *interpolationFilter;
+
+  Demodulator *mDemodulators[MAXARFCN];
+
+
+
 
 public:
 
@@ -155,7 +173,10 @@ public:
 	      const char *TRXAddress,
 	      int wSamplesPerSymbol,
 	      GSM::Time wTransmitLatency,
-	      RadioInterface *wRadioInterface);
+	      RadioInterface *wRadioInterface,
+	      unsigned int wNumARFCNs,
+	      unsigned int wOversamplingRate,
+	      bool wLoadTest);
    
   /** Destructor */
   ~Transceiver();
@@ -163,12 +184,30 @@ public:
   /** start the Transceiver */
   void start();
 
+  bool multiARFCN() {return mMultipleARFCN;}
+
+  /** return the expected burst type for the specified timestamp */
+  CorrType expectedCorrType(GSM::Time currTime, int ARFCN);
+
   /** attach the radioInterface receive FIFO */
   void receiveFIFO(VectorFIFO *wFIFO) { mReceiveFIFO = wFIFO;}
 
   /** attach the radioInterface transmit FIFO */
   void transmitFIFO(VectorFIFO *wFIFO) { mTransmitFIFO = wFIFO;}
 
+  VectorFIFO *demodFIFO(unsigned ARFCN) { return mDemodFIFO[ARFCN]; }
+
+  RadioInterface *radioInterface(void) { return mRadioInterface; }
+
+  unsigned samplesPerSymbol(void) { return mSamplesPerSymbol; }
+
+  UDPSocket *dataSocket(int ARFCN) { return mDataSocket[ARFCN]; }
+
+  signalVector *GSMPulse(void) { return gsmPulse; }
+
+  unsigned maxDelay(void) { return mMaxExpectedDelay; }
+
+  unsigned getTSC(void) { return mTSC; }
 
 protected:
 
@@ -179,19 +218,21 @@ protected:
   void driveTransmitFIFO();
 
   /** drive handling of control messages from GSM core */
-  void driveControl();
+  void driveControl(unsigned ARFCN);
 
   /**
     drive modulation and sorting of GSM bursts from GSM core
     @return true if a burst was transferred successfully
   */
-  bool driveTransmitPriorityQueue();
+  bool driveTransmitPriorityQueue(unsigned ARFCN);
 
   friend void *FIFOServiceLoopAdapter(Transceiver *);
 
-  friend void *ControlServiceLoopAdapter(Transceiver *);
+  friend void *RFIFOServiceLoopAdapter(Transceiver *);
+   
+  friend void *ControlServiceLoopAdapter(ThreadStruct *);
 
-  friend void *TransmitPriorityQueueServiceLoopAdapter(Transceiver *);
+  friend void *TransmitPriorityQueueServiceLoopAdapter(ThreadStruct *);
 
   void reset();
 };
@@ -199,9 +240,61 @@ protected:
 /** FIFO thread loop */
 void *FIFOServiceLoopAdapter(Transceiver *);
 
+void *RFIFOServiceLoopAdapter(Transceiver *);
+
 /** control message handler thread loop */
-void *ControlServiceLoopAdapter(Transceiver *);
+void *ControlServiceLoopAdapter(ThreadStruct *);
 
 /** transmit queueing thread loop */
-void *TransmitPriorityQueueServiceLoopAdapter(Transceiver *);
+void *TransmitPriorityQueueServiceLoopAdapter(ThreadStruct *);
 
+class Demodulator {
+
+ private:
+
+  int mARFCN;
+  Transceiver *mTRX;
+  RadioInterface *mRadioInterface;
+  VectorFIFO *mDemodFIFO;
+  double mEnergyThreshold;             ///< threshold to determine if received data is potentially a GSM burst
+  GSM::Time    prevFalseDetectionTime; ///< last timestamp of a false energy detection
+  GSM::Time    channelEstimateTime[8]; ///< last timestamp of each timeslot's channel estimate
+  signalVector *channelResponse[8];    ///< most recent channel estimate of all timeslots
+  float        SNRestimate[8];         ///< most recent SNR estimate of all timeslots
+  signalVector *DFEForward[8];         ///< most recent DFE feedforward filter of all timeslots
+  signalVector *DFEFeedback[8];        ///< most recent DFE feedback filter of all timeslots
+  float        chanRespOffset[8];      ///< most recent timing offset, e.g. TOA, of all timeslots
+  complex      chanRespAmplitude[8];   ///< most recent channel amplitude of all timeslots
+  signalVector *gsmPulse;
+  unsigned     mTSC;
+  unsigned     mSamplesPerSymbol;
+
+  UDPSocket    *mTRXDataSocket;
+
+  unsigned     mMaxExpectedDelay;
+
+  double rxFullScale;                     ///< full scale output to radio
+
+  SoftVector* demodRadioVector(radioVector *rxBurst,
+                              GSM::Time &wTime,
+                              int &RSSI,
+                              int &timingOffset);
+
+ public:
+
+  Demodulator(int wARFCN,
+	      Transceiver *wTRX,
+	      GSM::Time wStartTime);
+
+  double getEnergyThreshold() {return mEnergyThreshold;}
+
+
+ //protected:
+
+  void driveDemod(bool wSingleARFCN = true);
+ protected:  
+  friend void *DemodServiceLoopAdapter(Demodulator *);
+
+};
+
+void *DemodServiceLoopAdapter(Demodulator *);

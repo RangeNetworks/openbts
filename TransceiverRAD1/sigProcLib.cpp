@@ -599,6 +599,7 @@ signalVector *modulateBurst(const BitVector &wBurst,
   modBurst.isRealOnly(true);
   //memset(staticBurst,0,sizeof(complex)*burstSize);
   modBurst.fill(0.0);
+  //modBurst.fill(1.0);
   signalVector::iterator modBurstItr = modBurst.begin();
 
 #if 0 

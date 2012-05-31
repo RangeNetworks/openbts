@@ -124,21 +124,21 @@ private:
   static const unsigned BSC = 3;   // bits 21,20 Div by 8 to be safe
   static const unsigned TEST = 0;  // bit 19
   static const unsigned LDP = 1;   // bit 18
-  static const unsigned ABP = 0;   // bit 17,16   3ns
+  static const unsigned ABP = 2;   // bit 17,16   6ns, 0 = 3ns
   
   // N-Register Common Values
   static const unsigned N_RSV = 0; // bit 7
   
   // Control Register Common Values
   static const unsigned PD = 0;    // bits 21,20   Normal operation
-  static const unsigned PL = 2;    // bits 13,12   7.5mA, -6dbm
+  static const unsigned PL = 1;    // bits 13,12   7.5mA, -6dbm
   static const unsigned MTLD = 1;  // bit 11       enabled
   static const unsigned CPG = 0;   // bit 10       CP setting 1
   static const unsigned CP3S = 0;  // bit 9        Normal
   static const unsigned PDP = 1;   // bit 8        Positive
   static const unsigned MUXOUT = 1;// bits 7:5     Digital Lock Detect
   static const unsigned CR = 0;    // bit 4        Normal
-  static const unsigned PC = 2;    // bits 3,2     Core power 15mA
+  static const unsigned PC = 0;    // bits 3,2     Core power 15mA
 
   // ATR register value
   //static const int FR_ATR_MASK_0 = 20;
