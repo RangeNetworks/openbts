@@ -1,7 +1,7 @@
 PRAGMA foreign_keys=OFF;
 BEGIN TRANSACTION;
 CREATE TABLE CONFIG ( KEYSTRING TEXT UNIQUE NOT NULL, VALUESTRING TEXT, STATIC INTEGER DEFAULT 0, OPTIONAL INTEGER DEFAULT 0, COMMENTS TEXT DEFAULT '');
-INSERT INTO "CONFIG" VALUES('CLI.Prompt','OpenBTS> ',0,0,'Prompt for the OpenBTS command line interface.');
+INSERT INTO "CONFIG" VALUES('CLI.SocketPath','/var/run/command',0,0,'Path for Unix domain datagram socket used for the OpenBTS console interface.');
 INSERT INTO "CONFIG" VALUES('Control.Reporting.PhysStatusTable','/var/run/OpenBTSChannelTable.db',1,0,'File path for channel status reporting database.  Static.');
 INSERT INTO "CONFIG" VALUES('Control.Reporting.TMSITable','/var/run/OpenBTSTMSITable.db',1,0,'File path for TMSITable database.  Static.');
 INSERT INTO "CONFIG" VALUES('Control.Call.QueryRRLP.Early',NULL,0,1,'If not NULL, query every MS for its location via RRLP during the setup of a call.');

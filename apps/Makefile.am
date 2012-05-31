@@ -25,7 +25,9 @@ AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES)
 AM_CXXFLAGS = -Wall -ldl -pthread
 
 noinst_PROGRAMS = \
-	OpenBTS
+	OpenBTS \
+	OpenBTSDo \
+	OpenBTSCLI
 
 OpenBTS_SOURCES = OpenBTS.cpp
 OpenBTS_LDADD = \
@@ -41,6 +43,10 @@ OpenBTS_LDADD = \
 	$(SMS_LA) \
 	$(OSIP_LIBS) \
 	$(ORTP_LIBS)
+
+OpenBTSCLI_SOURCES = OpenBTSCLI.cpp
+OpenBTSDo_SOURCES = OpenBTSDo.cpp
+OpenBTSCLI_LDADD = -lreadline -lncurses
 
 EXTRA_DIST = \
 	OpenBTS.example.sql

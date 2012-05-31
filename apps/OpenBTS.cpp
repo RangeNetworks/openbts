@@ -58,12 +58,6 @@ ConfigurationTable gConfig("/etc/OpenBTS/OpenBTS.db");
 #include <string.h>
 #include <signal.h>
 
-#ifdef HAVE_LIBREADLINE // [
-//#  include <stdio.h>
-#  include <readline/readline.h>
-#  include <readline/history.h>
-#endif // HAVE_LIBREADLINE ]
-
 using namespace std;
 using namespace GSM;
 
@@ -138,6 +132,12 @@ void startTransceiver()
 
 int main(int argc, char *argv[])
 {
+
+	int sock = socket(AF_UNIX,SOCK_DGRAM,0);
+	if (sock<0) {
+		perror("opening cmd datagram socket");
+		exit(1);
+	}
 
 	try {
 
@@ -314,84 +314,50 @@ int main(int argc, char *argv[])
 	// OK, now it is safe to start the BTS.
 	gBTS.start();
 
-#ifdef HAVE_LIBREADLINE // [
-	// start console
-	using_history();
 
-	static const char * const history_file_name = "/.openbts_history";
-	char *history_name = 0;
-	char *home_dir = getenv("HOME");
-
-	if(home_dir) {
-		size_t home_dir_len = strlen(home_dir);
-		size_t history_file_len = strlen(history_file_name);
-		size_t history_len = home_dir_len + history_file_len + 1;
-		if(history_len > home_dir_len) {
-			if(!(history_name = (char *)malloc(history_len))) {
-				LOG(ERR) << "malloc failed: " << strerror(errno);
-				exit(2);
-			}
-			memcpy(history_name, home_dir, home_dir_len);
-			memcpy(history_name + home_dir_len, history_file_name,
-			   history_file_len + 1);
-			read_history(history_name);
-		}
-	}
-#endif // HAVE_LIBREADLINE ]
-
-
-
+	cout << "\nsystem ready\n";
+	cout << "\nuse the OpenBTSCLI utility to access CLI\n";
 	LOG(INFO) << "system ready";
-	COUT("\n\nWelcome to OpenBTS.  Type \"help\" to see available commands.");
-        // FIXME: We want to catch control-d (emacs keybinding for exit())
 
+	struct sockaddr_un cmdSockName;
+	cmdSockName.sun_family = AF_UNIX;
+	const char* sockpath = gConfig.getStr("CLI.SocketPath","/var/run/OpenBTS/command").c_str();
+	char rmcmd[strlen(sockpath)+5];
+	sprintf(rmcmd,"rm %s",sockpath);
+	system(rmcmd);
+	strcpy(cmdSockName.sun_path,sockpath);
+	if (bind(sock, (struct sockaddr *) &cmdSockName, sizeof(struct sockaddr_un))) {
+		perror("binding name to cmd datagram socket");
+		exit(1);
+	}
 
-	// The logging parts were removed from this loop.
-	// If we want them back, they will need to go into their own thread.
 	while (1) {
-#ifdef HAVE_LIBREADLINE // [
-		char *inbuf = readline(gConfig.getStr("CLI.Prompt").c_str());
-		if (!inbuf) break;
-		if (*inbuf) {
-			add_history(inbuf);
-			// The parser returns -1 on exit.
-			if (gParser.process(inbuf, cout, cin)<0) {
-				free(inbuf);
-				break;
-			}
+		char cmdbuf[1000];
+		struct sockaddr_un source;
+		socklen_t sourceSize = sizeof(source);
+		int nread = recvfrom(sock,cmdbuf,sizeof(cmdbuf)-1,0,(struct sockaddr*)&source,&sourceSize);
+		cmdbuf[nread]='\0';
+		LOG(INFO) << "received command \"" << cmdbuf << "\" from " << source.sun_path;
+		std::ostringstream sout;
+		int res = gParser.process(cmdbuf,sout);
+		const std::string rspString= sout.str();
+		const char* rsp = rspString.c_str();
+		LOG(INFO) << "sending " << strlen(rsp) << "-char result to " << source.sun_path;
+		if (sendto(sock,rsp,strlen(rsp)+1,0,(struct sockaddr*)&source,sourceSize)<0) {
+			LOG(ERR) << "can't send CLI response to " << source.sun_path;
 		}
-		free(inbuf);
-#else // HAVE_LIBREADLINE ][
-		cout << endl << gConfig.getStr("CLI.Prompt");
-		cout.flush();
-		char inbuf[1024];
-		cin.getline(inbuf,1024,'\n');
-		// The parser returns -1 on exit.
-		if (gParser.process(inbuf,cout,cin)<0) break;
-#endif // !HAVE_LIBREADLINE ]
+		// res<0 means to exit the application
+		if (res<0) break;
 	}
 
-#ifdef HAVE_LIBREADLINE // [
-	if(history_name) {
-		int e = write_history(history_name);
-		if(e) {
-			fprintf(stderr, "error: history: %s\n", strerror(e));
-		}
-		free(history_name);
-		history_name = 0;
-	}
-#endif // HAVE_LIBREADLINE ]
-
-	if (gTransceiverPid) kill(gTransceiverPid, SIGKILL);
-
-
-	}
+	} // try
 
 	catch (ConfigurationTableKeyNotFound e) {
-
-		LOG(ALERT) << "configuration key " << e.key() << " not defined";
-		exit(2);
+		LOG(ALERT) << "required configuration key " << e.key() << " not defined, aborting";
 	}
+
+	if (gTransceiverPid) kill(gTransceiverPid, SIGKILL);
+	close(sock);
 
 }
 
