@@ -36,7 +36,7 @@ namespace CommandLine {
 
 
 /** A table for matching strings to actions. */
-typedef std::map<std::string,int (*)(int,char**,std::ostream&,std::istream&)> ParseTable;
+typedef std::map<std::string,int (*)(int,char**,std::ostream&)> ParseTable;
 
 /** The help table. */
 typedef std::map<std::string,std::string> HelpTable;
@@ -57,10 +57,10 @@ class Parser {
 		Process a command line.
 		@return 0 on sucess, -1 on exit request, error codes otherwise
 	*/
-	int process(const char* line, std::ostream& os, std::istream& is) const;
+	int process(const char* line, std::ostream& os) const;
 
 	/** Add a command to the parsing table. */
-	void addCommand(const char* name, int (*func)(int,char**,std::ostream&,std::istream&), const char* helpString)
+	void addCommand(const char* name, int (*func)(int,char**,std::ostream&), const char* helpString)
 		{ mParseTable[name] = func; mHelpTable[name]=helpString; }
 
 	ParseTable::const_iterator begin() const { return mParseTable.begin(); }
@@ -72,7 +72,7 @@ class Parser {
 	private:
 
 	/** Parse and execute a command string. */
-	int execute(char* line, std::ostream& os, std::istream& is) const;
+	int execute(char* line, std::ostream& os) const;
 
 };
 

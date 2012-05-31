@@ -77,7 +77,7 @@ static const char* standardResponses[] = {
 
 
 
-int Parser::execute(char* line, ostream& os, istream& is) const
+int Parser::execute(char* line, ostream& os) const
 {
 	// escape to the shell?
 	if (line[0]=='!') {
@@ -104,20 +104,20 @@ int Parser::execute(char* line, ostream& os, istream& is) const
 	if (cfp == mParseTable.end()) {
 		return NOT_FOUND;
 	}
-	int (*func)(int,char**,ostream&,istream&);
+	int (*func)(int,char**,ostream&);
 	func = cfp->second;
 	// Do it.
-	int retVal = (*func)(argc,argv,os,is);
+	int retVal = (*func)(argc,argv,os);
 	// Give hint on bad # args.
 	if (retVal==BAD_NUM_ARGS) os << help(argv[0]) << endl;
 	return retVal;
 }
 
 
-int Parser::process(const char* line, ostream& os, istream& is) const
+int Parser::process(const char* line, ostream& os) const
 {
 	char *newLine = strdup(line);
-	int retVal = execute(newLine,os,is);
+	int retVal = execute(newLine,os);
 	free(newLine);
 	if (retVal>0) os << standardResponses[retVal] << endl;
 	return retVal;
@@ -137,7 +137,7 @@ const char * Parser::help(const string& cmd) const
 //@{
 
 // forward refs
-int printStats(int argc, char** argv, ostream& os, istream& is);
+int printStats(int argc, char** argv, ostream& os);
 
 /*
 	A CLI command takes the argument in an array.
@@ -145,7 +145,7 @@ int printStats(int argc, char** argv, ostream& os, istream& is);
 */
 
 /** Display system uptime and current GSM frame number. */
-int uptime(int argc, char** argv, ostream& os, istream& is)
+int uptime(int argc, char** argv, ostream& os)
 {
 	if (argc!=1) return BAD_NUM_ARGS;
 	os.precision(2);
@@ -172,7 +172,7 @@ int uptime(int argc, char** argv, ostream& os, istream& is)
 
 
 /** Give a list of available commands or describe a specific command. */
-int showHelp(int argc, char** argv, ostream& os, istream& is)
+int showHelp(int argc, char** argv, ostream& os)
 {
 	if (argc==2) {
 		os << argv[1] << " " << gParser.help(argv[1]) << endl;
@@ -200,7 +200,7 @@ int showHelp(int argc, char** argv, ostream& os, istream& is)
 
 
 /** A function to return -1, the exit code for the caller. */
-int exit_function(int argc, char** argv, ostream& os, istream& is)
+int exit_function(int argc, char** argv, ostream& os)
 {
 	unsigned wait =0;
 	if (argc>2) return BAD_NUM_ARGS;
@@ -230,7 +230,7 @@ int exit_function(int argc, char** argv, ostream& os, istream& is)
 	}
 	if (loads) {
 		os << endl << "exiting with loads:" << endl;
-		printStats(1,NULL,os,is);
+		printStats(1,NULL,os);
 	}
 	os << endl << "exiting..." << endl;
 	return -1;
@@ -239,10 +239,10 @@ int exit_function(int argc, char** argv, ostream& os, istream& is)
 
 
 // Forward ref.
-int tmsis(int argc, char** argv, ostream& os, istream& is);
+int tmsis(int argc, char** argv, ostream& os);
 
 /** Dump TMSI table to a text file. */
-int dumpTMSIs(const char* filename, istream& is)
+int dumpTMSIs(const char* filename)
 {
 	ofstream fileout;
 	fileout.open(filename, ios::out); // erases existing!
@@ -250,14 +250,14 @@ int dumpTMSIs(const char* filename, istream& is)
 	// Fake an argument list to call printTMSIs.
 	char* subargv[] = {"tmsis", NULL};
 	int subargc = 1;
-	return tmsis(subargc, subargv, fileout, is);
+	return tmsis(subargc, subargv, fileout);
 }
 
 
 
 
 /** Print or clear the TMSI table. */
-int tmsis(int argc, char** argv, ostream& os, istream& is)
+int tmsis(int argc, char** argv, ostream& os)
 {
 	if (argc>=2) {
 		// Clear?
@@ -271,7 +271,7 @@ int tmsis(int argc, char** argv, ostream& os, istream& is)
 		if (strcmp(argv[1],"dump")==0) {
 			if (argc!=3) return BAD_NUM_ARGS;
 			os << "dumping TMSI table to " << argv[2] << endl;
-			return dumpTMSIs(argv[2],is);
+			return dumpTMSIs(argv[2]);
 		}
 		return BAD_VALUE;
 	}
@@ -284,7 +284,7 @@ int tmsis(int argc, char** argv, ostream& os, istream& is)
 
 
 /** Submit an SMS for delivery to an IMSI. */
-int sendsimple(int argc, char** argv, ostream& os, istream& is)
+int sendsimple(int argc, char** argv, ostream& os)
 {
 	if (argc!=3) return BAD_NUM_ARGS;
 
@@ -327,7 +327,7 @@ int sendsimple(int argc, char** argv, ostream& os, istream& is)
 
 
 /** Submit an SMS for delivery to an IMSI. */
-int sendsms(int argc, char** argv, ostream& os, istream& is)
+int sendsms(int argc, char** argv, ostream& os)
 {
 	if (argc!=3) return BAD_NUM_ARGS;
 
@@ -352,7 +352,7 @@ int sendsms(int argc, char** argv, ostream& os, istream& is)
 }
 
 /** DEBUGGING: Sends a special sms that triggers a RRLP message to an IMSI. */
-int sendrrlp(int argc, char** argv, ostream& os, istream& is)
+int sendrrlp(int argc, char** argv, ostream& os)
 {
 	if (argc!=3) return BAD_NUM_ARGS;
 
@@ -381,7 +381,7 @@ int sendrrlp(int argc, char** argv, ostream& os, istream& is)
 
 
 /** Print current usage loads. */
-int printStats(int argc, char** argv, ostream& os, istream& is)
+int printStats(int argc, char** argv, ostream& os)
 {
 	if (argc!=1) return BAD_NUM_ARGS;
 	os << "SDCCH load: " << gBTS.SDCCHActive() << '/' << gBTS.SDCCHTotal() << endl;
@@ -398,7 +398,7 @@ int printStats(int argc, char** argv, ostream& os, istream& is)
 
 
 /** Get/Set MCC, MNC, LAC, CI. */
-int cellID(int argc, char** argv, ostream& os, istream& is)
+int cellID(int argc, char** argv, ostream& os)
 {
 	if (argc==1) {
 		os << "MCC=" << gConfig.getStr("GSM.Identity.MCC")
@@ -435,7 +435,7 @@ int cellID(int argc, char** argv, ostream& os, istream& is)
 
 
 /** Print table of current transactions. */
-int calls(int argc, char** argv, ostream& os, istream& is)
+int calls(int argc, char** argv, ostream& os)
 {
 	if (argc!=1) return BAD_NUM_ARGS;
 	size_t count = gTransactionTable.dump(os);
@@ -446,7 +446,7 @@ int calls(int argc, char** argv, ostream& os, istream& is)
 
 
 /** Print or modify the global configuration table. */
-int config(int argc, char** argv, ostream& os, istream& is)
+int config(int argc, char** argv, ostream& os)
 {
 	// no args, just print
 	if (argc==1) {
@@ -485,7 +485,7 @@ int config(int argc, char** argv, ostream& os, istream& is)
 }
 
 /** Remove a configiuration value. */
-int unconfig(int argc, char** argv, ostream& os, istream& is)
+int unconfig(int argc, char** argv, ostream& os)
 {
 	if (argc!=2) return BAD_NUM_ARGS;
 
@@ -503,7 +503,7 @@ int unconfig(int argc, char** argv, ostream& os, istream& is)
 
 
 /** Dump current configuration to a file. */
-int configsave(int argc, char** argv, ostream& os, istream& is)
+int configsave(int argc, char** argv, ostream& os)
 {
 	os << "obsolete" << endl;
 	return SUCCESS;
@@ -512,7 +512,7 @@ int configsave(int argc, char** argv, ostream& os, istream& is)
 
 
 /** Change the registration timers. */
-int regperiod(int argc, char** argv, ostream& os, istream& is)
+int regperiod(int argc, char** argv, ostream& os)
 {
 	if (argc==1) {
 		os << "T3212 is " << gConfig.getNum("GSM.Timer.T3212") << " minutes" << endl;
@@ -543,7 +543,7 @@ int regperiod(int argc, char** argv, ostream& os, istream& is)
 
 
 /** Print the list of alarms kept by the logger, i.e. the last LOG(ALARM) << <text> */
-int alarms(int argc, char** argv, ostream& os, istream& is)
+int alarms(int argc, char** argv, ostream& os)
 {
 	std::ostream_iterator<std::string> output( os, "\n" );
 	std::list<std::string> alarms = gGetLoggerAlarms();
@@ -553,7 +553,7 @@ int alarms(int argc, char** argv, ostream& os, istream& is)
 
 
 /** Version string. */
-int version(int argc, char **argv, ostream& os, istream& is)
+int version(int argc, char **argv, ostream& os)
 {
 	if (argc!=1) return BAD_NUM_ARGS;
 	os << "release " VERSION " built " __DATE__ << endl;
@@ -561,14 +561,14 @@ int version(int argc, char **argv, ostream& os, istream& is)
 }
 
 /** Show start-up notices. */
-int notices(int argc, char **argv, ostream& os, istream& is)
+int notices(int argc, char **argv, ostream& os)
 {
 	if (argc!=1) return BAD_NUM_ARGS;
 	os << endl << gOpenBTSWelcome << endl;
 	return SUCCESS;
 }
 
-int page(int argc, char **argv, ostream& os, istream& is)
+int page(int argc, char **argv, ostream& os)
 {
 	if (argc==1) {
 		gBTS.pager().dump(os);
@@ -593,7 +593,7 @@ int page(int argc, char **argv, ostream& os, istream& is)
 
 
 
-int endcall(int argc, char **argv, ostream& os, istream& is)
+int endcall(int argc, char **argv, ostream& os)
 {
 	if (argc!=2) return BAD_NUM_ARGS;
 	unsigned transID = atoi(argv[1]);
@@ -633,7 +633,7 @@ void printChanInfo(unsigned transID, const GSM::LogicalChannel* chan, ostream& o
 
 
 
-int chans(int argc, char **argv, ostream& os, istream& is)
+int chans(int argc, char **argv, ostream& os)
 {
 	if (argc!=1) return BAD_NUM_ARGS;
 
@@ -675,7 +675,7 @@ int chans(int argc, char **argv, ostream& os, istream& is)
 
 
 
-int power(int argc, char **argv, ostream& os, istream& is)
+int power(int argc, char **argv, ostream& os)
 {
 	os << "current downlink power " << gBTS.powerManager().power() << " dB wrt full scale" << endl;
 	os << "current attenuation bounds "
@@ -704,7 +704,7 @@ int power(int argc, char **argv, ostream& os, istream& is)
 }
 
 
-int rxgain(int argc, char** argv, ostream& os, istream& is)
+int rxgain(int argc, char** argv, ostream& os)
 {
         os << "current RX gain is " << gConfig.getNum("GSM.Radio.RxGain") << " dB" << endl;
         if (argc==1) return SUCCESS;
@@ -718,7 +718,7 @@ int rxgain(int argc, char** argv, ostream& os, istream& is)
         return SUCCESS;
 }
 
-int noise(int argc, char** argv, ostream& os, istream& is)
+int noise(int argc, char** argv, ostream& os)
 {
         if (argc!=1) return BAD_NUM_ARGS;
 
