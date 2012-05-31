@@ -45,12 +45,16 @@ using namespace GSM;
 using namespace std;
 
 
-TransceiverManager::TransceiverManager(const char* wTRXAddress, int wBasePort)
+TransceiverManager::TransceiverManager(int numARFCNs,
+		const char* wTRXAddress, int wBasePort)
 	:mHaveClock(false),
 	mClockSocket(wBasePort+100)
 {
-	// set up the ARFCN manager
-	mARFCN = new ::ARFCNManager(wTRXAddress,wBasePort+1,*this);
+	// set up the ARFCN managers
+	for (int i=0; i<numARFCNs; i++) {
+		int thisBasePort = wBasePort + 1 + 2*i;
+		mARFCNs.push_back(new ::ARFCNManager(wTRXAddress,thisBasePort,*this));
+	}
 }
 
 
@@ -58,7 +62,9 @@ TransceiverManager::TransceiverManager(const char* wTRXAddress, int wBasePort)
 void TransceiverManager::start()
 {
 	mClockThread.start((void*(*)(void*))ClockLoopAdapter,this);
-	mARFCN->start();
+	for (unsigned i=0; i<mARFCNs.size(); i++) {
+		mARFCNs[i]->start();
+	}
 }
 
 

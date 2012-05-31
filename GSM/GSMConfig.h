@@ -268,9 +268,9 @@ class GSMConfig {
 	/** Combination 0 is a idle slot, as opposed to a non-transmitting one. */
 	void createCombination0(TransceiverManager &TRX, unsigned TN);
 	/** Combination I is full rate traffic. */
-	void createCombinationI(TransceiverManager &TRX, unsigned TN);
+	void createCombinationI(TransceiverManager &TRX, unsigned CN, unsigned TN);
 	/** Combination VII is 8 SDCCHs. */
-	void createCombinationVII(TransceiverManager &TRX, unsigned TN);
+	void createCombinationVII(TransceiverManager &TRX, unsigned CN, unsigned TN);
 	//@}
 
 	/** Return number of seconds since starting. */

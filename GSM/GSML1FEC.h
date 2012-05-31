@@ -92,6 +92,7 @@ class L1Encoder {
 	/**@name Config items that don't change. */
 	//@{
 	const TDMAMapping& mMapping;	///< multiplexing description
+	unsigned mCN;					///< carrier index
 	unsigned mTN;					///< timeslot number to use
 	unsigned mTSC;					///< training sequence for this channel
 	L1FEC *mParent;					///< a containing L1FEC, if any
@@ -119,11 +120,12 @@ class L1Encoder {
 
 	/**
 		The basic encoder constructor.
+		@param wCN carrier index.
 		@param wTN TDMA timeslot number.
 		@param wMapping TDMA mapping onto the timeslot -- MUST PERSIST.
 		@param wParent The containing L1FEC, for sibling access -- may be NULL.
 	*/
-	L1Encoder(unsigned wTN, const TDMAMapping& wMapping, L1FEC *wParent);
+	L1Encoder(unsigned wCN, unsigned wTN, const TDMAMapping& wMapping, L1FEC *wParent);
 
 	virtual ~L1Encoder() {}
 
@@ -139,6 +141,7 @@ class L1Encoder {
 	const TDMAMapping& mapping() const { return mMapping; }
 	/**@name Components of the channel description. */
 	//@{
+	unsigned CN() const { return mCN; }
 	unsigned TN() const { return mTN; }
 	unsigned TSC() const { return mTSC; }
 	unsigned ARFCN() const;
@@ -231,6 +234,7 @@ class L1Decoder {
 
 	/**@name Parameters fixed by the constructor, not requiring mutex protection. */
 	//@{
+	unsigned mCN;					///< carrier index
 	unsigned mTN;					///< timeslot number 
 	const TDMAMapping& mMapping;	///< demux parameters
 	L1FEC* mParent;			///< a containing L1 processor, if any
@@ -247,13 +251,13 @@ class L1Decoder {
 		@param wMapping Demux parameters, MUST BE PERSISTENT.
 		@param wParent The containing L1FEC, for sibling access.
 	*/
-	L1Decoder(unsigned wTN, const TDMAMapping& wMapping, L1FEC* wParent)
+	L1Decoder(unsigned wCN, unsigned wTN, const TDMAMapping& wMapping, L1FEC* wParent)
 			:mUpstream(NULL),
 			mT3101(T3101ms),mT3109(T3109ms),mT3111(T3111ms),
 			mActive(false),
 			mRunning(false),
 			mFER(0.0F),
-			mTN(wTN),
+			mCN(wCN),mTN(wTN),
 			mMapping(wMapping),mParent(wParent)
 	{
 		// Start T3101 so that the channel will
@@ -383,6 +387,9 @@ class L1FEC {
 	unsigned TN() const
 		{ assert(mEncoder); return mEncoder->TN(); }
 
+	unsigned CN() const
+		{ assert(mEncoder); return mEncoder->CN(); }
+
 	unsigned TSC() const
 		{ assert(mEncoder); return mEncoder->TSC(); }
 
@@ -458,7 +465,7 @@ class RACHL1Decoder : public L1Decoder {
 
 	RACHL1Decoder(const TDMAMapping &wMapping,
 		L1FEC *wParent)
-		:L1Decoder(0,wMapping,wParent),
+		:L1Decoder(0,0,wMapping,wParent),
 		mParity(0x06f,6,8),mU(18),mD(mU.head(8))
 	{ }
 
@@ -500,7 +507,7 @@ class XCCHL1Decoder : public L1Decoder {
 
 	public:
 
-	XCCHL1Decoder(unsigned wTN, const TDMAMapping& wMapping,
+	XCCHL1Decoder(unsigned wCN, unsigned wTN, const TDMAMapping& wMapping,
 		L1FEC *wParent);
 
 	protected:
@@ -548,10 +555,11 @@ class SDCCHL1Decoder : public XCCHL1Decoder {
 	public:
 
 	SDCCHL1Decoder(
+		unsigned wCN,
 		unsigned wTN,
 		const TDMAMapping& wMapping,
 		L1FEC *wParent)
-		:XCCHL1Decoder(wTN,wMapping,wParent)
+		:XCCHL1Decoder(wCN,wTN,wMapping,wParent)
 	{ }
 
 	ChannelType channelType() const { return SDCCHType; }
@@ -579,10 +587,11 @@ class SACCHL1Decoder : public XCCHL1Decoder {
 	public:
 
 	SACCHL1Decoder(
+		unsigned wCN,
 		unsigned wTN,
 		const TDMAMapping& wMapping,
 		SACCHL1FEC *wParent)
-		:XCCHL1Decoder(wTN,wMapping,(L1FEC*)wParent),
+		:XCCHL1Decoder(wCN,wTN,wMapping,(L1FEC*)wParent),
 		mSACCHParent(wParent),
 		mRSSICounter(0)
 	{
@@ -653,6 +662,7 @@ class XCCHL1Encoder : public L1Encoder {
 	public:
 
 	XCCHL1Encoder(
+		unsigned wCN,
 		unsigned wTN,
 		const TDMAMapping& wMapping,
 		L1FEC* wParent);
@@ -720,7 +730,7 @@ private:
 
 public:
 
-	TCHFACCHL1Encoder(unsigned wTN, 
+	TCHFACCHL1Encoder(unsigned wCN, unsigned wTN, 
 			  const TDMAMapping& wMapping,
 			  L1FEC* wParent);
 
@@ -780,7 +790,7 @@ class TCHFACCHL1Decoder : public XCCHL1Decoder {
 
 	public:
 
-	TCHFACCHL1Decoder(unsigned wTN, 
+	TCHFACCHL1Decoder(unsigned wCN, unsigned wTN, 
 			   const TDMAMapping& wMapping,
 			   L1FEC *wParent);
 
@@ -836,10 +846,11 @@ class GeneratorL1Encoder : public L1Encoder {
 	public:
 
 	GeneratorL1Encoder(	
+		unsigned wCN,
 		unsigned wTN,
 		const TDMAMapping& wMapping,
 		L1FEC* wParent)
-		:L1Encoder(wTN,wMapping,wParent)
+		:L1Encoder(wCN,wTN,wMapping,wParent)
 	{ }
 
 	void start();
@@ -924,10 +935,11 @@ class NDCCHL1Encoder : public XCCHL1Encoder {
 
 
 	NDCCHL1Encoder(
+		unsigned wCN,
 		unsigned wTN,
 		const TDMAMapping& wMapping,
 		L1FEC *wParent)
-		:XCCHL1Encoder(wTN, wMapping, wParent)
+		:XCCHL1Encoder(wCN, wTN, wMapping, wParent)
 	{ }
 
 	void start();
@@ -954,7 +966,7 @@ class BCCHL1Encoder : public NDCCHL1Encoder {
 	public:
 
 	BCCHL1Encoder(L1FEC *wParent)
-		:NDCCHL1Encoder(0,gBCCHMapping,wParent)
+		:NDCCHL1Encoder(0,0,gBCCHMapping,wParent)
 	{}
 
 	private:
@@ -983,7 +995,7 @@ class SACCHL1Encoder : public XCCHL1Encoder {
 
 	public:
 
-	SACCHL1Encoder(unsigned wTN, const TDMAMapping& wMapping, SACCHL1FEC *wParent);
+	SACCHL1Encoder(unsigned wCN, unsigned wTN, const TDMAMapping& wMapping, SACCHL1FEC *wParent);
 
 	void orderedMSPower(int power) { mOrderedMSPower = power; }
 	void orderedMSTiming(int timing) { mOrderedMSTiming = timing; }
@@ -1021,10 +1033,27 @@ class CCCHL1Encoder : public XCCHL1Encoder {
 
 	CCCHL1Encoder(const TDMAMapping& wMapping,
 			L1FEC* wParent)
-		:XCCHL1Encoder(0,wMapping,wParent)
+		:XCCHL1Encoder(0,0,wMapping,wParent)
 	{}
 
 };
+
+
+/** Cell Broadcast Channel (CBCH). */
+class CBCHL1Encoder : public XCCHL1Encoder {
+
+	public:
+
+	CBCHL1Encoder(const TDMAMapping& wMapping,
+			L1FEC* wParent)
+		:XCCHL1Encoder(0,0,wMapping,wParent)
+	{}
+
+	/** Override sendFrame to meet sync requirements of GSM 05.02 6.5.4. */
+	virtual void sendFrame(const L2Frame&);
+
+};
+
 
 
 
@@ -1035,15 +1064,31 @@ class SDCCHL1FEC : public L1FEC {
 	public:
 
 	SDCCHL1FEC(
+		unsigned wCN,
 		unsigned wTN,
 		const MappingPair& wMapping)
 		:L1FEC()
 	{
-		mEncoder = new SDCCHL1Encoder(wTN,wMapping.downlink(),this);
-		mDecoder = new SDCCHL1Decoder(wTN,wMapping.uplink(),this);
+		mEncoder = new SDCCHL1Encoder(wCN,wTN,wMapping.downlink(),this);
+		mDecoder = new SDCCHL1Decoder(wCN,wTN,wMapping.uplink(),this);
 	}
 };
 
+
+
+
+
+
+class CBCHL1FEC : public L1FEC {
+
+	public:
+
+	CBCHL1FEC(const MappingPair& wMapping)
+		:L1FEC()
+	{
+		mEncoder = new CBCHL1Encoder(wMapping.downlink(),this);
+	}
+};
 
 
 
@@ -1065,13 +1110,14 @@ public:
 
 
 	TCHFACCHL1FEC(
+		unsigned wCN,
 		unsigned wTN,
 		const MappingPair& wMapping)
 		:L1FEC()
 	{
-		mTCHEncoder = new TCHFACCHL1Encoder(wTN, wMapping.downlink(), this );
+		mTCHEncoder = new TCHFACCHL1Encoder(wCN, wTN, wMapping.downlink(), this );
 		mEncoder = mTCHEncoder;
-		mTCHDecoder = new TCHFACCHL1Decoder(wTN, wMapping.uplink(), this );	
+		mTCHDecoder = new TCHFACCHL1Decoder(wCN, wTN, wMapping.uplink(), this );	
 		mDecoder = mTCHDecoder;
 	}
 
@@ -1107,13 +1153,14 @@ class SACCHL1FEC : public L1FEC {
 	public:
 
 	SACCHL1FEC(
+		unsigned wCN,
 		unsigned wTN,
 		const MappingPair& wMapping)
 		:L1FEC()
 	{
-		mSACCHEncoder = new SACCHL1Encoder(wTN,wMapping.downlink(),this);
+		mSACCHEncoder = new SACCHL1Encoder(wCN,wTN,wMapping.downlink(),this);
 		mEncoder = mSACCHEncoder;
-		mSACCHDecoder = new SACCHL1Decoder(wTN,wMapping.uplink(),this);
+		mSACCHDecoder = new SACCHL1Decoder(wCN,wTN,wMapping.uplink(),this);
 		mDecoder = mSACCHDecoder;
 	}
 
@@ -1142,11 +1189,11 @@ class LoopbackL1FEC : public L1FEC {
 
 	public:
 
-	LoopbackL1FEC(unsigned wTN)
+	LoopbackL1FEC(unsigned wCN, unsigned wTN)
 		:L1FEC()
 	{
-		mEncoder = new XCCHL1Encoder(wTN,gLoopbackTestFullMapping,this);
-		mDecoder = new SDCCHL1Decoder(wTN,gLoopbackTestFullMapping,this);
+		mEncoder = new XCCHL1Encoder(wCN,wTN,gLoopbackTestFullMapping,this);
+		mDecoder = new SDCCHL1Decoder(wCN,wTN,gLoopbackTestFullMapping,this);
 	}
 };
 

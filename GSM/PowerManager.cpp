@@ -124,7 +124,7 @@ void* GSM::PowerManagerServiceLoopAdapter(PowerManager *pm)
 
 void PowerManager::start()
 {
-	mRadio = gTRX.ARFCN();
+	mRadio = gTRX.ARFCN(0);
 	mRadio->setPower(mAtten);
 	mThread.start((void*(*)(void*))PowerManagerServiceLoopAdapter,this);
 }

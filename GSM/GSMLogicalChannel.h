@@ -220,7 +220,7 @@ public:
 	/**@name Channel stats from the physical layer */
 	//@{
 	/** Carrier index. */
-	unsigned CN() const { return 0; }
+	unsigned CN() const { assert(mL1); return mL1->CN(); }
 	/** Slot number. */
 	unsigned TN() const { assert(mL1); return mL1->TN(); }
 	/** Receive FER. */
@@ -296,6 +296,7 @@ class SDCCHLogicalChannel : public LogicalChannel {
 	public:
 	
 	SDCCHLogicalChannel(
+		unsigned wCN,
 		unsigned wTN,
 		const CompleteMapping& wMapping);
 
@@ -360,6 +361,7 @@ class SACCHLogicalChannel : public LogicalChannel {
 	public:
 
 	SACCHLogicalChannel(
+		unsigned wCN,
 		unsigned wTN,
 		const MappingPair& wMapping);
 
@@ -466,6 +468,7 @@ class TCHFACCHLogicalChannel : public LogicalChannel {
 	public:
 
 	TCHFACCHLogicalChannel(
+		unsigned wCN,
 		unsigned wTN,
 		const CompleteMapping& wMapping);
 
@@ -531,6 +534,7 @@ class SDCCHLogicalChannel_LB : public SDCCHLogicalChannel
 {
 	public : 
       SDCCHLogicalChannel_LB(
+		unsigned wCN,
 		unsigned wTN,
 		const CompleteMapping& wMapping);
 };
@@ -541,6 +545,7 @@ class TCHFACCHLogicalChannel_UPLINK : public TCHFACCHLogicalChannel
 public:
 	/** Custom constructor, L2 is Uplink instead of downlink. */
 	TCHFACCHLogicalChannel_UPLINK(
+		unsigned wCN,
 		unsigned wTN, 
 		const CompleteMapping& wMapping);
 

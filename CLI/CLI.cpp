@@ -710,7 +710,7 @@ int rxgain(int argc, char** argv, ostream& os, istream& is)
         if (argc==1) return SUCCESS;
 	if (argc!=2) return BAD_NUM_ARGS;
 
-        int newGain = gTRX.ARFCN()->setRxGain(atoi(argv[1]));
+        int newGain = gTRX.ARFCN(0)->setRxGain(atoi(argv[1]));
         os << "new RX gain is " << newGain << " dB" << endl;
   
         gConfig.set("GSM.Radio.RxGain",newGain);
@@ -722,7 +722,7 @@ int noise(int argc, char** argv, ostream& os, istream& is)
 {
         if (argc!=1) return BAD_NUM_ARGS;
 
-        int noise = gTRX.ARFCN()->getNoiseLevel();
+        int noise = gTRX.ARFCN(0)->getNoiseLevel();
         os << "noise RSSI is -" << noise << " dB wrt full scale" << endl;
 	os << "MS RSSI target is " << gConfig.getNum("GSM.Radio.RSSITarget") << " dB wrt full scale" << endl;
 

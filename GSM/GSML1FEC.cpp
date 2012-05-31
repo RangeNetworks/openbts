@@ -181,9 +181,9 @@ unsigned encodePower(int power)
 */
 
 
-L1Encoder::L1Encoder(unsigned wTN, const TDMAMapping& wMapping, L1FEC *wParent)
+L1Encoder::L1Encoder(unsigned wCN, unsigned wTN, const TDMAMapping& wMapping, L1FEC *wParent)
 	:mDownstream(NULL),
-	mTN(wTN),
+	mCN(wCN),mTN(wTN),
 	mMapping(wMapping),
 	mTSC(gBTS.BCC()),				// Note that TSC is hardcoded to the BCC.
 	mParent(wParent),
@@ -192,6 +192,7 @@ L1Encoder::L1Encoder(unsigned wTN, const TDMAMapping& wMapping, L1FEC *wParent)
 	mNextWriteTime(gBTS.time().FN(),wTN),
 	mRunning(false),mActive(false)
 {
+	assert(mCN<gConfig.getNum("GSM.Radio.ARFCNs"));
 	assert(mMapping.allowedSlot(mTN));
 	assert(mMapping.downlink());
 	mNextWriteTime.rollForward(mMapping.frameMapping(0),mMapping.repeatLength());
@@ -200,7 +201,7 @@ L1Encoder::L1Encoder(unsigned wTN, const TDMAMapping& wMapping, L1FEC *wParent)
 	// Build the descriptive string.
 	ostringstream ss;
 	ss << wMapping.typeAndOffset();
-	sprintf(mDescriptiveString,"C0T%d %s", wTN, ss.str().c_str());
+	sprintf(mDescriptiveString,"C%dT%d %s", wCN, wTN, ss.str().c_str());
 }
 
 
@@ -297,6 +298,7 @@ void L1Encoder::sendIdleFill()
 	// For C0, that's the dummy burst.
 	// For Cn, don't do anything.
 	resync();
+	if (mCN!=0) return;
 	for (unsigned i=0; i<mMapping.numFrames(); i++) {
 		mFillerBurst.time(mNextWriteTime);
 		mDownstream->writeHighSide(mFillerBurst);
@@ -522,10 +524,11 @@ void RACHL1Decoder::writeLowSide(const RxBurst& burst)
 
 
 XCCHL1Decoder::XCCHL1Decoder(
+		unsigned wCN,
 		unsigned wTN,
 		const TDMAMapping& wMapping,
 		L1FEC *wParent)
-	:L1Decoder(wTN,wMapping,wParent),
+	:L1Decoder(wCN,wTN,wMapping,wParent),
 	mBlockCoder(0x10004820009ULL, 40, 224),
 	mC(456), mU(228),
 	mP(mU.segment(184,40)),mDP(mU.head(224)),mD(mU.head(184))
@@ -730,10 +733,11 @@ void SACCHL1Decoder::handleGoodFrame()
 
 
 XCCHL1Encoder::XCCHL1Encoder(
+		unsigned wCN,
 		unsigned wTN,
 		const TDMAMapping& wMapping,
 		L1FEC* wParent)
-	:L1Encoder(wTN,wMapping,wParent),
+	:L1Encoder(wCN,wTN,wMapping,wParent),
 	mBlockCoder(0x10004820009ULL, 40, 224),
 	mC(456), mU(228),
 	mD(mU.head(184)),mP(mU.segment(184,40))
@@ -918,7 +922,7 @@ void GeneratorL1Encoder::serviceLoop()
 
 
 SCHL1Encoder::SCHL1Encoder(L1FEC* wParent)
-	:GeneratorL1Encoder(0,gSCHMapping,wParent),
+	:GeneratorL1Encoder(0,0,gSCHMapping,wParent),
 	mBlockCoder(0x0575,10,25),
 	mU(25+10+4), mE(78),
 	mD(mU.head(25)),mP(mU.segment(25,10)),
@@ -965,7 +969,7 @@ void SCHL1Encoder::generate()
 
 
 FCCHL1Encoder::FCCHL1Encoder(L1FEC *wParent)
-	:GeneratorL1Encoder(0,gFCCHMapping,wParent)
+	:GeneratorL1Encoder(0,0,gFCCHMapping,wParent)
 {
 	mBurst.zero();
 	mFillerBurst.zero();
@@ -1036,10 +1040,11 @@ void BCCHL1Encoder::generate()
 
 
 TCHFACCHL1Decoder::TCHFACCHL1Decoder(
+	unsigned wCN,
 	unsigned wTN,
 	const TDMAMapping& wMapping,
 	L1FEC *wParent)
-	:XCCHL1Decoder(wTN, wMapping, wParent),
+	:XCCHL1Decoder(wCN,wTN, wMapping, wParent),
 	mTCHU(189),mTCHD(260),
 	mClass1_c(mC.head(378)),mClass1A_d(mTCHD.head(50)),mClass2_c(mC.segment(378,78)),
 	mTCHParity(0x0b,3,50)
@@ -1241,10 +1246,11 @@ void GSM::TCHFACCHL1EncoderRoutine( TCHFACCHL1Encoder * encoder )
 
 
 TCHFACCHL1Encoder::TCHFACCHL1Encoder(
+	unsigned wCN,
 	unsigned wTN,
 	const TDMAMapping& wMapping,
 	L1FEC *wParent)
-	:XCCHL1Encoder(wTN, wMapping, wParent), 
+	:XCCHL1Encoder(wCN, wTN, wMapping, wParent), 
 	mPreviousFACCH(false),mOffset(0),
 	mTCHU(189),mTCHD(260),
 	mClass1_c(mC.head(378)),mClass1A_d(mTCHD.head(50)),mClass2_d(mTCHD.segment(182,78)),
@@ -1525,8 +1531,8 @@ void SACCHL1Encoder::setPhy(const SACCHL1Encoder& other)
 
 
 
-SACCHL1Encoder::SACCHL1Encoder(unsigned wTN, const TDMAMapping& wMapping, SACCHL1FEC *wParent)
-	:XCCHL1Encoder(wTN,wMapping,(L1FEC*)wParent),
+SACCHL1Encoder::SACCHL1Encoder(unsigned wCN, unsigned wTN, const TDMAMapping& wMapping, SACCHL1FEC *wParent)
+	:XCCHL1Encoder(wCN,wTN,wMapping,(L1FEC*)wParent),
 	mSACCHParent(wParent),
 	mOrderedMSPower(33),mOrderedMSTiming(0)
 { }

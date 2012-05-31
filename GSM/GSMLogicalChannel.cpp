@@ -163,10 +163,11 @@ L3ChannelDescription LogicalChannel::channelDescription() const
 
 
 SDCCHLogicalChannel::SDCCHLogicalChannel(
+		unsigned wCN,
 		unsigned wTN,
 		const CompleteMapping& wMapping)
 {
-	mL1 = new SDCCHL1FEC(wTN,wMapping.LCH());
+	mL1 = new SDCCHL1FEC(wCN,wTN,wMapping.LCH());
 	// SAP0 is RR/MM/CC, SAP3 is SMS
 	// SAP1 and SAP2 are not used.
 	L2LAPDm *SAP0L2 = new SDCCHL2(1,0);
@@ -175,7 +176,7 @@ SDCCHLogicalChannel::SDCCHLogicalChannel(
 	SAP3L2->master(SAP0L2);
 	mL2[0] = SAP0L2;
 	mL2[3] = SAP3L2;
-	mSACCH = new SACCHLogicalChannel(wTN,wMapping.SACCH());
+	mSACCH = new SACCHLogicalChannel(wCN,wTN,wMapping.SACCH());
 	connect();
 }
 
@@ -184,11 +185,12 @@ SDCCHLogicalChannel::SDCCHLogicalChannel(
 
 
 SACCHLogicalChannel::SACCHLogicalChannel(
+		unsigned wCN,
 		unsigned wTN,
 		const MappingPair& wMapping)
 		: mRunning(false)
 {
-	mSACCHL1 = new SACCHL1FEC(wTN,wMapping);
+	mSACCHL1 = new SACCHL1FEC(wCN,wTN,wMapping);
 	mL1 = mSACCHL1;
 	// SAP0 is RR, SAP3 is SMS
 	// SAP1 and SAP2 are not used.
@@ -349,16 +351,17 @@ int LogicalChannel::actualMSTiming() const
 
 
 TCHFACCHLogicalChannel::TCHFACCHLogicalChannel(
+		unsigned wCN,
 		unsigned wTN,
 		const CompleteMapping& wMapping)
 {
-	mTCHL1 = new TCHFACCHL1FEC(wTN,wMapping.LCH());
+	mTCHL1 = new TCHFACCHL1FEC(wCN,wTN,wMapping.LCH());
 	mL1 = mTCHL1;
 	// SAP0 is RR/MM/CC, SAP3 is SMS
 	// SAP1 and SAP2 are not used.
 	mL2[0] = new FACCHL2(1,0);
 	mL2[3] = new FACCHL2(1,3);
-	mSACCH = new SACCHLogicalChannel(wTN,wMapping.SACCH());
+	mSACCH = new SACCHLogicalChannel(wCN,wTN,wMapping.SACCH());
 	connect();
 }
 

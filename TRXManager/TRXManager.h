@@ -58,8 +58,8 @@ class TransceiverManager {
 
 	private:
 
-	/// the ARFCN mananger under this TRX
-	ARFCNManager* mARFCN;
+	/// the ARFCN manangers under this TRX
+	std::vector<ARFCNManager*> mARFCNs;		
 
 	/// set true when the first CLOCK packet is received
 	volatile bool mHaveClock;
@@ -73,15 +73,22 @@ class TransceiverManager {
 
 	/**
 		Construct a TransceiverManager.
+		@param numARFCNs Number of ARFCNs supported by the transceiver.
 		@param wTRXAddress IP address of the transceiver.
 		@param wBasePort The base port for the interface, as defined in README.TRX.
 	*/
-	TransceiverManager(const char* wTRXAddress, int wBasePort);
+	TransceiverManager(int numARFCNs,
+		const char* wTRXAddress, int wBasePort);
 
 	/**@name Accessors. */
 	//@{
-	ARFCNManager* ARFCN() { return mARFCN; }
+	ARFCNManager* ARFCN(unsigned i) { assert(i<mARFCNs.size()); return mARFCNs.at(i); }
 	//@}
+
+	unsigned numARFCNs() const { return mARFCNs.size(); }
+
+	/** Block until the clock is set over the UDP link. */
+	//void waitForClockInit() const;
 
 	/** Start the clock management thread and all ARFCN managers. */
 	void start();

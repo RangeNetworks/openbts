@@ -91,7 +91,7 @@ SIP::SIPInterface gSIPInterface;
 GSMConfig gBTS;
 
 // Our interface to the software-defined radio.
-TransceiverManager gTRX(gConfig.getStr("TRX.IP").c_str(), gConfig.getNum("TRX.Port"));
+TransceiverManager gTRX(gConfig.getNum("GSM.Radio.ARFCNs"), gConfig.getStr("TRX.IP").c_str(), gConfig.getNum("TRX.Port"));
 
 // Subscriber registry
 SubscriberRegistry gSubscriberRegistry;
@@ -116,7 +116,7 @@ void startTransceiver()
 	// Start the transceiver binary, if the path is defined.
 	// If the path is not defined, the transceiver must be started by some other process.
 	char TRXnumARFCN[4];
-	sprintf(TRXnumARFCN,"%1d",1);
+	sprintf(TRXnumARFCN,"%1d",gConfig.getNum("GSM.Radio.ARFCNs"));
 	LOG(NOTICE) << "starting transceiver " << transceiverPath << " " << TRXnumARFCN;
 	gTransceiverPid = vfork();
 	LOG_ASSERT(gTransceiverPid>=0);
@@ -175,17 +175,21 @@ int main(int argc, char *argv[])
 
 	// Set up the interface to the radio.
 	// Get a handle to the C0 transceiver interface.
-	ARFCNManager* C0radio = gTRX.ARFCN();
+	ARFCNManager* C0radio = gTRX.ARFCN(0);
 
 	// Tuning.
 	// Make sure its off for tuning.
 	C0radio->powerOff();
 	// Get the ARFCN list.
 	unsigned C0 = gConfig.getNum("GSM.Radio.C0");
-	// Tune the radio.
-	LOG(INFO) << "tuning TRX to ARFCN " << C0;
-	ARFCNManager* radio = gTRX.ARFCN();
-	radio->tune(C0);
+	unsigned numARFCNs = gConfig.getNum("GSM.Radio.ARFCNs");
+	for (unsigned i=0; i<numARFCNs; i++) {
+		// Tune the radios.
+		unsigned ARFCN = C0 + i*2;
+		LOG(INFO) << "tuning TRX " << i << " to ARFCN " << ARFCN;
+		ARFCNManager* radio = gTRX.ARFCN(i);
+		radio->tune(ARFCN);
+	}
 
 	// Set TSC same as BCC everywhere.
 	C0radio->setTSC(gBTS.BCC());
@@ -239,10 +243,10 @@ int main(int argc, char *argv[])
 
 	// C-V C0T0 SDCCHs
 	SDCCHLogicalChannel C0T0SDCCH[4] = {
-		SDCCHLogicalChannel(0,gSDCCH_4_0),
-		SDCCHLogicalChannel(0,gSDCCH_4_1),
-		SDCCHLogicalChannel(0,gSDCCH_4_2),
-		SDCCHLogicalChannel(0,gSDCCH_4_3),
+		SDCCHLogicalChannel(0,0,gSDCCH_4_0),
+		SDCCHLogicalChannel(0,0,gSDCCH_4_1),
+		SDCCHLogicalChannel(0,0,gSDCCH_4_2),
+		SDCCHLogicalChannel(0,0,gSDCCH_4_3),
 	};
 	Thread C0T0SDCCHControlThread[4];
 	for (int i=0; i<4; i++) {
@@ -263,21 +267,21 @@ int main(int argc, char *argv[])
 	if (gConfig.defines("GSM.Channels.C1sFirst")) {
 		// Create C-I slots.
 		for (int i=0; i<gConfig.getNum("GSM.Channels.NumC1s"); i++) {
-			gBTS.createCombinationI(gTRX,sCount);
+			gBTS.createCombinationI(gTRX,sCount/8,sCount%8);
 			sCount++;
 		}
 	}
 
 	// Create C-VII slots.
 	for (int i=0; i<gConfig.getNum("GSM.Channels.NumC7s"); i++) {
-		gBTS.createCombinationVII(gTRX,sCount);
+		gBTS.createCombinationVII(gTRX,sCount/8,sCount%8);
 		sCount++;
 	}
 
 	if (!gConfig.defines("GSM.Channels.C1sFirst")) {
 		// Create C-I slots.
 		for (int i=0; i<gConfig.getNum("GSM.Channels.NumC1s"); i++) {
-			gBTS.createCombinationI(gTRX,sCount);
+			gBTS.createCombinationI(gTRX,sCount/8,sCount%8);
 			sCount++;
 		}
 	}
