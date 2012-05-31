@@ -736,8 +736,8 @@ SIPState SIPEngine::MODWaitForUNAVAILACK()
 			osip_message_t * ack = gSIPInterface.read(mCallID, gConfig.getNum("SIP.Timer.E"));
 			responded = true;
 			saveResponse(ack);
-			if (!strncmp(ack->sip_method,"ACK", 4)) {
-				LOG(WARNING) << "unexpected " << ack->sip_method << " response to UNAVAIL, from proxy " << mProxyIP << ":" << mProxyPort << ". Assuming other end has cleared";
+			if ((NULL == ack->sip_method) || !strncmp(ack->sip_method,"ACK", 4)) {
+				LOG(WARNING) << "unexpected response to UNAVAIL, from proxy " << mProxyIP << ":" << mProxyPort << ". Assuming other end has cleared";
 			}
 			osip_message_free(ack);
 			break;
