@@ -282,17 +282,38 @@ int tmsis(int argc, char** argv, ostream& os)
 	return SUCCESS;
 }
 
+int isIMSI(const char *imsi)
+{
+	int i = 0;
+
+	if (!imsi)
+		return 0;
+	if (strlen(imsi) != 15)
+		return 0;
+	
+	for (i = 0; i < strlen(imsi); i++) {
+		if (!isdigit(imsi[i]))
+			return 0;
+	}
+
+	return 1;
+}
 
 /** Submit an SMS for delivery to an IMSI. */
 int sendsimple(int argc, char** argv, ostream& os)
 {
-	if (argc!=3) return BAD_NUM_ARGS;
+	if (argc<4) return BAD_NUM_ARGS;
 
-	os << "enter text to send: ";
-	char txtBuf[161];
-	cin.getline(txtBuf,160,'\n');
 	char *IMSI = argv[1];
 	char *srcAddr = argv[2];
+	string rest = "";
+	for (int i=3; i<argc; i++) rest = rest + argv[i] + " ";
+	const char *txtBuf = rest.c_str();
+
+	if (!isIMSI(IMSI)) {
+		os << "Invalid IMSI. Enter 15 digits only.";
+		return BAD_VALUE;
+	}
 
 	static UDPSocket sock(0,"127.0.0.1",gConfig.getNum("SIP.Local.Port"));
 
@@ -311,6 +332,7 @@ int sendsimple(int argc, char** argv, ostream& os)
 		IMSI, (unsigned)random(), srcAddr,srcAddr,sock.port(),(unsigned)random(), IMSI, (unsigned)random(),sock.port(), strlen(txtBuf), txtBuf);
 	sock.write(buffer);
 
+	os << "message submitted for delivery" << endl;
 
 #if 0
 	int numRead = sock.read(buffer,10000);
@@ -325,17 +347,21 @@ int sendsimple(int argc, char** argv, ostream& os)
 	return SUCCESS;
 }
 
-
 /** Submit an SMS for delivery to an IMSI. */
 int sendsms(int argc, char** argv, ostream& os)
 {
-	if (argc!=3) return BAD_NUM_ARGS;
+	if (argc<4) return BAD_NUM_ARGS;
 
-	os << "enter text to send: ";
-	char txtBuf[161];
-	cin.getline(txtBuf,160,'\n');
 	char *IMSI = argv[1];
 	char *srcAddr = argv[2];
+	string rest = "";
+	for (int i=3; i<argc; i++) rest = rest + argv[i] + " ";
+	const char *txtBuf = rest.c_str();
+
+	if (!isIMSI(IMSI)) {
+		os << "Invalid IMSI. Enter 15 digits only.";
+		return BAD_VALUE;
+	}
 
 	Control::TransactionEntry *transaction = new Control::TransactionEntry(
 		gConfig.getStr("SIP.Proxy.SMS").c_str(),
@@ -740,8 +766,8 @@ void Parser::addCommands()
 	addCommand("help", showHelp, "[command] -- list available commands or gets help on a specific command.");
 	addCommand("exit", exit_function, "[wait] -- exit the application, either immediately, or waiting for existing calls to clear with a timeout in seconds");
 	addCommand("tmsis", tmsis, "[\"clear\"] or [\"dump\" filename] -- print/clear the TMSI table or dump it to a file.");
-	addCommand("sendsms", sendsms, "<IMSI> <src> -- send direct SMS to <IMSI>, addressed from <src>, after prompting.");
-	addCommand("sendsimple", sendsimple, "<IMSI> <src> -- send SMS to <IMSI> via SIP interface, addressed from <src>, after prompting.");
+	addCommand("sendsms", sendsms, "IMSI src# message... -- send direct SMS to IMSI, addressed from source number src#.");
+	addCommand("sendsimple", sendsimple, "IMSI src# message... -- send SMS to IMSI via SIP interface, addressed from source number src#.");
 	//apparently non-function now -kurtis
 	//addCommand("sendrrlp", sendrrlp, "<IMSI> <hexstring> -- send RRLP message <hexstring> to <IMSI>.");
 	addCommand("load", printStats, "-- print the current activity loads.");
