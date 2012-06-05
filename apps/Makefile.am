@@ -46,7 +46,6 @@ OpenBTS_LDADD = \
 
 OpenBTSCLI_SOURCES = OpenBTSCLI.cpp
 OpenBTSDo_SOURCES = OpenBTSDo.cpp
-OpenBTSCLI_LDADD = -lreadline -lncurses
 
 EXTRA_DIST = \
 	OpenBTS.example.sql

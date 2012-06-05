@@ -128,7 +128,7 @@ PKG_CHECK_MODULES(ORTP, ortp)
 PKG_CHECK_MODULES(LIBUSB, libusb-1.0)
 
 # Prepends -lreadline to LIBS and defines HAVE_LIBREADLINE in config.h
-#AC_CHECK_LIB(readline, readline)
+AC_CHECK_LIB(readline, readline)
 
 dnl Output files
 AC_CONFIG_FILES([\

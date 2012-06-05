@@ -22,6 +22,7 @@
 
 */
 
+#include <config.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <sys/socket.h>
@@ -29,9 +30,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <limits.h>
-
-#define HAVE_LIBREADLINE
-
+#include <time.h>
 
 #ifdef HAVE_LIBREADLINE
 #  include <readline/readline.h>
@@ -51,7 +50,7 @@ int main(int argc, char *argv[])
 	}
 
 	char rspPath[200];
-	sprintf(rspPath,"/tmp/OpenBTS.console.%d.%8x",getpid(),time(NULL));
+	sprintf(rspPath,"/tmp/OpenBTS.console.%d.%8lx",getpid(),time(NULL));
 
 
 	printf("command socket path is %s\n", cmdPath);
