@@ -1150,26 +1150,46 @@ SIPState SIPEngine::MOSMSWaitForSubmit()
 {
 	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
 
-	try {
-		osip_message_t * ok = gSIPInterface.read(mCallID, gConfig.getNum("SIP.Timer.A"));
-		// That should never return NULL.
+	Timeval timeout(gConfig.getNum("SIP.Timer.B"));
+	assert(mINVITE);
+	osip_message_t *ok = NULL;
+	while (!timeout.passed()) {
+		try {
+			// SIPInterface::read will throw SIPTIimeout if it times out.
+			// It should not return NULL.
+			ok = gSIPInterface.read(mCallID, gConfig.getNum("SIP.Timer.A"));
+		}
+		catch (SIPTimeout& e) {
+			LOG(NOTICE) << "SIP MESSAGE packet to " << mProxyIP << ":" << mProxyPort << " timedout; resending"; 
+			gSIPInterface.write(&mProxyAddr,mINVITE);	
+			continue;
+		}
 		assert(ok);
 		if((ok->status_code==200) || (ok->status_code==202) ) {
 			mState = Cleared;
-			LOG(INFO) << "successful";
+			LOG(INFO) << "successful SIP MESSAGE SMS submit to " << mProxyIP << ":" << mProxyPort << ": " << mINVITE;
+			break;
 		}
+		//demonstrate that these are not forwarded correctly
+		if (ok->status_code >= 400){
+			mState = Fail;
+			LOG (ALERT) << "SIP MESSAGE rejected: " << ok->status_code << " " << ok->reason_phrase;
+			break;
+		}
+		// RFC-3428 does not use 1xx reponses so we won't look for them.
+		LOG(WARNING) << "unhandled response " << ok->status_code;
 		osip_message_free(ok);
 	}
 
-	catch (SIPTimeout& e) {
-		LOG(ALERT) << "SIP MESSAGE timed out; is the SMS server " << mProxyIP << ":" << mProxyPort << " OK?"; 
-		mState = Fail;
+	if (!ok) {
+		LOG(ALERT) << "SIP MESSAGE timed out; is the smqueue server " << mProxyIP << ":" << mProxyPort << " OK?";
+		throw SIPTimeout();
 	}
 
+	osip_message_free(ok);
 	return mState;
 
 }
-
 
 
 SIPState SIPEngine::MTSMSSendOK()
