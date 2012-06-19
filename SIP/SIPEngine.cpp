@@ -96,7 +96,7 @@ SIPEngine::SIPEngine(const char* proxy, const char* IMSI)
 	mSIPPort(gConfig.getNum("SIP.Local.Port")),
 	mSIPIP(gConfig.getStr("SIP.Local.IP")),
 	mINVITE(NULL), mLastResponse(NULL), mBYE(NULL),
-	mCANCEL(NULL), mUNAVAIL(NULL), mSession(NULL), 
+	mCANCEL(NULL), mERROR(NULL), mSession(NULL), 
 	mTxTime(0), mRxTime(0), mState(NullState),
 	mDTMF('\0'),mDTMFDuration(0)
 {
@@ -133,7 +133,7 @@ SIPEngine::~SIPEngine()
 	if (mLastResponse!=NULL) osip_message_free(mLastResponse);
 	if (mBYE!=NULL) osip_message_free(mBYE);
 	if (mCANCEL!=NULL) osip_message_free(mCANCEL);
-	if (mUNAVAIL!=NULL) osip_message_free(mUNAVAIL);
+	if (mERROR!=NULL) osip_message_free(mERROR);
 	// FIXME -- Do we need to dispose of the RtpSesion *mSesison?
 }
 
@@ -201,13 +201,13 @@ void SIPEngine::saveCANCEL(const osip_message_t *CANCEL, bool mine)
 	osip_message_clone(CANCEL,&mCANCEL);
 }
 
-void SIPEngine::saveUNAVAIL(const osip_message_t *UNAVAIL, bool mine)
+void SIPEngine::saveERROR(const osip_message_t *ERROR, bool mine)
 {
 	// Instead of cloning, why not just keep the old one?
 	// Because that doesn't work in all calling contexts.
 	// This simplifies the call-handling logic.
-	if (mUNAVAIL!=NULL) osip_message_free(mUNAVAIL);
-	osip_message_clone(UNAVAIL,&mUNAVAIL);
+	if (mERROR!=NULL) osip_message_free(mERROR);
+	osip_message_clone(ERROR,&mERROR);
 }
 
 /* we're going to figure if the from field is us or not */
@@ -578,17 +578,24 @@ SIPState SIPEngine::MODSendBYE()
 	return mState;
 }
 
-SIPState SIPEngine::MODSendUNAVAIL()
+SIPState SIPEngine::MODSendERROR(osip_message_t * cause, int code, const char * reason, bool cancel)
 {
 	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
-	assert(mINVITE);
-
-	osip_message_t * unavail = sip_temporarily_unavailable(mINVITE, mSIPIP.c_str(),
-							       mSIPUsername.c_str(), mSIPPort);
+	if (NULL == cause){
+		assert(mINVITE);
+		cause = mINVITE;
+	}
+	
+	/* 480 is unavail */
+	osip_message_t * unavail = sip_error(cause, mSIPIP.c_str(),
+					     mSIPUsername.c_str(), mSIPPort, 
+					     code, reason);
 	gSIPInterface.write(&mProxyAddr,unavail);
-	saveUNAVAIL(unavail, true);
+	saveERROR(unavail, true);
 	osip_message_free(unavail);
-	mState = MODCanceling;
+	if (cancel){
+		mState = MODCanceling;
+	}
 	return mState;
 }
 
@@ -625,12 +632,14 @@ SIPState SIPEngine::MODResendCANCEL()
 	return mState;
 }
 
-SIPState SIPEngine::MODResendUNAVAIL()
+SIPState SIPEngine::MODResendERROR(bool cancel)
 {
 	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
-	assert(mState==MODCanceling);
-	assert(mUNAVAIL);
-	gSIPInterface.write(&mProxyAddr,mUNAVAIL);
+	if (cancel){
+		if (mState!=MODCanceling) LOG(ERR) << "incorrect state for this method";
+	}
+	assert(mERROR);
+	gSIPInterface.write(&mProxyAddr,mERROR);
 	return mState;
 }
 
@@ -726,7 +735,7 @@ SIPState SIPEngine::MODWaitForCANCELOK()
 	return mState;
 }
 
-SIPState SIPEngine::MODWaitForUNAVAILACK()
+SIPState SIPEngine::MODWaitForERRORACK(bool cancel)
 {
 	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
 	bool responded = false;
@@ -737,20 +746,22 @@ SIPState SIPEngine::MODWaitForUNAVAILACK()
 			responded = true;
 			saveResponse(ack);
 			if ((NULL == ack->sip_method) || !strncmp(ack->sip_method,"ACK", 4)) {
-				LOG(WARNING) << "unexpected response to UNAVAIL, from proxy " << mProxyIP << ":" << mProxyPort << ". Assuming other end has cleared";
+				LOG(WARNING) << "unexpected response to ERROR, from proxy " << mProxyIP << ":" << mProxyPort << ". Assuming other end has cleared";
 			}
 			osip_message_free(ack);
 			break;
 		}
 		catch (SIPTimeout& e) {
-			LOG(NOTICE) << "response timeout, resending UNAVAIL";
-			MODResendUNAVAIL();
+			LOG(NOTICE) << "response timeout, resending ERROR";
+			MODResendERROR(cancel);
 		}
 	}
 
 	if (!responded) { LOG(ALERT) << "lost contact with proxy " << mProxyIP << ":" << mProxyPort; }
 
-	mState = Canceled;
+	if (cancel){
+		mState = Canceled;
+	}
 
 	return mState;
 }
@@ -1212,7 +1223,31 @@ bool SIPEngine::sendINFOAndWaitForOK(unsigned wInfo)
 
 };
 
-
-
+/* reinvite stuff */
+/* return true if this is the same invite as the one we have stored */
+bool SIPEngine::sameINVITE(osip_message_t * msg){
+	assert(mINVITE);
+	if (NULL == msg){
+		return false;
+	}
+	char* old_inv;
+	size_t old_len;
+	char* new_inv;
+	size_t new_len;
+	int res = 0; //does not match
+	//this sometimes fails even though mINVITE is real. No idea -k
+	osip_message_to_str(mINVITE, &old_inv, &old_len);
+	osip_message_to_str(msg, &new_inv, &new_len);
+	if (old_inv && new_inv){
+		res = !(strncmp(old_inv, new_inv, old_len));
+	}
+	if (old_inv){
+		free(old_inv);
+	}
+	if (new_inv){
+		free(new_inv);
+	}
+	return res;
+}
 
 // vim: ts=4 sw=4

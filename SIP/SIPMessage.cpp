@@ -599,7 +599,7 @@ osip_message_t * SIP::sip_bye(const char * req_uri, const char * dialed_number, 
 	return bye;
 }
 
-osip_message_t * SIP::sip_temporarily_unavailable( osip_message_t * invite,  const char * host, const char * username, short  port)
+osip_message_t * SIP::sip_error(osip_message_t * invite,  const char * host, const char * username, short port, short code, const char* reason)
 {
 
 	if(invite==NULL){ return NULL;}
@@ -610,8 +610,8 @@ osip_message_t * SIP::sip_temporarily_unavailable( osip_message_t * invite,  con
 	// FIXME -- Should use the "force_update" function.
 	unavail->message_property = 2;
 	//header stuff first
-	unavail->status_code = 480;
-	unavail->reason_phrase = strdup("Temporarily Unavailable");
+	unavail->status_code = code;
+	unavail->reason_phrase = strdup(reason);
 	osip_message_set_version(unavail, strdup("SIP/2.0"));
 
 	char local_port[10];

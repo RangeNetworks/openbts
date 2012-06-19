@@ -202,14 +202,14 @@ class TransactionEntry {
 	void MTCInitRTP() { ScopedLock lock(mLock); mSIP.MTCInitRTP(); }
 
 	SIP::SIPState MODSendBYE();
-	SIP::SIPState MODSendUNAVAIL();
+	SIP::SIPState MODSendERROR(osip_message_t * cause, int code, const char * reason, bool cancel);
 	SIP::SIPState MODSendCANCEL();
 	SIP::SIPState MODResendBYE();
 	SIP::SIPState MODResendCANCEL();
-	SIP::SIPState MODResendUNAVAIL();
+	SIP::SIPState MODResendERROR(bool cancel);
 	SIP::SIPState MODWaitForBYEOK();
 	SIP::SIPState MODWaitForCANCELOK();
-	SIP::SIPState MODWaitForUNAVAILACK();
+	SIP::SIPState MODWaitForERRORACK(bool cancel);
 	SIP::SIPState MODWaitFor487();
 
 	SIP::SIPState MTDCheckBYE();
@@ -240,6 +240,9 @@ class TransactionEntry {
 		{ ScopedLock lock(mLock); mSIP.saveINVITE(invite,local); }
 	void saveBYE(const osip_message_t* bye, bool local)
 		{ ScopedLock lock(mLock); mSIP.saveBYE(bye,local); }
+
+	bool sameINVITE(osip_message_t * msg)
+		{ ScopedLock lock(mLock); return mSIP.sameINVITE(msg); }
 
 	//@}
 

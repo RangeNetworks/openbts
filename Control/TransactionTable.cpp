@@ -420,10 +420,10 @@ SIP::SIPState TransactionEntry::MODSendBYE()
 	return state;
 }
 
-SIP::SIPState TransactionEntry::MODSendUNAVAIL()
+SIP::SIPState TransactionEntry::MODSendERROR(osip_message_t * cause, int code, const char * reason, bool cancel)
 {
 	ScopedLock lock(mLock);
-	SIP::SIPState state = mSIP.MODSendUNAVAIL();
+	SIP::SIPState state = mSIP.MODSendERROR(cause, code, reason, cancel);
 	echoSIPState(state);
 	return state;
 }
@@ -452,10 +452,10 @@ SIP::SIPState TransactionEntry::MODResendCANCEL()
 	return state;
 }
 
-SIP::SIPState TransactionEntry::MODResendUNAVAIL()
+SIP::SIPState TransactionEntry::MODResendERROR(bool cancel)
 {
 	ScopedLock lock(mLock);
-	SIP::SIPState state = mSIP.MODResendUNAVAIL();
+	SIP::SIPState state = mSIP.MODResendERROR(cancel);
 	echoSIPState(state);
 	return state;
 }
@@ -476,10 +476,10 @@ SIP::SIPState TransactionEntry::MODWaitForCANCELOK()
 	return state;
 }
 
-SIP::SIPState TransactionEntry::MODWaitForUNAVAILACK()
+SIP::SIPState TransactionEntry::MODWaitForERRORACK(bool cancel)
 {
 	ScopedLock lock(mLock);
-	SIP::SIPState state = mSIP.MODWaitForUNAVAILACK();
+	SIP::SIPState state = mSIP.MODWaitForERRORACK(cancel);
 	echoSIPState(state);
 	return state;
 }

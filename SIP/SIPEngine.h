@@ -113,7 +113,7 @@ private:
 	//we should maybe push these together sometime? -kurtis
 	osip_message_t * mBYE;		///< the BYE message for this transaction
 	osip_message_t * mCANCEL;	///< the CANCEL message for this transaction
-	osip_message_t * mUNAVAIL;	///< the UNAVAIL message for this transaction
+	osip_message_t * mERROR;	///< the ERROR message for this transaction
 	//@}
 
 	/**@name RTP state and parameters. */
@@ -279,7 +279,7 @@ public:
 	//@{
 	SIPState MODSendBYE();
 
-	SIPState MODSendUNAVAIL();
+	SIPState MODSendERROR(osip_message_t * cause, int code, const char * reason, bool cancel);
 
 	SIPState MODSendCANCEL();
 
@@ -287,13 +287,13 @@ public:
 
 	SIPState MODResendCANCEL();
 
-	SIPState MODResendUNAVAIL();
+	SIPState MODResendERROR(bool cancel);
 
 	SIPState MODWaitForBYEOK();
 
 	SIPState MODWaitForCANCELOK();
 
-	SIPState MODWaitForUNAVAILACK();
+	SIPState MODWaitForERRORACK(bool cancel);
 
 	SIPState MODWaitFor487();
 	//@}
@@ -355,10 +355,12 @@ public:
 	/** Save a copy of a CANCEL message in the engine. */
 	void saveCANCEL(const osip_message_t *CANCEL, bool mine);
 
-	/** Save a copy of a UNAVAIL message in the engine. */
-	void saveUNAVAIL(const osip_message_t *UNAVAIL, bool mine);
+	/** Save a copy of a ERROR message in the engine. */
+	void saveERROR(const osip_message_t *ERROR, bool mine);
 
-
+	
+	/** Determine if this invite matches the saved one */
+	bool sameINVITE(osip_message_t * msg);
 
 	private:
 

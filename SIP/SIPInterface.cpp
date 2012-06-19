@@ -379,6 +379,15 @@ bool SIPInterface::checkInvite( osip_message_t * msg)
 			mSIPMap.remove(callIDNum);
 			return false;
 		}
+		//if this is not the saved invite, it's a RE-invite. Respond saying we don't support it. 
+		if (!transaction->sameINVITE(msg)){
+		  /* don't cancel the call */
+			transaction->MODSendERROR(msg, 488, "Not Acceptable Here", false);
+			/* I think we'd need to create a new transaction for this ack. Right now, just assume the ack makes it back. 
+			   if not, we'll hear another INVITE */
+			//transaction->MODWaitForERRORACK(false); //don't cancel the call
+			return false;
+		}
 		// There is transaction already.  Send trying.
 		transaction->MTCSendTrying();
 		// And if no channel is established yet, page again.
