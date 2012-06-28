@@ -1186,7 +1186,6 @@ SIPState SIPEngine::MOSMSWaitForSubmit()
 			LOG (ALERT) << "SIP MESSAGE rejected: " << ok->status_code << " " << ok->reason_phrase;
 			break;
 		}
-		// RFC-3428 does not use 1xx reponses so we won't look for them.
 		LOG(WARNING) << "unhandled response " << ok->status_code;
 		osip_message_free(ok);
 	}
