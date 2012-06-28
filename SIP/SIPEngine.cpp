@@ -1153,6 +1153,8 @@ SIPState SIPEngine::MOSMSWaitForSubmit()
 	Timeval timeout(gConfig.getNum("SIP.Timer.B"));
 	assert(mINVITE);
 	osip_message_t *ok = NULL;
+	// have we received a 100 TRYING message? If so, don't retransmit after timeout
+	bool recv_trying = false;
 	while (!timeout.passed()) {
 		try {
 			// SIPInterface::read will throw SIPTIimeout if it times out.
@@ -1160,11 +1162,19 @@ SIPState SIPEngine::MOSMSWaitForSubmit()
 			ok = gSIPInterface.read(mCallID, gConfig.getNum("SIP.Timer.A"));
 		}
 		catch (SIPTimeout& e) {
-			LOG(NOTICE) << "SIP MESSAGE packet to " << mProxyIP << ":" << mProxyPort << " timedout; resending"; 
-			gSIPInterface.write(&mProxyAddr,mINVITE);	
+			if (!recv_trying){
+				LOG(NOTICE) << "SIP MESSAGE packet to " << mProxyIP << ":" << mProxyPort << " timedout; resending"; 
+				gSIPInterface.write(&mProxyAddr,mINVITE);
+			} else {
+			  	LOG(NOTICE) << "SIP MESSAGE packet to " << mProxyIP << ":" << mProxyPort << " timedout; ignoring (got 100 TRYING)"; 
+			}
 			continue;
 		}
 		assert(ok);
+		if((ok->status_code==100)) {
+			recv_trying = true;
+			LOG(INFO) << "received TRYING MESSAGE";
+		}
 		if((ok->status_code==200) || (ok->status_code==202) ) {
 			mState = Cleared;
 			LOG(INFO) << "successful SIP MESSAGE SMS submit to " << mProxyIP << ":" << mProxyPort << ": " << mINVITE;
