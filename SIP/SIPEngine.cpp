@@ -494,7 +494,11 @@ SIPState  SIPEngine::MOCWaitForOK()
 	}
 	catch (SIPTimeout& e) { 
 		LOG(DEBUG) << "timeout";
-		mState = Timeout;
+		//if we got a 100 TRYING (SIP::Proceeding)
+		//don't time out
+		if (mState != SIP::Proceeding){
+			mState = Timeout;
+		}
 		return mState;
 	}
 
@@ -502,13 +506,11 @@ SIPState  SIPEngine::MOCWaitForOK()
 	LOG(DEBUG) << "received status " << status;
 	saveResponse(msg);
 	switch (status) {
-		case 100:	// Trying - this maybe should go to ringing too -kurtis
+		case 100:	// Trying - this means the proxy is up; don't need to reinvite
 			mState = Proceeding;
 			break;
 		case 180:	// Ringing
 		case 183:	// Progress - 
-			//We keep sending invited until we 
-			//enter Ringing, so 183 need to do that -kurtis
 			mState = Ringing;
 			break;
 		case 200:	// OK
