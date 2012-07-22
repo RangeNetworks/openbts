@@ -29,6 +29,7 @@
 #include <pthread.h>
 #include <iostream>
 #include <assert.h>
+#include <unistd.h>
 
 class Mutex;
 
