@@ -1194,8 +1194,9 @@ SIPState SIPEngine::MOSMSWaitForSubmit()
 	}
 
 	if (!ok) {
+		//changed from "throw SIPTimeout()", as this seems more correct -k
+		mState = Fail;
 		LOG(ALERT) << "SIP MESSAGE timed out; is the smqueue server " << mProxyIP << ":" << mProxyPort << " OK?";
-		throw SIPTimeout();
 	} else {
 		osip_message_free(ok);
 	}
