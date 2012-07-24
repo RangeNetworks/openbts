@@ -1190,14 +1190,15 @@ SIPState SIPEngine::MOSMSWaitForSubmit()
 		}
 		LOG(WARNING) << "unhandled response " << ok->status_code;
 		osip_message_free(ok);
+		ok = NULL;
 	}
 
 	if (!ok) {
 		LOG(ALERT) << "SIP MESSAGE timed out; is the smqueue server " << mProxyIP << ":" << mProxyPort << " OK?";
 		throw SIPTimeout();
+	} else {
+		osip_message_free(ok);
 	}
-
-	osip_message_free(ok);
 	return mState;
 
 }
