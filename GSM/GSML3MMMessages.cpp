@@ -88,6 +88,7 @@ L3MMMessage* GSM::L3MMFactory(L3MMMessage::MessageType MTI)
 	switch (MTI) {
 	  case L3MMMessage::LocationUpdatingRequest: return new L3LocationUpdatingRequest;
 	  case L3MMMessage::IMSIDetachIndication: return new L3IMSIDetachIndication;
+	  case L3MMMessage::CMServiceAbort: return new L3CMServiceAbort;
 	  case L3MMMessage::CMServiceRequest: return new L3CMServiceRequest;
 	  // Since we don't support re-establishment, don't bother parsing this.
 	  //case L3MMMessage::CMReestablishmentRequest: return new L3CMReestablishmentRequest;
@@ -197,6 +198,13 @@ void L3IMSIDetachIndication::text(ostream& os) const
 	L3MMMessage::text(os);
 	os << "mobileID=(" << mMobileIdentity << ")";
 	os << " classmark=(" << mClassmark << ")";
+}
+
+
+
+void L3CMServiceAbort::parseBody(const L3Frame& src, size_t &rp)
+{
+	//Nothing to parse -kurtis
 }
 
 

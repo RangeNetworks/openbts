@@ -714,6 +714,16 @@ void Control::MOCStarter(const GSM::L3CMServiceRequest* req, GSM::LogicalChannel
 	// Get the Setup message.
 	// GSM 04.08 5.2.1.2
 	GSM::L3Message* msg_setup = getMessage(LCH);
+
+	// Check for abort, if so close and cancel
+	if (const GSM::L3CMServiceAbort *cmsab = dynamic_cast<const GSM::L3CMServiceAbort*>(msg_setup)) {
+		LOG(INFO) << "received CMServiceAbort, closing channel and clearing";
+		//SIP Engine not started, just close the channel and exit
+		LCH->send(GSM::L3ChannelRelease());
+		delete cmsab;
+		return;
+	}
+
 	const GSM::L3Setup *setup = dynamic_cast<const GSM::L3Setup*>(msg_setup);
 	if (!setup) {
 		if (msg_setup) {
