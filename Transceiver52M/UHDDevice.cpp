@@ -705,10 +705,10 @@ int uhd_device::writeSamples(short *buf, int len, bool *underrun,
 
 		if (drop_cnt == 1) {
 			LOG(DEBUG) << "Aligning transmitter: stop burst";
+			*underrun = true;
 			metadata.end_of_burst = true;
 		} else if (drop_cnt < 30) {
 			LOG(DEBUG) << "Aligning transmitter: packet advance";
-			*underrun = true;
 			return len;
 		} else {
 			LOG(DEBUG) << "Aligning transmitter: start burst";
