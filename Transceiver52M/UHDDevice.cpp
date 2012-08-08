@@ -760,14 +760,18 @@ bool uhd_device::setRxFreq(double wFreq)
 
 bool uhd_device::recv_async_msg()
 {
-	uhd::async_metadata_t metadata;
-	if (!usrp_dev->get_device()->recv_async_msg(metadata))
+	uhd::async_metadata_t md;
+	if (!usrp_dev->get_device()->recv_async_msg(md))
 		return false;
 
 	// Assume that any error requires resynchronization
-	if (metadata.event_code != uhd::async_metadata_t::EVENT_CODE_BURST_ACK) {
+	if (md.event_code != uhd::async_metadata_t::EVENT_CODE_BURST_ACK) {
 		aligned = false;
-		LOG(ERR) << str_code(metadata);
+
+		if ((md.event_code != uhd::async_metadata_t::EVENT_CODE_UNDERFLOW) &&
+		    (md.event_code != uhd::async_metadata_t::EVENT_CODE_TIME_ERROR)) {
+			LOG(ERR) << str_code(md);
+		}
 	}
 
 	return true;
