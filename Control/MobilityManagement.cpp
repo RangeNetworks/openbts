@@ -186,7 +186,19 @@ void Control::LocationUpdatingController(const L3LocationUpdatingRequest* lur, L
 	}
 
 	// This allows us to configure Open Registration
-	bool openRegistration = gConfig.defines("Control.LUR.OpenRegistration");
+	bool openRegistration = false;
+	if (gConfig.defines("Control.LUR.OpenRegistration")) {
+		if (!gConfig.defines("Control.LUR.OpenRegistration.Message")) {
+			gConfig.set("Control.LUR.OpenRegistration.Message","Welcome to the test network.  Your IMSI is ");
+		}
+		Regexp rxp(gConfig.getStr("Control.LUR.OpenRegistration").c_str());
+		openRegistration = rxp.match(IMSI);
+		if (gConfig.defines("Control.LUR.OpenRegistration.Reject")) {
+			Regexp rxpReject(gConfig.getStr("Control.LUR.OpenRegistration.Reject").c_str());
+			bool openRegistrationReject = rxpReject.match(IMSI);
+			openRegistration = openRegistration && !openRegistrationReject;
+		}
+	}
 
 	// Query for IMEI?
 	if (gConfig.defines("Control.LUR.QueryIMEI")) {
