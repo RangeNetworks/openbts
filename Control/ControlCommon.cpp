@@ -152,7 +152,11 @@ unsigned  Control::resolveIMSI(bool sameLAI, L3MobileIdentity& mobileID, Logical
 void  Control::resolveIMSI(L3MobileIdentity& mobileIdentity, LogicalChannel* LCH)
 {
 	// Are we done already?
-	if (mobileIdentity.type()==IMSIType) return;
+	if (mobileIdentity.type()==IMSIType){
+		//Cause the tmsi table to be touched
+		gTMSITable.TMSI(mobileIdentity.digits());
+		return;
+	}
 
 	// If we got a TMSI, find the IMSI.
 	if (mobileIdentity.type()==TMSIType) {

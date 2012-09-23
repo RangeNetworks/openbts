@@ -275,6 +275,10 @@ void Control::PagingResponseHandler(const L3PagingResponse* resp, LogicalChannel
 			return;
 		}
 	}
+	else if(mobileID.type()==IMSIType){
+		//Cause the tmsi table to be touched
+		gTMSITable.TMSI(resp->mobileID().digits());
+	}
 
 	// Delete the Mobile ID from the paging list to free up CCCH bandwidth.
 	// ... if it was not deleted by a timer already ...
