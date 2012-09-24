@@ -126,6 +126,7 @@ private:
 	//@}
 
 	SIPState mState;			///< current SIP call state
+	bool mInstigator;               ///< true if this side initiated the call
 
 	/**@name RFC-2833 DTMF state. */
 	//@{
@@ -161,7 +162,7 @@ public:
 
 	/** Return if the communication was started by us (true) or not (false) */
 	/* requires an mINVITE be established */
-	bool instigator();
+	bool instigator() const { return mInstigator; }
 	
 	/** Set the user to IMSI<IMSI> and generate a call ID; for mobile-originated transactions. */
 	void user( const char * IMSI );

@@ -97,7 +97,7 @@ SIPEngine::SIPEngine(const char* proxy, const char* IMSI)
 	mSIPIP(gConfig.getStr("SIP.Local.IP")),
 	mINVITE(NULL), mLastResponse(NULL), mBYE(NULL),
 	mCANCEL(NULL), mERROR(NULL), mSession(NULL), 
-	mTxTime(0), mRxTime(0), mState(NullState),
+	mTxTime(0), mRxTime(0), mState(NullState), mInstigator(false),
 	mDTMF('\0'),mDTMFDuration(0)
 {
 	assert(proxy);
@@ -210,6 +210,8 @@ void SIPEngine::saveERROR(const osip_message_t *ERROR, bool mine)
 	osip_message_clone(ERROR,&mERROR);
 }
 
+#if 0
+This was replaced with a simple flag set during MO transactions.
 /* we're going to figure if the from field is us or not */
 bool SIPEngine::instigator()
 {
@@ -218,6 +220,7 @@ bool SIPEngine::instigator()
 	return (!strncmp(from_uri->username,mSIPUsername.c_str(),15) &&
 		!strncmp(from_uri->host, mSIPIP.c_str(), 30));
 }
+#endif
 
 void SIPEngine::user( const char * IMSI )
 {
@@ -434,6 +437,7 @@ SIPState SIPEngine::MOCSendINVITE( const char * wCalledUsername,
 	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
 	// Before start, need to add mCallID
 	gSIPInterface.addCall(mCallID);
+	mInstigator = true;
 	
 	// Set Invite params. 
 	// new CSEQ and codec 
@@ -1123,6 +1127,7 @@ SIPState SIPEngine::MOSMSSendMESSAGE(const char * wCalledUsername,
 	LOG(INFO) << "SIP send to " << wCalledUsername << "@" << wCalledDomain << " MESSAGE " << messageText;
 	// Before start, need to add mCallID
 	gSIPInterface.addCall(mCallID);
+	mInstigator = true;
 	
 	// Set MESSAGE params. 
 	char tmp[50];
