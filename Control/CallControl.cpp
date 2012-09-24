@@ -876,7 +876,7 @@ void Control::MOCController(TransactionEntry *transaction, GSM::TCHFACCHLogicalC
 				TCH->send(GSM::L3Progress(L3TI));
 				break;
 			case SIP::Timeout:
-				LOG(ALERT) << "MOC INVITE Timed out. Is SIP.Proxy.Speech (" << gConfig.getStr("SIP.Proxy.Speech") << ") configured correctly?";
+				LOG(CRIT) << "MOC INVITE Timed out. Is SIP.Proxy.Speech (" << gConfig.getStr("SIP.Proxy.Speech") << ") configured correctly?";
 				state = transaction->MOCResendINVITE();
 				break;
 			default:
