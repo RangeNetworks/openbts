@@ -358,6 +358,7 @@ bool SIPInterface::checkInvite( osip_message_t * msg)
 
 	// Find any active transaction for this IMSI with an assigned TCH or SDCCH.
 	GSM::LogicalChannel *chan = gTransactionTable.findChannel(mobileID);
+	bool userBusy = false;
 	if (chan) {
 		// If the type is TCH and the service is SMS, get the SACCH.
 		// Otherwise, for now, just say chan=NULL.
@@ -366,6 +367,7 @@ bool SIPInterface::checkInvite( osip_message_t * msg)
 		} else {
 			// FIXME -- This will change to support multiple transactions.
 			chan = NULL;
+			userBusy = (serviceType==L3CMServiceType::MobileTerminatedCall);
 		}
 	}
 
@@ -468,6 +470,12 @@ bool SIPInterface::checkInvite( osip_message_t * msg)
 
 	LOG(INFO) << "MTC MTSMS make transaction and add to transaction table: "<< *transaction;
 	gTransactionTable.add(transaction); 
+
+	if (userBusy) {
+        	transaction->MODSendERROR(msg, 486, "Busy Here", false);
+        	return true;
+	}
+
 
 	// If there's an existing channel, skip the paging step.
 	if (!chan) {
