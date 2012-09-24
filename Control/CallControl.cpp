@@ -337,7 +337,8 @@ bool callManagementDispatchGSM(TransactionEntry *transaction, GSM::LogicalChanne
 				transaction->MODWaitFor487();
 			}
 			else { //if we received it, send a 4** instead
-				transaction->MODSendERROR(NULL, 480, "Temporarily Unavailable", true);
++                               //transaction->MODSendERROR(NULL, 480, "Temporarily Unavailable", true);
++                               transaction->MODSendERROR(NULL, 486, "Busy Here", true);
 				transaction->MODWaitForERRORACK(true);
 			}
 			transaction->GSMState(GSM::NullState);
