@@ -366,8 +366,8 @@ bool SIPInterface::checkInvite( osip_message_t * msg)
 			chan = chan->SACCH();
 		} else {
 			// FIXME -- This will change to support multiple transactions.
+			userBusy = (serviceType==L3CMServiceType::MobileTerminatedCall) && !(chan->recyclable());
 			chan = NULL;
-			userBusy = (serviceType==L3CMServiceType::MobileTerminatedCall);
 		}
 	}
 
