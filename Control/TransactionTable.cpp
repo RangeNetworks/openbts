@@ -239,10 +239,13 @@ bool TransactionEntry::dead() const
 {
 	ScopedLock lock(mLock);
 
+	// Don't remove anything less than 3 minutes old.
+	if (stateAge() < 180*1000) return false;
+
 	// Null state?
-	if (mGSMState==GSM::NullState && stateAge()>180*1000) return true;
+	if (mGSMState==GSM::NullState) return true;
 	// Stuck in proceeding?
-	if (mSIP.state()==Proceeding && stateAge()>180*1000) return true;
+	if (mSIP.state()==SIP::Proceeding) return true;
 	
 	// Paging timed out?
 	if (mGSMState==GSM::Paging) {
@@ -627,6 +630,7 @@ TransactionEntry* TransactionTable::find(unsigned key)
 	TransactionMap::iterator itr = mTable.find(key);
 	if (itr==mTable.end()) return NULL;
 	if (itr->second->dead()) {
+		LOG(DEBUG) << "erasing " << itr->first;
 		innerRemove(itr);
 		return NULL;
 	}
@@ -728,6 +732,29 @@ TransactionEntry* TransactionTable::find(const L3MobileIdentity& mobileID, GSM::
 	return NULL;
 }
 
+#if 0
+bool TransactionTable::isBusy(const L3MobileIdentity& mobileID)
+{
+	LOG(DEBUG) << "id: " << mobileID << "?";
+
+	ScopedLock lock(mLock);
+
+	// Yes, it's linear time.
+	// Since clearDeadEntries is also linear, do that here, too.
+	clearDeadEntries();
+
+	// Brute force search.
+	for (TransactionMap::iterator itr = mTable.begin(); itr!=mTable.end(); ++itr) {
+		GSM::L3CMServiceType service = itr->second->service();
+		if (service==GSM::L3CMServiceType::UndefinedType) continue;
+		if (service==GSM::L3CMServiceType::LocationService) continue;
+		if (service==GSM::L3CMServiceType::ShortMessage) continue;
+		if (service==GSM::L3CMServiceType::MobileTerminatedShortMessage) continue;
+		if (itr->second->subscriber() == mobileID) return true;
+	}
+	return false;
+}
+#endif
 
 TransactionEntry* TransactionTable::find(const L3MobileIdentity& mobileID, const char* callID)
 {

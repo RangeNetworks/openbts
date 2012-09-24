@@ -386,6 +386,10 @@ class TransactionTable {
 	*/
 	TransactionEntry* find(const GSM::L3MobileIdentity& mobileID, GSM::CallState state);
 
+#if 0
+	/** Return true if there is an ongoing call for this user. */
+	bool isBusy(const GSM::L3MobileIdentity& mobileID);
+#endif
 
 	/** Find by subscriber and SIP call ID. */
 	TransactionEntry* find(const GSM::L3MobileIdentity& mobileID, const char* callID);
