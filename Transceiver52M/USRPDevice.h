@@ -115,7 +115,7 @@ private:
   USRPDevice (double _desiredSampleRate, bool skipRx);
 
   /** Instantiate the USRP */
-  bool open(); 
+  bool open(const std::string &);
 
   /** Start the USRP */
   bool start();

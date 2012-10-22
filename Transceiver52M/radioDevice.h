@@ -15,6 +15,7 @@
 #ifndef __RADIO_DEVICE_H__
 #define __RADIO_DEVICE_H__
 
+#include <string>
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -33,7 +34,7 @@ class RadioDevice {
   static RadioDevice *make(double desiredSampleRate, bool skipRx = false);
 
   /** Initialize the USRP */
-  virtual bool open()=0;
+  virtual bool open(const std::string &args)=0;
 
   /** Start the USRP */
   virtual bool start()=0;

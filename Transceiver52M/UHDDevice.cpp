@@ -151,7 +151,7 @@ public:
 	uhd_device(double rate, bool skip_rx);
 	~uhd_device();
 
-	bool open();
+	bool open(const std::string &args);
 	bool start();
 	bool stop();
 	void restart(uhd::time_spec_t ts);
@@ -422,16 +422,16 @@ bool uhd_device::parse_dev_type()
 	return true;
 }
 
-bool uhd_device::open()
+bool uhd_device::open(const std::string &args)
 {
 	// Register msg handler
 	uhd::msg::register_handler(&uhd_msg_handler);
 
 	// Find UHD devices
-	uhd::device_addr_t args("");
-	uhd::device_addrs_t dev_addrs = uhd::device::find(args);
+	uhd::device_addr_t addr(args);
+	uhd::device_addrs_t dev_addrs = uhd::device::find(addr);
 	if (dev_addrs.size() == 0) {
-		LOG(ALERT) << "No UHD devices found";
+		LOG(ALERT) << "No UHD devices found with address '" << args << "'";
 		return false;
 	}
 

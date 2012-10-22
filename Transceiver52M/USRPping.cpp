@@ -43,7 +43,7 @@ int main(int argc, char *argv[]) {
 
   RadioDevice *usrp = RadioDevice::make(52.0e6/192.0);
 
-  usrp->open();
+  usrp->open("");
 
   TIMESTAMP timestamp;
 

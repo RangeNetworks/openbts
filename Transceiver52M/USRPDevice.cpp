@@ -75,7 +75,7 @@ USRPDevice::USRPDevice (double _desiredSampleRate, bool skipRx)
 #endif
 }
 
-bool USRPDevice::open()
+bool USRPDevice::open(const std::string &)
 {
   writeLock.unlock();
 
