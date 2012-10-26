@@ -59,6 +59,7 @@ void LogicalChannel::open()
 		Control::TransactionEntry *trans = mTransactionFIFO.readNoBlock();
 		if (!trans) break;
 		LOG(WARNING) << "flushing stray transaction " << *trans;
+		// FIXME -- Shouldn't we be deleting these?
 	}
 }
 
