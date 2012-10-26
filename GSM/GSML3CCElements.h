@@ -238,6 +238,8 @@ public:
 		mCallState(wCallState)
 	{ }
 
+	unsigned callState() const { return mCallState; }
+
 	size_t lengthV()const { return 1;}
 	void writeV( L3Frame& dest, size_t &wp) const;
 	void parseV( const L3Frame& src, size_t &rp );
