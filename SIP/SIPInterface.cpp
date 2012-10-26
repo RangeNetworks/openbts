@@ -39,6 +39,7 @@
 
 #include "SIPUtility.h"
 #include "SIPInterface.h"
+#include "SIPMessage.h"
 
 #include <Logger.h>
 
@@ -159,6 +160,7 @@ void SIPInterface::write(const struct sockaddr_in* dest, osip_message_t *msg)
 		return;
 	}
 	//if it's any of these transactions, record it in the database
+	// FIXME - We should really remove all direct access to the SR
 	string name = osip_message_get_from(msg)->url->username;
 	if (msg->sip_method && 
 	    (!strncmp(msg->sip_method, "INVITE", 6) ||
@@ -292,6 +294,24 @@ const char* extractCallID(const osip_message_t* msg)
 
 
 
+void SIPInterface::sendEarlyError(osip_message_t * cause,
+       const char *proxy,
+       int code, const char * reason)
+{
+       const char *user = extractIMSI(cause);
+       unsigned port = mSIPSocket.port();
+       struct ::sockaddr_in remote;
+       if (!resolveAddress(&remote,proxy)) {
+               LOG(ALERT) << "cannot resolve IP address for " << proxy;
+               return;
+       }
+       osip_message_t * error = sip_error(cause, gConfig.getStr("SIP.Local.IP").c_str(),
+                                          user, port,
+                                          code, reason);
+       write(&remote,error);
+       osip_message_free(error);
+}
+
 
 bool SIPInterface::checkInvite( osip_message_t * msg)
 {
@@ -307,10 +327,10 @@ bool SIPInterface::checkInvite( osip_message_t * msg)
 
 	// Check for INVITE or MESSAGE methods.
 	// Check channel availability now, too.
+	// even if we are not actually assigning the channel yet.
 	GSM::ChannelType requiredChannel;
 	bool channelAvailable = false;
 	GSM::L3CMServiceType serviceType;
-	// pretty sure strings are garbage collected
 	string proxy = get_return_address(msg);
 	if (strcmp(method,"INVITE") == 0) {
 		// INVITE is for MTC.
@@ -343,6 +363,7 @@ bool SIPInterface::checkInvite( osip_message_t * msg)
 	if (!IMSI) {
 		// FIXME -- Send appropriate error (404) on SIP interface.
 		LOG(WARNING) << "Incoming INVITE/MESSAGE with no IMSI";
+		sendEarlyError(msg,proxy.c_str(),404,"Not Found");
 		return false;
 	}
 	L3MobileIdentity mobileID(IMSI);
@@ -352,12 +373,14 @@ bool SIPInterface::checkInvite( osip_message_t * msg)
 	if (!callIDNum) {
 		// FIXME -- Send appropriate error on SIP interface.
 		LOG(WARNING) << "Incoming INVITE/MESSAGE with no call ID";
+		sendEarlyError(msg,proxy.c_str(),400,"Bad Request");
 		return false;
 	}
 
 
 	// Find any active transaction for this IMSI with an assigned TCH or SDCCH.
 	GSM::LogicalChannel *chan = gTransactionTable.findChannel(mobileID);
+	//will go
 	bool userBusy = false;
 	if (chan) {
 		// If the type is TCH and the service is SMS, get the SACCH.
@@ -366,6 +389,7 @@ bool SIPInterface::checkInvite( osip_message_t * msg)
 			chan = chan->SACCH();
 		} else {
 			// FIXME -- This will change to support multiple transactions.
+		 	//will go
 			userBusy = (serviceType==L3CMServiceType::MobileTerminatedCall) && !(chan->recyclable());
 			chan = NULL;
 		}
@@ -381,6 +405,7 @@ bool SIPInterface::checkInvite( osip_message_t * msg)
 			mSIPMap.remove(callIDNum);
 			return false;
 		}
+		LOG(INFO) << "pre-existing transaction record: " << *transaction;
 		//if this is not the saved invite, it's a RE-invite. Respond saying we don't support it. 
 		if (!transaction->sameINVITE(msg)){
 			/* don't cancel the call */
@@ -391,8 +416,10 @@ bool SIPInterface::checkInvite( osip_message_t * msg)
 			//transaction->MODWaitForERRORACK(false); //don't cancel the call
 			return false;
 		}
-		// There is transaction already.  Send trying.
-		transaction->MTCSendTrying();
+
+		// Send trying, if appropriate.
+		if (serviceType != L3CMServiceType::MobileTerminatedShortMessage) transaction->MTCSendTrying();
+
 		// And if no channel is established yet, page again.
 		if (!chan) {
 			LOG(INFO) << "repeated SIP INVITE/MESSAGE, repaging for transaction " << *transaction; 
@@ -401,17 +428,25 @@ bool SIPInterface::checkInvite( osip_message_t * msg)
 		return false;
 	}
 
-	// So we will need a new channel.
+	// So we will need ay new channel.
 	// Check gBTS for channel availability.
 	if (!chan && !channelAvailable) {
-		// FIXME -- Send 503 "Service Unavailable" response on SIP interface.
-		// Don't forget the retry-after header.
-		LOG(NOTICE) << "MTC CONGESTION, no " << requiredChannel << " availble for assignment";
+        	LOG(CRIT) << "MTC CONGESTION, no " << requiredChannel << " availble";
+		// FIXME -- We need the retry-after header.
+		sendEarlyError(msg,proxy.c_str(),600,"Busy Everywhere");
 		return false;
 	}
-	if (chan)  { LOG(INFO) << "using existing channel " << chan->descriptiveString(); }
+	if (chan) { LOG(INFO) << "using existing channel " << chan->descriptiveString(); }
 	else { LOG(INFO) << "set up MTC paging for channel=" << requiredChannel; }
 
+	/* Not yet moved over -kurtis
+	// Check for new user busy condition.
+	if (!chan && gTransactionTable.isBusy(mobileID)) {
+		LOG(NOTICE) << "user busy: " << mobileID;
+		sendEarlyError(msg,proxy.c_str(),486,"Busy Here");
+		return true;
+	}
+	*/
 
 	// Add an entry to the SIP Map to route inbound SIP messages.
 	addCall(callIDNum);
@@ -472,6 +507,7 @@ bool SIPInterface::checkInvite( osip_message_t * msg)
 	LOG(INFO) << "MTC MTSMS make transaction and add to transaction table: "<< *transaction;
 	gTransactionTable.add(transaction); 
 
+	//will go -kurtis
 	if (userBusy) {
         	transaction->MODSendERROR(msg, 486, "Busy Here", false);
         	return true;

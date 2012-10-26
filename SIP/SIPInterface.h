@@ -173,6 +173,12 @@ public:
 	*/
 	bool checkInvite( osip_message_t *);
 
+	/**
+	   Send an error response before a transaction is even created.
+	*/
+	void sendEarlyError(osip_message_t * cause,
+        	const char *proxy,
+		int code, const char * reason);
 
 	/**
 		Schedule SMS for delivery.

@@ -68,6 +68,9 @@ class L3CMServiceType : public L3ProtocolElement {
 
 	bool operator==(const L3CMServiceType& other) const
 		{ return mType == other.mType; }
+
+	bool operator!=(const L3CMServiceType& other) const
+		{ return mType != other.mType; }
 	
 	size_t lengthV() const { return 0; }	
 	void writeV(L3Frame&, size_t&) const { assert(0); }
