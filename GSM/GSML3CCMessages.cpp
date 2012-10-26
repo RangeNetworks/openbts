@@ -60,7 +60,7 @@ ostream& GSM::operator<<(ostream& os, L3CCMessage::MessageType val)
 		case L3CCMessage::EmergencySetup:
 				os << "Emergency Setup"; break;
 		case L3CCMessage::CCStatus: 
-				os <<"CC Status"; break;
+				os <<"Status"; break;
 		case L3CCMessage::CallConfirmed: 
 				os <<"Call Confirmed"; break;
 		case L3CCMessage::CallProceeding: 
