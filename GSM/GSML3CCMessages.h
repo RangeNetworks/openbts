@@ -151,8 +151,9 @@ class L3Release : public L3CCMessage {
 		mHaveCause(true),mCause(wCause)
 	{}
 
-	int MTI() const { return Release; }
+	bool haveCause() const { return mHaveCause; }
 	const L3Cause& cause() const { return mCause; }
+	int MTI() const { return Release; }
 	void writeBody( L3Frame &dest, size_t &wp ) const;
 	void parseBody( const L3Frame &src, size_t &rp );
 	size_t l2BodyLength() const;
@@ -178,7 +179,9 @@ public:
 		mCause(wCause), 
 		mCallState(wCallState)
 	{}
-	
+	const L3Cause& cause() const { return mCause; }
+	const L3CallState callState() const { return mCallState; }
+
 	int MTI() const { return CCStatus; }
 	void writeBody( L3Frame &dest, size_t &wp ) const;
 	void parseBody( const L3Frame &src, size_t &rp );
@@ -444,6 +447,7 @@ public:
 		mCause(wCause)
 	{}
 
+	const L3Cause& cause() const { return mCause; }
 	int MTI() const { return Disconnect; }
 	void writeBody( L3Frame &dest, size_t &wp ) const;
 	void parseBody( const L3Frame &src, size_t &rp );
