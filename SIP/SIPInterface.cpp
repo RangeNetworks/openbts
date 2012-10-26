@@ -258,7 +258,7 @@ void SIPInterface::drive()
 		mSIPMap.write(call_num, msg);
 	}
 	catch(SIPException) {
-		LOG(WARNING) << "cannot parse SIP message: " << mReadBuffer;
+		LOG(NOTICE) << "discarded out-of-place SIP message: " << mReadBuffer;
 	}
 }
 
@@ -383,7 +383,8 @@ bool SIPInterface::checkInvite( osip_message_t * msg)
 		}
 		//if this is not the saved invite, it's a RE-invite. Respond saying we don't support it. 
 		if (!transaction->sameINVITE(msg)){
-		  /* don't cancel the call */
+			/* don't cancel the call */
+			LOG(CRIT) << "got reinvite. transaction: " << *transaction << " SIP re-INVITE: " << msg;
 			transaction->MODSendERROR(msg, 488, "Not Acceptable Here", false);
 			/* I think we'd need to create a new transaction for this ack. Right now, just assume the ack makes it back. 
 			   if not, we'll hear another INVITE */
