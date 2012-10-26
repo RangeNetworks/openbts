@@ -170,7 +170,7 @@ int main(int argc, char *argv[])
 
 	// Start the transceiver interface.
 	// Sleep long enough for the USRP to bootload.
-	sleep(5);
+	sleep(10);
 	gTRX.start();
 
 	// Set up the interface to the radio.
