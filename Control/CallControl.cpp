@@ -64,6 +64,9 @@ using namespace Control;
 
 
 
+// Forward refs.
+
+bool callManagementDispatchGSM(TransactionEntry *transaction, GSM::LogicalChannel* LCH, const GSM::L3Message *message);
 
 
 
@@ -207,34 +210,47 @@ bool assignTCHF(TransactionEntry *transaction, GSM::LogicalChannel *DCCH, GSM::T
 	TCH->open();
 	TCH->setPhy(*DCCH);
 
-	// Send the assignment.
-	transaction->channel(TCH);
-	LOG(DEBUG) << "updated transaction " << *transaction;
-	LOG(INFO) << "sending AssignmentCommand for " << *TCH << " on " << *DCCH;
-	DCCH->send(GSM::L3AssignmentCommand(TCH->channelDescription(),GSM::L3ChannelMode(GSM::L3ChannelMode::SpeechV1)));
+	// We retry this loop in case there are stray messages in the channel.
+	// On some phones, we see repeated Call Confirmed messages on MTC.
 
-	// This read is SUPPOSED to time out if the assignment was successful.
-	// Pad the timeout just in case there's a large latency somewhere.
-	GSM::L3Frame *result = DCCH->recv(GSM::T3107ms+2000);
-	if (result==NULL) {
-		LOG(INFO) << "sucessful assignment; exiting normally";
-		DCCH->send(GSM::HARDRELEASE);
-		return true;
+	GSM::Z100Timer retry(GSM::T3101ms-1000);
+	retry.set();
+	while (!retry.expired()) {
+
+		// Send the assignment.
+		transaction->channel(TCH);
+		LOG(DEBUG) << "updated transaction " << *transaction;
+		LOG(INFO) << "sending AssignmentCommand for " << *TCH << " on " << *DCCH;
+		DCCH->send(GSM::L3AssignmentCommand(TCH->channelDescription(),GSM::L3ChannelMode(GSM::L3ChannelMode::SpeechV1)));
+
+		// This read is SUPPOSED to time out if the assignment was successful.
+		// Pad the timeout just in case there's a large latency somewhere.
+		GSM::L3Frame *result = DCCH->recv(GSM::T3107ms+2000);
+		if (!result) {
+			LOG(INFO) << "sucessful assignment; exiting normally";
+			DCCH->send(GSM::HARDRELEASE);
+			return true;
+		}
+
+		// If we got here, the assignment failed, or there was a message backlog in L3.
+		GSM::L3Message *msg = parseL3(*result);
+		if (!msg) { LOG(NOTICE) << "waiting for assignment complete, received unparsed L3 frame " << *result; }
+		delete result;
+		if (!msg) continue;
+		LOG(NOTICE) << "waiting for assignment complete, received " << *msg;
+		callManagementDispatchGSM(transaction,DCCH,msg);
 	}
-
-	// If we got here, the assignment failed.
-	LOG(NOTICE) << "received " << *result;
-	delete result;
 
 	// Turn off the TCH.
 	TCH->send(GSM::RELEASE);
+
+	// RR Cause 0x04 -- "abnormal release, no activity on the radio path"
+	DCCH->send(GSM::L3ChannelRelease(0x04));
 
 	// Dissociate channel from the transaction.
 	// The tranaction no longer has a channel.
 	transaction->channel(NULL);
 	
-	// RR Cause 0x04 -- "abnormal release, no activity on the radio path"
-	DCCH->send(GSM::L3ChannelRelease(0x04));
 	// Shut down the SIP side of the call.
 	forceSIPClearing(transaction);
 	// Indicate failure.
@@ -310,8 +326,11 @@ bool callManagementDispatchGSM(TransactionEntry *transaction, GSM::LogicalChanne
 
 	// Disconnect (1st step of MOD)
 	// GSM 04.08 5.4.3.2
-	if (dynamic_cast<const GSM::L3Disconnect*>(message)) {
+	if (const GSM::L3Release *rls = dynamic_cast<const GSM::L3Release*>(message)) {
 		LOG(INFO) << "GSM Disconnect " << *transaction;
+               if (rls->haveCause() && (rls->cause().cause() > 0x10)) {
+                       LOG(NOTICE) << "abnormal terminatation: " << *rls;
+               }
 		/* late RLLP request */
 		if (gConfig.defines("Control.Call.QueryRRLP.Late")) {
 			// Query for RRLP
