@@ -510,11 +510,14 @@ SIPState  SIPEngine::MOCWaitForOK()
 	LOG(DEBUG) << "received status " << status;
 	saveResponse(msg);
 	switch (status) {
-		case 100:	// Trying - this means the proxy is up; don't need to reinvite
+		// class 1XX: Provisional messages
+		case 100:	// Trying
+		case 181:	// Call Is Being Forwarded
+		case 182:	// Queued
+		case 183:	// Session Progress FIXME we need to setup the sound channel (early media)
 			mState = Proceeding;
 			break;
 		case 180:	// Ringing
-		case 183:	// Progress - 
 			mState = Ringing;
 			break;
 		case 200:	// OK
@@ -1266,26 +1269,34 @@ bool SIPEngine::sendINFOAndWaitForOK(unsigned wInfo)
 bool SIPEngine::sameINVITE(osip_message_t * msg){
 	assert(mINVITE);
 	if (NULL == msg){
+		LOG(NOTICE) << "trying to compare empty message";
 		return false;
 	}
-	char* old_inv;
-	size_t old_len;
-	char* new_inv;
-	size_t new_len;
-	int res = 0; //does not match
-	//this sometimes fails even though mINVITE is real. No idea -k
-	osip_message_to_str(mINVITE, &old_inv, &old_len);
-	osip_message_to_str(msg, &new_inv, &new_len);
-	if (old_inv && new_inv){
-		res = !(strncmp(old_inv, new_inv, old_len));
+	// We are assuming that the callids match.
+	// Otherwise, this would not have been called.
+	// FIXME -- Check callids and assrt if they down match.
+	// So we just check the CSeq.
+	// FIXME -- Check all of the pointers along these chains and log ERR if anthing is missing.
+
+	const char *cn1 = msg->cseq->number;
+	if (!cn1) {
+		LOG(ERR) << "no cseq in msg";
+		return false;
 	}
-	if (old_inv){
-		free(old_inv);
+	int n1 = atoi(cn1);
+
+	const char *cn2 = mINVITE->cseq->number;
+	if (!cn2) {
+		LOG(ERR) << "no cseq in mINVITE";
+		return false;
 	}
-	if (new_inv){
-		free(new_inv);
+	int n2 = atoi(cn2);
+
+	if (n1!=n2) {
+		LOG(NOTICE) << "possible reinvite CSeq A " << cn1 << " (" << n1 << ") CSeq B " << cn2 << " (" << n2 << ")";
 	}
-	return res;
+
+	return n1==n2;
 }
 
 // vim: ts=4 sw=4
