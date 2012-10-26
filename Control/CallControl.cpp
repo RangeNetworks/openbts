@@ -170,7 +170,7 @@ void abortCall(TransactionEntry *transaction, GSM::LogicalChannel *LCH, const GS
 */
 void abortAndRemoveCall(TransactionEntry *transaction, GSM::LogicalChannel *LCH, const GSM::L3Cause& cause)
 {
-	LOG(INFO) << "cause: " << cause << ", transaction: " << *transaction;
+	LOG(NOTICE) << "cause: " << cause << ", transaction: " << *transaction;
 	abortCall(transaction,LCH,cause);
 	gTransactionTable.remove(transaction);
 }
@@ -326,13 +326,15 @@ bool callManagementDispatchGSM(TransactionEntry *transaction, GSM::LogicalChanne
 
 	// Disconnect (1st step of MOD)
 	// GSM 04.08 5.4.3.2
-	if (const GSM::L3Release *rls = dynamic_cast<const GSM::L3Release*>(message)) {
+	if (const GSM::L3Disconnect *disc = dynamic_cast<const GSM::L3Disconnect*>(message)) {
 		LOG(INFO) << "GSM Disconnect " << *transaction;
-               if (rls->haveCause() && (rls->cause().cause() > 0x10)) {
-                       LOG(NOTICE) << "abnormal terminatation: " << *rls;
-               }
+		bool early = transaction->GSMState() != GSM::Active;
+		bool normal = (disc->cause().cause() <= 0x10);
+		if (!normal) {
+			LOG(NOTICE) << "abnormal terminatation: " << *disc;
+		}
 		/* late RLLP request */
-		if (gConfig.defines("Control.Call.QueryRRLP.Late")) {
+		if (normal && !early && gConfig.defines("Control.Call.QueryRRLP.Late")) {
 			// Query for RRLP
 			if (!sendRRLP(transaction->subscriber(), LCH)) {
 				LOG(INFO) << "RRLP request failed";
@@ -347,7 +349,7 @@ bool callManagementDispatchGSM(TransactionEntry *transaction, GSM::LogicalChanne
 			transaction->MODSendBYE();
 			transaction->MODWaitForBYEOK();
 		}
-		else { //this is the end if the call isn't setup yet
+		else { //this is the end if the call isn't setup yet in the SIP domain
 			if (transaction->instigator()){ //if we instigated the call, send a cancel
 				transaction->MODSendCANCEL();
 				transaction->MODWaitForCANCELOK();
@@ -360,8 +362,8 @@ bool callManagementDispatchGSM(TransactionEntry *transaction, GSM::LogicalChanne
 +                               transaction->MODSendERROR(NULL, 486, "Busy Here", true);
 				transaction->MODWaitForERRORACK(true);
 			}
-			transaction->GSMState(GSM::NullState);
-			return true;
+			//transaction->GSMState(GSM::NullState);
+			//return true;
 		}
 		return false;
 	}
@@ -451,6 +453,34 @@ bool callManagementDispatchGSM(TransactionEntry *transaction, GSM::LogicalChanne
 		LOG(NOTICE) << "cannot accept additional CM Service Request from " << transaction->subscriber();
 		// Cause 0x20 means "serivce not supported".
 		LCH->send(GSM::L3CMServiceReject(0x20));
+		return false;
+	}
+
+//#if 0
+
+//This needs to work, but putting it in causes heap corruption.
+
+	// Status
+	// If we get this message, is is probably carrying an error code.
+	if (const GSM::L3CCStatus* status = dynamic_cast<const GSM::L3CCStatus*>(message)) {
+		LOG(NOTICE) << "unsolicited status message: " << *status;
+		unsigned callState = status->callState().callState();
+		// See GSM 04.08 Table 10.5.117.
+		if (callState>10) {
+			// Just cancel on the SIP side.
+			// FIXME -- We should really try to translate the error cause.
+			transaction->MODSendCANCEL();
+			transaction->resetTimers();
+			LCH->send(GSM::L3Release(transaction->L3TI()));
+			transaction->setTimer("308");
+			transaction->GSMState(GSM::ReleaseRequest);
+			return true;
+		}
+	}
+//#endif
+
+	// We don't process Assignment Failurehere, but catch it to avoid misleading log message.
+	if (dynamic_cast<const GSM::L3AssignmentFailure*>(message)) {
 		return false;
 	}
 
@@ -828,6 +858,7 @@ void Control::MOCStarter(const GSM::L3CMServiceRequest* req, GSM::LogicalChannel
 		const GSM::L3ChannelModeModifyAcknowledge *ack =
 			dynamic_cast<GSM::L3ChannelModeModifyAcknowledge*>(msg_ack);
 		if (!ack) {
+			// FIXME -- We need this in a loop calling the GSM disptach function.
 			if (msg_ack) {
 				LOG(WARNING) << "Unexpected message " << *msg_ack;
 				delete msg_ack;
