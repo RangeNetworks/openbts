@@ -463,8 +463,12 @@ int cellID(int argc, char** argv, ostream& os)
 /** Print table of current transactions. */
 int calls(int argc, char** argv, ostream& os)
 {
-	if (argc!=1) return BAD_NUM_ARGS;
+        bool showAll = false;
+	if (argc==2) showAll = true;
+	if (argc>2) return BAD_NUM_ARGS;
 	size_t count = gTransactionTable.dump(os);
+	//fix later -kurtis
+	//size_t count = gTransactionTable.dump(os,showAll);
 	os << endl << count << " transactions in table" << endl;
 	return SUCCESS;
 }
