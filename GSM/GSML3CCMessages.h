@@ -152,6 +152,7 @@ class L3Release : public L3CCMessage {
 	{}
 
 	int MTI() const { return Release; }
+	const L3Cause& cause() const { return mCause; }
 	void writeBody( L3Frame &dest, size_t &wp ) const;
 	void parseBody( const L3Frame &src, size_t &rp );
 	size_t l2BodyLength() const;
