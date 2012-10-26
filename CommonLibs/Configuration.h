@@ -1,6 +1,6 @@
 /*
 * Copyright 2009, 2010 Free Software Foundation, Inc.
-* Copyright 2010 Kestrel Signal Processing, Inc.
+* Copyright 2010, 2012 Kestrel Signal Processing, Inc.
 *
 * This software is distributed under the terms of the GNU Affero Public License.
 * See the COPYING file in the main directory for details.
@@ -32,6 +32,7 @@
 
 #include <assert.h>
 #include <stdlib.h>
+#include <syslog.h>
 
 #include <map>
 #include <vector>
@@ -44,6 +45,7 @@
 
 /** A class for configuration file errors. */
 class ConfigurationTableError {};
+extern char gCmdName[];	// Gotta be global, gotta be char*, gotta love it.
 
 /** An exception thrown when a given config key isn't found. */
 class ConfigurationTableKeyNotFound : public ConfigurationTableError {
@@ -56,7 +58,7 @@ class ConfigurationTableKeyNotFound : public ConfigurationTableError {
 
 	ConfigurationTableKeyNotFound(const std::string& wKey)
 		:mKey(wKey)
-	{ std::cerr << "cannot find configuration value " << mKey << std::endl; }
+	{ }
 
 	const std::string& key() const { return mKey; }
 
@@ -93,6 +95,8 @@ class ConfigurationRecord {
 	const std::string& value() const { return mValue; }
 	long number() const { return mNumber; }
 	bool defined() const { return mDefined; }
+
+	float floatNumber() const;
 
 };
 
@@ -176,11 +180,12 @@ class ConfigurationTable {
 	sqlite3* mDB;				///< database connection
 	ConfigurationMap mCache;	///< cache of recently access configuration values
 	mutable Mutex mLock;		///< control for multithreaded access to the cache
+	int mFacility;
 
 	public:
 
 
-	ConfigurationTable(const char* filename = ":memory:");
+	ConfigurationTable(const char* filename = ":memory:", const char *wCmdName = 0, int wFacility = LOG_USER);
 
 	/** Return true if the key is used in the table.  */
 	bool defines(const std::string& key);
@@ -212,10 +217,32 @@ class ConfigurationTable {
 	long getNum(const std::string& key);
 
 	/**
+		Get a boolean from the table.
+		Return false if NULL or 0, true otherwise.
+	*/
+	bool getBool(const std::string& key);
+
+	/**
 		Get a numeric parameter from the table.
 		Define the parameter to the default value if not found.
 	*/
 	long getNum(const std::string& key, long defaultValue);
+
+	/**
+		Get a vector of strings from the table.
+	*/
+	std::vector<std::string> getVectorOfStrings(const std::string& key);
+
+	/**
+		Get a vector of strings from the table, with a default value..
+	*/
+	std::vector<std::string> getVectorOfStrings(const std::string& key, const char* defaultValue);
+
+	/**
+		Get a float from the table.
+		Throw ConfigurationTableKeyNotFound if not found.
+	*/
+	float getFloat(const std::string& key);
 
 	/**
 		Get a numeric vector from the table.
@@ -236,12 +263,20 @@ class ConfigurationTable {
 	bool set(const std::string& key);
 
 	/**
-		Remove a key from the table.
-		Will not remove static or required values.
-		@param key The key of the item to be deleted.
-		@return true if anything was actually removed.
+		Set a corresponding value to NULL.
+		Will not alter required values.
+		@param key The key of the item to be nulled-out.
+		@return true if anything was actually nulled-out.
 	*/
 	bool unset(const std::string& key);
+
+	/**
+		Remove an entry from the table.
+		Will not alter required values.
+		@param key The key of the item to be removed.
+		@return true if anything was actually removed.
+	*/
+	bool remove(const std::string& key);
 
 	/** Search the table, dumping to a stream. */
 	void find(const std::string& pattern, std::ostream&) const;
@@ -265,6 +300,27 @@ class ConfigurationTable {
 	*/
 	const ConfigurationRecord& lookup(const std::string& key);
 
+};
+
+
+typedef std::map<HashString, std::string> HashStringMap;
+
+class SimpleKeyValue {
+
+	protected:
+
+	HashStringMap mMap;
+
+	public:
+
+	/** Take a C string "A=B" and set map["A"]="B". */
+	void addItem(const char*);
+
+	/** Take a C string "A=B C=D E=F ..." and add all of the pairs to the map. */
+	void addItems(const char*s);
+
+	/** Return a reference to the string at map["key"]. */
+	const char* get(const char*) const;
 };
 
 

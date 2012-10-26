@@ -353,7 +353,7 @@ int main(int argc, char *argv[])
 	} // try
 
 	catch (ConfigurationTableKeyNotFound e) {
-		LOG(ALERT) << "required configuration key " << e.key() << " not defined, aborting";
+		LOG(EMERG) << "required configuration parameter " << e.key() << " not defined, aborting";
 	}
 
 	if (gTransceiverPid) kill(gTransceiverPid, SIGKILL);

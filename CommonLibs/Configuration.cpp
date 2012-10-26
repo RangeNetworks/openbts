@@ -1,6 +1,7 @@
 /*
 * Copyright 2008, 2009, 2010 Free Software Foundation, Inc.
 * Copyright 2010 Kestrel Signal Processing, Inc.
+* Copyright 2011, 2012 Range Networks, Inc.
 *
 *
 * This software is distributed under the terms of the GNU Affero Public License.
@@ -33,6 +34,7 @@
 
 using namespace std;
 
+char gCmdName[20] = {0}; // Use a char* to avoid avoid static initialization of string, and race at startup.
 
 static const char* createConfigTable = {
 	"CREATE TABLE IF NOT EXISTS CONFIG ("
@@ -45,19 +47,36 @@ static const char* createConfigTable = {
 };
 
 
-ConfigurationTable::ConfigurationTable(const char* filename)
+
+float ConfigurationRecord::floatNumber() const
 {
+	float val;
+	sscanf(mValue.c_str(),"%f",&val);
+	return val;
+}
+
+
+ConfigurationTable::ConfigurationTable(const char* filename, const char *wCmdName, int wFacility)
+	:mFacility(wFacility)
+{
+	syslog(LOG_INFO | mFacility, "opening configuration table from path %s", filename);
 	// Connect to the database.
 	int rc = sqlite3_open(filename,&mDB);
+	// (pat) When I used malloc here, sqlite3 sporadically crashes.
+	if (wCmdName) {
+		strncpy(gCmdName,wCmdName,18);
+		gCmdName[18] = 0;
+		strcat(gCmdName,":");
+	}
 	if (rc) {
-		cerr << "Cannot open configuration database: " << sqlite3_errmsg(mDB);
+		syslog(LOG_EMERG | mFacility, "cannot open configuration database at %s, error message: %s", filename, sqlite3_errmsg(mDB));
 		sqlite3_close(mDB);
 		mDB = NULL;
 		return;
 	}
 	// Create the table, if needed.
 	if (!sqlite3_command(mDB,createConfigTable)) {
-		cerr << "Cannot create configuration table:" << sqlite3_errmsg(mDB);
+		syslog(LOG_EMERG | mFacility, "cannot create configuration table in database at %s, error message: %s", filename, sqlite3_errmsg(mDB));
 	}
 }
 
@@ -101,9 +120,6 @@ const ConfigurationRecord& ConfigurationTable::lookup(const string& key)
 	ConfigurationMap::const_iterator where = mCache.find(key);
 	if (where!=mCache.end()) {
 		if (where->second.defined()) return where->second;
-		// Unlock the mutex before throwing the exception.
-		mLock.unlock();
-		syslog(LOG_ALERT, "configuration key %s not found", key.c_str());
 		throw ConfigurationTableKeyNotFound(key);
 	}
 
@@ -117,8 +133,6 @@ const ConfigurationRecord& ConfigurationTable::lookup(const string& key)
 	if (!value) {
 		// Cache the failure.
 		mCache[key] = ConfigurationRecord(false);
-		// Unlock the mutex before throwing the exception.
-		mLock.unlock();
 		throw ConfigurationTableKeyNotFound(key);
 	}
 
@@ -156,17 +170,35 @@ bool ConfigurationTable::isRequired(const string& key) const
 string ConfigurationTable::getStr(const string& key)
 {
 	// We need the lock because rec is a reference into the cache.
-	ScopedLock lock(mLock);
-	return lookup(key).value();
+	try {
+		ScopedLock lock(mLock);
+		return lookup(key).value();
+	} catch (ConfigurationTableKeyNotFound) {
+		// Raise an alert and re-throw the exception.
+		syslog(LOG_ALERT | mFacility, "configuration parameter %s has no defined value", key.c_str());
+		throw ConfigurationTableKeyNotFound(key);
+	}
 }
 
 string ConfigurationTable::getStr(const string& key, const char* defaultValue)
 {
 	try {
-		return getStr(key);
+		ScopedLock lock(mLock);
+		return lookup(key).value();
 	} catch (ConfigurationTableKeyNotFound) {
+		syslog(LOG_NOTICE | mFacility, "deinfing missing parameter %s with value %s", key.c_str(),defaultValue);
 		set(key,defaultValue);
 		return string(defaultValue);
+	}
+}
+
+
+bool ConfigurationTable::getBool(const string& key)
+{
+	try {
+		return getNum(key) != 0;
+	} catch (ConfigurationTableKeyNotFound) {
+		return false;
 	}
 }
 
@@ -174,18 +206,74 @@ string ConfigurationTable::getStr(const string& key, const char* defaultValue)
 long ConfigurationTable::getNum(const string& key)
 {
 	// We need the lock because rec is a reference into the cache.
-	ScopedLock lock(mLock);
-	return lookup(key).number();
+	try {
+		ScopedLock lock(mLock);
+		return lookup(key).number();
+	} catch (ConfigurationTableKeyNotFound) {
+		// Raise an alert and re-throw the exception.
+		syslog(LOG_ALERT | mFacility, "configuration parameter %s has no defined value", key.c_str());
+		throw ConfigurationTableKeyNotFound(key);
+	}
 }
 
 
 long ConfigurationTable::getNum(const string& key, long defaultValue)
 {
 	try {
-		return getNum(key);
+		ScopedLock lock(mLock);
+		return lookup(key).number();
 	} catch (ConfigurationTableKeyNotFound) {
+		syslog(LOG_NOTICE | mFacility, "deinfing missing parameter %s with value %ld", key.c_str(),defaultValue);
 		set(key,defaultValue);
 		return defaultValue;
+	}
+}
+
+
+float ConfigurationTable::getFloat(const string& key)
+{
+	// We need the lock because rec is a reference into the cache.
+	ScopedLock lock(mLock);
+	return lookup(key).floatNumber();
+}
+
+std::vector<string> ConfigurationTable::getVectorOfStrings(const string& key)
+{
+	// Look up the string.
+	char *line=NULL;
+	try {
+		ScopedLock lock(mLock);
+		const ConfigurationRecord& rec = lookup(key);
+		line = strdup(rec.value().c_str());
+	} catch (ConfigurationTableKeyNotFound) {
+		// Raise an alert and re-throw the exception.
+		syslog(LOG_ALERT | mFacility, "configuration parameter %s has no defined value", key.c_str());
+		throw ConfigurationTableKeyNotFound(key);
+	}
+
+	assert(line);
+	char *lp = line;
+	
+	// Parse the string.
+	std::vector<string> retVal;
+	while (lp) {
+		while (*lp==' ') lp++;
+		if (*lp == '\0') break;
+		char *tp = strsep(&lp," ");
+		if (!tp) break;
+		retVal.push_back(tp);
+	}
+	free(line);
+	return retVal;
+}
+
+
+std::vector<string> ConfigurationTable::getVectorOfStrings(const string& key, const char* defaultValue){
+	try {
+		return getVectorOfStrings(key);
+	} catch (ConfigurationTableKeyNotFound) {
+		set(key,defaultValue);
+		return getVectorOfStrings(key);
 	}
 }
 
@@ -194,13 +282,22 @@ long ConfigurationTable::getNum(const string& key, long defaultValue)
 std::vector<unsigned> ConfigurationTable::getVector(const string& key)
 {
 	// Look up the string.
-	mLock.lock();
-	const ConfigurationRecord& rec = lookup(key);
-	char* line = strdup(rec.value().c_str());
-	mLock.unlock();
+	char *line=NULL;
+	try {
+		ScopedLock lock(mLock);
+		const ConfigurationRecord& rec = lookup(key);
+		line = strdup(rec.value().c_str());
+	} catch (ConfigurationTableKeyNotFound) {
+		// Raise an alert and re-throw the exception.
+		syslog(LOG_ALERT | mFacility, "configuration parameter %s has no defined value", key.c_str());
+		throw ConfigurationTableKeyNotFound(key);
+	}
+
+	assert(line);
+	char *lp = line;
+
 	// Parse the string.
 	std::vector<unsigned> retVal;
-	char *lp=line;
 	while (lp) {
 		// Watch for multiple or trailing spaces.
 		while (*lp==' ') lp++;
@@ -228,6 +325,21 @@ bool ConfigurationTable::unset(const string& key)
 	return sqlite3_command(mDB,cmd.c_str());
 }
 
+bool ConfigurationTable::remove(const string& key)
+{
+	assert(mDB);
+	if (isRequired(key)) return false;
+
+	ScopedLock lock(mLock);
+	// Clear the cache entry and the database.
+	ConfigurationMap::iterator where = mCache.find(key);
+	if (where!=mCache.end()) mCache.erase(where);
+	// Really remove it.
+	string cmd = "DELETE FROM CONFIG WHERE KEYSTRING=='"+key+"'";
+	return sqlite3_command(mDB,cmd.c_str());
+}
+
+
 
 void ConfigurationTable::find(const string& pat, ostream& os) const
 {
@@ -252,13 +364,7 @@ bool ConfigurationTable::set(const string& key, const string& value)
 {
 	assert(mDB);
 	ScopedLock lock(mLock);
-	// Is it there already?
-	char * oldValue = NULL;
-	bool exists = sqlite3_single_lookup(mDB,"CONFIG","KEYSTRING",key.c_str(),"VALUESTRING",oldValue);
-	// Update or insert as appropriate.
-	string cmd;
-	if (exists) cmd = "UPDATE CONFIG SET VALUESTRING=\""+value+"\" WHERE KEYSTRING==\""+key+"\"";
-	else cmd = "INSERT INTO CONFIG (KEYSTRING,VALUESTRING,OPTIONAL) VALUES (\"" + key + "\",\"" + value + "\",1)";
+	string cmd = "INSERT OR REPLACE INTO CONFIG (KEYSTRING,VALUESTRING,OPTIONAL) VALUES (\"" + key + "\",\"" + value + "\",1)";
 	bool success = sqlite3_command(mDB,cmd.c_str());
 	// Cache the result.
 	if (success) mCache[key] = ConfigurationRecord(value);
@@ -277,7 +383,7 @@ bool ConfigurationTable::set(const string& key)
 {
 	assert(mDB);
 	ScopedLock lock(mLock);
-	string cmd = "INSERT INTO CONFIG (KEYSTRING) VALUES (\"" + key + "\")";
+	string cmd = "INSERT OR REPLACE INTO CONFIG (KEYSTRING,VALUESTRING,OPTIONAL) VALUES (\"" + key + "\",NULL,1)";
 	bool success = sqlite3_command(mDB,cmd.c_str());
 	if (success) mCache[key] = ConfigurationRecord(true);
 	return success;
@@ -332,6 +438,39 @@ void HashString::computeHash()
 		mHash = mHash ^ (mHash >> 32);
 		mHash = mHash*127 + cstr[i];
 	}
+}
+
+
+void SimpleKeyValue::addItem(const char* pair_orig)
+{
+	char *pair = strdup(pair_orig);
+	char *key = pair;
+	char *mark = strchr(pair,'=');
+	if (!mark) return;
+	*mark = '\0';
+	char *value = mark+1;
+	mMap[key] = value;
+	free(pair);
+}
+
+
+
+const char* SimpleKeyValue::get(const char* key) const
+{
+	HashStringMap::const_iterator p = mMap.find(key);
+	if (p==mMap.end()) return NULL;
+	return p->second.c_str();
+}
+
+
+void SimpleKeyValue::addItems(const char* pairs_orig)
+{
+	char *pairs = strdup(pairs_orig);
+	char *thisPair;
+	while ((thisPair=strsep(&pairs," "))!=NULL) {
+		addItem(thisPair);
+	}
+	free(pairs);
 }
 
 

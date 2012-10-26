@@ -28,10 +28,11 @@
 
 #include "Configuration.h"
 #include <iostream>
+#include <string>
 
 using namespace std;
 
-ConfigurationTable gConfig("exampleconfig.db");
+ConfigurationTable gConfig("exampleconfig.db","test",LOG_LOCAL7);
 
 void purgeConfig(void*,int,char const*, char const*, sqlite3_int64)
 {
@@ -61,9 +62,44 @@ int main(int argc, char *argv[])
 		cout << "defined table[" << keys[i] << "]=" << gConfig.defines(keys[i]) <<  endl;
 	}
 
-	gConfig.set("key5","100 200 300 400");
+	gConfig.set("key5","100 200 300  400 ");
 	std::vector<unsigned> vect = gConfig.getVector("key5");
 	cout << "vect length " << vect.size() << ": ";
 	for (unsigned i=0; i<vect.size(); i++) cout << " " << vect[i];
 	cout << endl;
+	std::vector<string> svect = gConfig.getVectorOfStrings("key5");
+	cout << "vect length " << svect.size() << ": ";
+	for (unsigned i=0; i<svect.size(); i++) cout << " " << svect[i] << ":";
+	cout << endl;
+
+	cout << "bool " << gConfig.getBool("booltest") << endl;
+	gConfig.set("booltest",1);
+	cout << "bool " << gConfig.getBool("booltest") << endl;
+	gConfig.set("booltest",0);
+	cout << "bool " << gConfig.getBool("booltest") << endl;
+
+	gConfig.getStr("newstring","new string value");
+	gConfig.getNum("numnumber",42);
+
+
+	SimpleKeyValue pairs;
+	pairs.addItems(" a=1 b=34 dd=143 ");
+	cout<< pairs.get("a") << endl;
+	cout<< pairs.get("b") << endl;
+	cout<< pairs.get("dd") << endl;
+
+	gConfig.set("fkey","123.456");
+	float fval = gConfig.getFloat("fkey");
+	cout << "fkey " << fval << endl;
+
+	cout << "search fkey:" << endl;
+	gConfig.find("fkey",cout);
+	gConfig.unset("fkey");
+	cout << "search fkey:" << endl;
+	gConfig.find("fkey",cout);
+	gConfig.remove("fkey");
+	cout << "search fkey:" << endl;
+	gConfig.find("fkey",cout);
+
+	gConfig.getNum("supposedtoabort");
 }
