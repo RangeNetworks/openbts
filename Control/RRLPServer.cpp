@@ -277,13 +277,18 @@ bool sendRRLP(GSM::L3MobileIdentity mobileID, GSM::LogicalChannel *LCH)
 {
 	// Query for RRLP
 	RRLPServer wRRLPServer(mobileID, LCH);
-	if (!wRRLPServer.assist()) {
-		LOG(INFO) << "assist problem";
-	}
-	// can still try to check location even if assist didn't work
 	if (!wRRLPServer.locate()) {
 		LOG(INFO) << "locate problem";
-		return false;
+		if (!wRRLPServer.assist()) {
+                	LOG(INFO) << "assist problem";
+                	// Failure of assist will almost invariably lead to failure in locate.
+                	// Don't even try.  It causes too much confusion.
+        	        return false;
+	        }
+		if (!wRRLPServer.locate()) {
+			LOG(INFO) << "locate problem";
+			return false;
+		}
 	}
 	return true;
 }
