@@ -101,5 +101,9 @@ int main(int argc, char *argv[])
 	cout << "search fkey:" << endl;
 	gConfig.find("fkey",cout);
 
-	gConfig.getNum("supposedtoabort");
+	try {
+		gConfig.getNum("supposedtoabort");
+	} catch (ConfigurationTableKeyNotFound) {
+		cout << "ConfigurationTableKeyNotFound exception successfully caught." << endl;
+	}
 }
