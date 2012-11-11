@@ -246,7 +246,7 @@ unsigned TMSITable::nextL3TI(const char* IMSI)
 	// FIXME -- This should be a single atomic operation.
 	unsigned l3ti;
 	if (!sqlite3_single_lookup(mDB,"TMSI_TABLE","IMSI",IMSI,"L3TI",l3ti)) {
-		LOG(ERR) << "cannot read L3TI from TMSI_TABLE, using randon L3TI";
+		LOG(ERR) << "cannot read L3TI from TMSI_TABLE, using random L3TI";
 		return random() % 8;
 	}
 	// Note that TI=7 is a reserved value, so value values are 0-6.  See GSM 04.07 11.2.3.1.3.

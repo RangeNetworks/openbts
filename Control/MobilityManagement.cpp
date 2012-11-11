@@ -148,7 +148,7 @@ void Control::LocationUpdatingController(const L3LocationUpdatingRequest* lur, L
 	// registration with the Asterisk server.
 
 	// We also allocate a new TMSI for every handset we encounter.
-	// If the handset is allow to register it may receive a TMSI reassignment.
+	// If the handset is allowed to register it may receive a TMSI reassignment.
 
 	// Resolve an IMSI and see if there's a pre-existing IMSI-TMSI mapping.
 	// This operation will throw an exception, caught in a higher scope,

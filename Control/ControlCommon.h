@@ -127,7 +127,7 @@ void DCCHDispatcher(GSM::LogicalChannel *DCCH);
 	@param sameLAI True if the mobileID is known to have come from this LAI.
 	@param mobID A mobile ID, that may be modified by the function.
 	@param LCH The Dm channel to the mobile.
-	@return A TMSI value from the TMSITable or zero if non found.
+	@return A TMSI value from the TMSITable or zero if not found.
 */
 unsigned  resolveIMSI(bool sameLAI, GSM::L3MobileIdentity& mobID, GSM::LogicalChannel* LCH);
 
