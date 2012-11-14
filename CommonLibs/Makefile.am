@@ -33,7 +33,8 @@ libcommon_la_SOURCES = \
 	Timeval.cpp \
 	Logger.cpp \
 	URLEncode.cpp \
-	Configuration.cpp
+	Configuration.cpp \
+	sqlite3util.cpp
 
 noinst_PROGRAMS = \
 	BitVectorTest \
@@ -58,7 +59,8 @@ noinst_HEADERS = \
 	URLEncode.h \
 	Configuration.h \
 	F16.h \
-	Logger.h
+	Logger.h \
+	sqlite3util.h
 
 BitVectorTest_SOURCES = BitVectorTest.cpp
 BitVectorTest_LDADD = libcommon.la

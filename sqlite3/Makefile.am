@@ -26,11 +26,9 @@ AM_CXXFLAGS = -Wall -lpthread -ldl
 noinst_LTLIBRARIES = libsqlite.la
 
 libsqlite_la_SOURCES = \
-	sqlite3.c \
-	sqlite3util.cpp
+	sqlite3.c
 
 noinst_HEADERS = \
 	sqlite3.h \
-	sqlite3ext.h \
-	sqlite3util.h
+	sqlite3ext.h
 

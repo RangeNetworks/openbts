@@ -50,6 +50,6 @@ CONTROL_LA = $(top_builddir)/Control/libcontrol.la
 GLOBALS_LA = $(top_builddir)/Globals/libglobals.la
 CLI_LA = $(top_builddir)/CLI/libcli.la
 SR_LA = $(top_builddir)/SR/libSR.la
-SQLITE_LA = $(top_builddir)/sqlite3/libsqlite.la
+SQLITE_LA = $(top_builddir)/sqlite3/libsqlite.la -ldl
 
 MOSTLYCLEANFILES = *~
