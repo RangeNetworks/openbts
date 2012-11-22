@@ -206,7 +206,13 @@ class Q931TimerExpired : public ControlLayerException {
 	{}
 };
 
-
+/** Thrown if we touch a removed transaction. */
+class RemovedTransaction : public ControlLayerException {
+	public:
+	RemovedTransaction(unsigned wTransactionID=0)
+		:ControlLayerException(wTransactionID)
+	{}
+};
 //@}
 
 

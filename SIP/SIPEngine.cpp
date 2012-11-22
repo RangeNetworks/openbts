@@ -40,11 +40,13 @@
 #include <GSMConfig.h>
 #include <ControlCommon.h>
 #include <GSMCommon.h>
+#include <GSMLogicalChannel.h>
 
 #include "SIPInterface.h"
 #include "SIPUtility.h"
 #include "SIPMessage.h"
 #include "SIPEngine.h"
+#include "TransactionTable.h"
 
 #undef WARNING
 
@@ -245,6 +247,44 @@ void SIPEngine::user( const char * wCallID, const char * IMSI, const char *origI
 }
 
 
+void SIPEngine::writePrivateHeaders(osip_message_t *msg, const GSM::LogicalChannel *chan)
+{
+	// P-PHY-Info
+	// This is a non-standard private header in OpenBTS.
+	// TA=<timing advance> TE=<TA error> UpRSSI=<uplink RSSI> TxPwr=<MS tx power> DnRSSIdBm=<downlink RSSI>
+	// Get the values
+#if 0
+	if (chan) {
+		char phy_info[200];
+		sprintf(phy_info,"OpenBTS; TA=%d TE=%f UpRSSI=%f TxPwr=%d DnRSSIdBm=%d",
+			chan->actualMSTiming(), chan->timingError(),
+			chan->RSSI(), chan->actualMSPower(),
+			chan->measurementResults().RXLEV_FULL_SERVING_CELL_dBm());
+		osip_message_set_header(msg,"P-PHY-Info",phy_info);
+	}
+#endif
+
+	// P-Access-Network-Info
+	// See 3GPP 24.229 7.2.
+	char cgi_3gpp[50];
+	sprintf(cgi_3gpp,"3GPP-GERAN; cgi-3gpp=%s%s%04x%04x",
+		gConfig.getStr("GSM.Identity.MCC").c_str(),gConfig.getStr("GSM.Identity.MNC").c_str(),
+		(unsigned)gConfig.getNum("GSM.Identity.LAC"),(unsigned)gConfig.getNum("GSM.Identity.CI"));
+	osip_message_set_header(msg,"P-Access-Network-Info",cgi_3gpp);
+ 
+	// P-Preferred-Identity
+	// See RFC-3325.
+	char pref_id[50];
+	sprintf(pref_id,"<sip:%s@%s>",
+		mSIPUsername.c_str(),
+		gConfig.getStr("SIP.Proxy.Speech").c_str());
+	osip_message_set_header(msg,"P-Preferred-Identity",pref_id);
+
+	// FIXME -- Use the subscriber registry to look up the E.164
+	// and make a second P-Preferred-Identity header.
+
+}
+
 bool SIPEngine::Register( Method wMethod )
 {
 	LOG(INFO) << "user " << mSIPUsername << " state " << mState << " " << wMethod << " callID " << mCallID;
@@ -355,7 +395,7 @@ const char* geoprivTemplate =
   "</tuple>\n"
  "</presence>\n";
 
-SIPState SIPEngine::SOSSendINVITE(short wRtp_port, unsigned  wCodec)
+SIPState SIPEngine::SOSSendINVITE(short wRtp_port, unsigned  wCodec, const GSM::LogicalChannel *chan)
 {
 	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
 	// Before start, need to add mCallID
@@ -390,26 +430,7 @@ SIPState SIPEngine::SOSSendINVITE(short wRtp_port, unsigned  wCodec)
 			mMyTag.c_str(), mViaBranch.c_str(), mCallID.c_str(), mCSeq, mCodec); 
 	}
 
-	// Add IMS emergency call headers with osip_message_set_header.
-
-	// P-Access-Network-Info
-	// See 3GPP 24.229 7.2.
-	char cgi_3gpp[50];
-	sprintf(cgi_3gpp,"3GPP-GERAN; cgi-3gpp=%s%s%04x%04x",
-		gConfig.getStr("GSM.Identity.MCC").c_str(),gConfig.getStr("GSM.Identity.MNC").c_str(),
-		(unsigned)gConfig.getNum("GSM.Identity.LAC"),(unsigned)gConfig.getNum("GSM.Identity.CI"));
-	osip_message_set_header(invite,"P-Access-Network-Info",cgi_3gpp);
-
-	// P-Preferred-Identity
-	// See RFC-3325.
-	char pref_id[50];
-	sprintf(pref_id,"<sip:%s@%s>",
-		mSIPUsername.c_str(),
-		gConfig.getStr("Control.Emergency.GatewaySwitch").c_str());
-	osip_message_set_header(invite,"P-Preferred-Identity",pref_id);
-
-	// FIXME -- Use the subscriber registry to look up the E.164
-	// and make a second P-Preferred-Identity header.
+	writePrivateHeaders(invite,chan);
 
 	// Add RFC-4119 geolocation XML to content area, if available.
 	if (gConfig.defines("Control.Emergency.Geolocation")) {
@@ -434,7 +455,8 @@ SIPState SIPEngine::SOSSendINVITE(short wRtp_port, unsigned  wCodec)
 
 
 SIPState SIPEngine::MOCSendINVITE( const char * wCalledUsername, 
-	const char * wCalledDomain , short wRtp_port, unsigned  wCodec)
+	const char * wCalledDomain , short wRtp_port, unsigned  wCodec,
+	const GSM::LogicalChannel *chan)
 {
 	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
 	// Before start, need to add mCallID
@@ -461,14 +483,7 @@ SIPState SIPEngine::MOCSendINVITE( const char * wCalledUsername,
 		mSIPPort, mSIPIP.c_str(), mProxyIP.c_str(), 
 		mMyTag.c_str(), mViaBranch.c_str(), mCallID.c_str(), mCSeq, mCodec); 
 
-	// P-Access-Network-Info
-	// See 3GPP 24.229 7.2.
-	char cgi_3gpp[50];
-	sprintf(cgi_3gpp,"3GPP-GERAN; cgi-3gpp=%s%s%04x%04x",
-		gConfig.getStr("GSM.Identity.MCC").c_str(),gConfig.getStr("GSM.Identity.MNC").c_str(),
-		(unsigned)gConfig.getNum("GSM.Identity.LAC"),(unsigned)gConfig.getNum("GSM.Identity.CI"));
-	osip_message_set_header(invite,"P-Access-Network-Info",cgi_3gpp);
-
+	writePrivateHeaders(invite,chan);
 	
 	// Send Invite.
 	gSIPInterface.write(&mProxyAddr,invite);
@@ -487,7 +502,7 @@ SIPState SIPEngine::MOCResendINVITE()
 	return mState;
 }
 
-SIPState  SIPEngine::MOCWaitForOK()
+SIPState  SIPEngine::MOCCheckForOK(Mutex *lock)
 {
 	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
 
@@ -496,7 +511,7 @@ SIPState  SIPEngine::MOCWaitForOK()
 	// Read off the fifo. if time out will
 	// clean up and return false.
 	try {
-		msg = gSIPInterface.read(mCallID, gConfig.getNum("SIP.Timer.A"));
+		msg = gSIPInterface.read(mCallID, gConfig.getNum("SIP.Timer.A"),lock);
 	}
 	catch (SIPTimeout& e) { 
 		LOG(DEBUG) << "timeout";
@@ -656,12 +671,12 @@ SIPState SIPEngine::MODResendERROR(bool cancel)
 
 /* there shouldn't be any more communications on this fifo, but we might
    get a 487 RequestTerminated. We only need to respond and move on -kurtis */
-SIPState SIPEngine::MODWaitFor487()
+SIPState SIPEngine::MODWaitFor487(Mutex *lock)
 {
 	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
 	osip_message_t * msg;
 	try {
-		msg = gSIPInterface.read(mCallID, gConfig.getNum("SIP.Timer.E"));
+		msg = gSIPInterface.read(mCallID, gConfig.getNum("SIP.Timer.E"), lock);
 	}
 	catch (SIPTimeout& e) {
 		LOG(NOTICE) << "487 Timeout";
@@ -686,14 +701,14 @@ SIPState SIPEngine::MODWaitFor487()
 	}
 }
 
-SIPState SIPEngine::MODWaitForBYEOK()
+SIPState SIPEngine::MODWaitForBYEOK(Mutex *lock)
 {
 	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
 	bool responded = false;
 	Timeval timeout(gConfig.getNum("SIP.Timer.F")); 
 	while (!timeout.passed()) {
 		try {
-			osip_message_t * ok = gSIPInterface.read(mCallID, gConfig.getNum("SIP.Timer.E"));
+			osip_message_t * ok = gSIPInterface.read(mCallID, gConfig.getNum("SIP.Timer.E"),lock);
 			responded = true;
 			unsigned code = ok->status_code;
 			saveResponse(ok);
@@ -716,14 +731,14 @@ SIPState SIPEngine::MODWaitForBYEOK()
 	return mState;
 }
 
-SIPState SIPEngine::MODWaitForCANCELOK()
+SIPState SIPEngine::MODWaitForCANCELOK(Mutex *lock)
 {
 	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
 	bool responded = false;
 	Timeval timeout(gConfig.getNum("SIP.Timer.F")); 
 	while (!timeout.passed()) {
 		try {
-			osip_message_t * ok = gSIPInterface.read(mCallID, gConfig.getNum("SIP.Timer.E"));
+			osip_message_t * ok = gSIPInterface.read(mCallID, gConfig.getNum("SIP.Timer.E"),lock);
 			responded = true;
 			unsigned code = ok->status_code;
 			saveResponse(ok);
@@ -746,14 +761,65 @@ SIPState SIPEngine::MODWaitForCANCELOK()
 	return mState;
 }
 
-SIPState SIPEngine::MODWaitForERRORACK(bool cancel)
+static bool containsResponse(vector<unsigned> *validResponses, unsigned code)
+{
+	for (int i = 0; i < validResponses->size(); i++) {
+		if (validResponses->at(i) == code)
+			return true;
+	}
+	return false;
+}
+
+SIPState SIPEngine::MODWaitForResponse(vector<unsigned> *validResponses, Mutex *lock)
+{
+	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
+	assert(validResponses);
+	bool responded = false;
+	Timeval timeout(gConfig.getNum("SIP.Timer.F")); 
+	while (!timeout.passed()) {
+		try {
+			osip_message_t * resp = gSIPInterface.read(mCallID, gConfig.getNum("SIP.Timer.E"),lock);
+			responded = true;
+			unsigned code = resp->status_code;
+			if (code==200) {
+				saveResponse(resp);
+				mState = Canceled;
+			}
+			if (code==487) {
+				osip_message_t* ack = sip_ack( mRemoteDomain.c_str(),
+					       mRemoteUsername.c_str(), 
+					       mSIPUsername.c_str(),
+					       mSIPPort, mSIPIP.c_str(), mProxyIP.c_str(), 
+					       mMyToFromHeader, mRemoteToFromHeader,
+					       mViaBranch.c_str(), mCallIDHeader, mCSeq);
+				gSIPInterface.write(&mProxyAddr,ack);
+				osip_message_free(ack);
+			}
+			osip_message_free(resp);
+			if (!containsResponse(validResponses, code)) {
+				LOG(WARNING) << "unexpected " << code << " response to CANCEL, from proxy " << mProxyIP << ":" << mProxyPort << ". Assuming other end has cleared";
+			}
+			break;
+		}
+		catch (SIPTimeout& e) {
+			LOG(NOTICE) << "response timeout, resending CANCEL";
+			MODResendCANCEL();
+		}
+	}
+
+	if (!responded) { LOG(ALERT) << "lost contact with proxy " << mProxyIP << ":" << mProxyPort; }
+
+	return mState;
+}
+
+SIPState SIPEngine::MODWaitForERRORACK(bool cancel, Mutex *lock)
 {
 	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
 	bool responded = false;
 	Timeval timeout(gConfig.getNum("SIP.Timer.F")); 
 	while (!timeout.passed()) {
 		try {
-			osip_message_t * ack = gSIPInterface.read(mCallID, gConfig.getNum("SIP.Timer.E"));
+			osip_message_t * ack = gSIPInterface.read(mCallID, gConfig.getNum("SIP.Timer.E"),lock);
 			responded = true;
 			saveResponse(ack);
 			if ((NULL == ack->sip_method) || !strncmp(ack->sip_method,"ACK", 4)) {
@@ -881,7 +947,7 @@ SIPState SIPEngine::MTCSendRinging()
 
 
 
-SIPState SIPEngine::MTCSendOK( short wRTPPort, unsigned wCodec )
+SIPState SIPEngine::MTCSendOK( short wRTPPort, unsigned wCodec, const GSM::LogicalChannel *chan)
 {
 	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
 	assert(mINVITE);
@@ -891,13 +957,14 @@ SIPState SIPEngine::MTCSendOK( short wRTPPort, unsigned wCodec )
 	// Form ack from invite and new parameters.
 	osip_message_t * okay = sip_okay_sdp(mINVITE, mSIPUsername.c_str(),
 		mSIPIP.c_str(), mSIPPort, mRTPPort, mCodec);
+	writePrivateHeaders(okay,chan);
 	gSIPInterface.write(&mProxyAddr,okay);
 	osip_message_free(okay);
 	mState=Connecting;
 	return mState;
 }
 
-SIPState SIPEngine::MTCWaitForACK()
+SIPState SIPEngine::MTCCheckForACK(Mutex *lock)
 {
 	// wait for ack,set this to timeout of 
 	// of call channel.  If want a longer timeout 
@@ -908,7 +975,7 @@ SIPState SIPEngine::MTCWaitForACK()
 
 	// FIXME -- This is supposed to retransmit BYE on timer I.
 	try {
-		ack = gSIPInterface.read(mCallID, gConfig.getNum("SIP.Timer.H"));
+		ack = gSIPInterface.read(mCallID, gConfig.getNum("SIP.Timer.H"), lock);
 	}
 	catch (SIPTimeout& e) {
 		LOG(NOTICE) << "timeout";
@@ -1126,7 +1193,8 @@ int SIPEngine::rxFrame(unsigned char* frame)
 
 
 SIPState SIPEngine::MOSMSSendMESSAGE(const char * wCalledUsername, 
-	const char * wCalledDomain , const char *messageText, const char *contentType)
+	const char * wCalledDomain , const char *messageText, const char *contentType,
+	const GSM::LogicalChannel *chan)
 {
 	LOG(DEBUG) << "mState=" << mState;
 	LOG(INFO) << "SIP send to " << wCalledUsername << "@" << wCalledDomain << " MESSAGE " << messageText;
@@ -1148,7 +1216,9 @@ SIPState SIPEngine::MOSMSSendMESSAGE(const char * wCalledUsername,
 		mSIPPort, mSIPIP.c_str(), mProxyIP.c_str(), 
 		mMyTag.c_str(), mViaBranch.c_str(), mCallID.c_str(), mCSeq,
 		messageText, contentType); 
-	
+
+	writePrivateHeaders(message,chan);
+
 	// Send Invite to the SIP proxy.
 	gSIPInterface.write(&mProxyAddr,message);
 	saveINVITE(message,true);
@@ -1158,7 +1228,7 @@ SIPState SIPEngine::MOSMSSendMESSAGE(const char * wCalledUsername,
 };
 
 
-SIPState SIPEngine::MOSMSWaitForSubmit()
+SIPState SIPEngine::MOSMSWaitForSubmit(Mutex *lock)
 {
 	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
 
@@ -1171,7 +1241,7 @@ SIPState SIPEngine::MOSMSWaitForSubmit()
 		try {
 			// SIPInterface::read will throw SIPTIimeout if it times out.
 			// It should not return NULL.
-			ok = gSIPInterface.read(mCallID, gConfig.getNum("SIP.Timer.A"));
+			ok = gSIPInterface.read(mCallID, gConfig.getNum("SIP.Timer.A"),lock);
 		}
 		catch (SIPTimeout& e) {
 			if (!recv_trying){
@@ -1215,7 +1285,7 @@ SIPState SIPEngine::MOSMSWaitForSubmit()
 }
 
 
-SIPState SIPEngine::MTSMSSendOK()
+SIPState SIPEngine::MTSMSSendOK(const GSM::LogicalChannel *chan)
 {
 	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
 	// If this operation was initiated from the CLI, there was no INVITE.
@@ -1227,6 +1297,7 @@ SIPState SIPEngine::MTSMSSendOK()
 	// Form ack from invite and new parameters.
 	osip_message_t * okay = sip_okay(mINVITE, mSIPUsername.c_str(),
 		mSIPIP.c_str(), mSIPPort);
+	writePrivateHeaders(okay,chan);
 	gSIPInterface.write(&mProxyAddr,okay);
 	osip_message_free(okay);
 	mState=Cleared;
@@ -1235,7 +1306,7 @@ SIPState SIPEngine::MTSMSSendOK()
 
 
 
-bool SIPEngine::sendINFOAndWaitForOK(unsigned wInfo)
+bool SIPEngine::sendINFOAndWaitForOK(unsigned wInfo, Mutex *lock)
 {
 	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
 
@@ -1248,23 +1319,32 @@ bool SIPEngine::sendINFOAndWaitForOK(unsigned wInfo)
 		mSIPPort, mSIPIP.c_str(), mProxyIP.c_str(), 
 		mMyTag.c_str(), mViaBranch.c_str(), mCallIDHeader, mCSeq); 
 	gSIPInterface.write(&mProxyAddr,info);
-	osip_message_free(info);
 
-	try {
-		// This will timeout on failure.  It will not return NULL.
-		osip_message_t *msg = gSIPInterface.read(mCallID, gConfig.getNum("SIP.Timer.A"));
-		LOG(DEBUG) << "received status " << msg->status_code << " " << msg->reason_phrase;
-		bool retVal = (msg->status_code==200);
-		osip_message_free(msg);
-		if (!retVal) LOG(CRIT) << "DTMF RFC-2967 failed.";
-		return retVal;
+	Timeval timeout(gConfig.getNum("SIP.Timer.F"));
+	osip_message_t *ok = NULL;
+	while (!timeout.passed()) {
+		try {
+			// This will timeout on failure.  It will not return NULL.
+			ok = gSIPInterface.read(mCallID, gConfig.getNum("SIP.Timer.E"), lock);
+			LOG(DEBUG) << "received status " << ok->status_code << " " << ok->reason_phrase;
+		}
+		catch (SIPTimeout& e) { 
+			LOG(NOTICE) << "SIP RFC-2967 INFO packet to " << mProxyIP << ":" << mProxyPort << " timedout; resending"; 
+			gSIPInterface.write(&mProxyAddr,info);
+			continue;
+		}
 	}
-	catch (SIPTimeout& e) { 
-		LOG(NOTICE) << "timeout";
+	osip_message_free(info);
+	if (!ok) {
+		LOG(ALERT) << "SIP RFC-2967 INFO timed out; is the proxy at " << mProxyIP << ":" << mProxyPort << " OK?";
 		return false;
 	}
-
-};
+	LOG(DEBUG) << "received status " << ok->status_code << " " << ok->reason_phrase;
+	bool retVal = (ok->status_code==200);
+	osip_message_free(ok);
+	if (!retVal) LOG(WARNING) << "SIP RFC-2967 INFO failed on server " << mProxyIP << ":" << mProxyPort << " OK?";
+	return retVal;
+}
 
 /* reinvite stuff */
 /* return true if this is the same invite as the one we have stored */

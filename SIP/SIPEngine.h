@@ -199,7 +199,7 @@ public:
 		@param codec Code for codec to be used.
 		@return New SIP call state.
 	*/
-	SIPState SOSSendINVITE(short rtpPort, unsigned codec);
+	SIPState SOSSendINVITE(short rtpPort, unsigned codec, const GSM::LogicalChannel *chan = NULL);
 
 	//SIPState SOSResendINVITE();
 
@@ -223,11 +223,13 @@ public:
 		@return New SIP call state.
 	*/
 	SIPState MOCSendINVITE(const char * calledUser,
-		const char * calledDomain, short rtpPort, unsigned codec);
+		const char * calledDomain, short rtpPort, unsigned codec,
+		const GSM::LogicalChannel *chan = NULL);
+
 
 	SIPState MOCResendINVITE();
 
-	SIPState MOCWaitForOK();
+	SIPState MOCCheckForOK(Mutex *lock);
 
 	SIPState MOCSendACK();
 
@@ -245,11 +247,12 @@ public:
 	*/
 	SIPState MOSMSSendMESSAGE(const char * calledUsername,
 		const char * calledDomain, const char *messageText,
-		const char *contentType);
+		const char *contentType,
+		const GSM::LogicalChannel *chan = NULL);
 
-	SIPState MOSMSWaitForSubmit();
+	SIPState MOSMSWaitForSubmit(Mutex *lock=NULL);
 
-	SIPState MTSMSSendOK();
+	SIPState MTSMSSendOK(const GSM::LogicalChannel *chan = NULL);
 
 	//@}
 
@@ -260,9 +263,9 @@ public:
 
 	SIPState MTCSendRinging();
 
-	SIPState MTCSendOK(short rtpPort, unsigned codec);
+	SIPState MTCSendOK(short rtpPort, unsigned codec, const GSM::LogicalChannel *chan = NULL);
 
-	SIPState MTCWaitForACK();
+	SIPState MTCCheckForACK(Mutex *lock);
 
 	SIPState MTCCheckForCancel();
 	//@}
@@ -290,13 +293,16 @@ public:
 
 	SIPState MODResendERROR(bool cancel);
 
-	SIPState MODWaitForBYEOK();
+	SIPState MODWaitForBYEOK(Mutex *lock=NULL);
 
-	SIPState MODWaitForCANCELOK();
+	SIPState MODWaitForCANCELOK(Mutex *lock=NULL);
 
-	SIPState MODWaitForERRORACK(bool cancel);
+	SIPState MODWaitForERRORACK(bool cancel, Mutex *lock=NULL);
 
-	SIPState MODWaitFor487();
+	SIPState MODWaitFor487(Mutex *lock=NULL);
+
+	SIPState MODWaitForResponse(vector<unsigned> *validResponses, Mutex *lock=NULL);
+
 	//@}
 
 
@@ -339,7 +345,7 @@ public:
 		@param wInfo The DTMF signalling code.
 		@return Success/Fail flag.
 	*/
-	bool sendINFOAndWaitForOK(unsigned wInfo);
+	bool sendINFOAndWaitForOK(unsigned wInfo, Mutex *lock=NULL);
 
 	//@}
 
@@ -370,6 +376,11 @@ public:
 		@param msg A SIP INVITE or 200 OK wth RTP parameters
 	*/
 	void InitRTP(const osip_message_t * msg );
+
+	/**
+		Generate a standard set of private headers on initiating messages.
+	*/
+	void writePrivateHeaders(osip_message_t *msg, const GSM::LogicalChannel *chan);
 
 };
 

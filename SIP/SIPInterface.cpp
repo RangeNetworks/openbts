@@ -1,25 +1,17 @@
 /*
-* Copyright 2008, 2009, 2010m 2011 Free Software Foundation, Inc.
+* Copyright 2008, 2009, 2010 Free Software Foundation, Inc.
 * Copyright 2011 Range Networks, Inc.
 *
-* This software is distributed under the terms of the GNU Affero Public License.
-* See the COPYING file in the main directory for details.
+* This software is distributed under multiple licenses;
+* see the COPYING file in the main directory for licensing
+* information for this specific distribuion.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
 
-	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
 
@@ -61,6 +53,17 @@ using namespace Control;
 void SIPMessageMap::write(const std::string& call_id, osip_message_t * msg)
 {
 	LOG(DEBUG) << "call_id=" << call_id << " msg=" << msg;
+
+	string name = osip_message_get_from(msg)->url->username;
+	if (gSubscriberRegistry.imsiSet(name, "ipaddr", 
+					 osip_message_get_from(msg)->url->host) != SubscriberRegistry::SUCCESS){
+		LOG(INFO) << "SR ipaddr Update Problem";
+	}
+	if (gSubscriberRegistry.imsiSet(name, "port", 
+					 gConfig.getStr("SIP.Local.Port")) != SubscriberRegistry::SUCCESS){
+		LOG(INFO) << "SR port Update Problem";
+	}
+
 	OSIPMessageFIFO * fifo = mMap.readNoBlock(call_id);
 	if( fifo==NULL ) {
 		// FIXME -- If this write fails, send "call leg non-existent" response on SIP interface.
@@ -71,7 +74,7 @@ void SIPMessageMap::write(const std::string& call_id, osip_message_t * msg)
 	fifo->write(msg);	
 }
 
-osip_message_t * SIPMessageMap::read(const std::string& call_id, unsigned readTimeout)
+osip_message_t * SIPMessageMap::read(const std::string& call_id, unsigned readTimeout, Mutex *lock)
 { 
 	LOG(DEBUG) << "call_id=" << call_id;
 	OSIPMessageFIFO * fifo = mMap.readNoBlock(call_id);
@@ -80,7 +83,26 @@ osip_message_t * SIPMessageMap::read(const std::string& call_id, unsigned readTi
 		throw SIPError();
 	}	
 	LOG(DEBUG) << "blocking on fifo " << fifo;
-	osip_message_t * msg =  fifo->read(readTimeout);	
+	if (lock) lock->unlock();
+	osip_message_t * msg =  fifo->read(readTimeout);
+	if (lock) lock->lock();
+	if (!msg) throw SIPTimeout();
+	return msg;
+}
+
+
+osip_message_t * SIPMessageMap::read(const std::string& call_id, Mutex *lock)
+{ 
+	LOG(DEBUG) << "call_id=" << call_id;
+	OSIPMessageFIFO * fifo = mMap.readNoBlock(call_id);
+	if (!fifo) {
+		LOG(NOTICE) << "missing SIP FIFO "<<call_id;
+		throw SIPError();
+	}	
+	LOG(DEBUG) << "blocking on fifo " << fifo;
+	if (lock) lock->unlock();
+	osip_message_t * msg =  fifo->read();
+	if (lock) lock->lock();
 	if (!msg) throw SIPTimeout();
 	return msg;
 }
@@ -88,6 +110,11 @@ osip_message_t * SIPMessageMap::read(const std::string& call_id, unsigned readTi
 
 bool SIPMessageMap::add(const std::string& call_id, const struct sockaddr_in* returnAddress)
 {
+	// Check for duplicates.
+	if (mMap.readNoBlock(call_id)) {
+		LOG(WARNING) << "attempt to add duplicate SIP message FIFO for " << call_id;
+		return true;
+	}
 	OSIPMessageFIFO * fifo = new OSIPMessageFIFO(returnAddress);
 	mMap.write(call_id, fifo);
 	return true;
@@ -156,11 +183,11 @@ void SIPInterface::write(const struct sockaddr_in* dest, osip_message_t *msg)
 	size_t msgSize;
 	osip_message_to_str(msg, &str, &msgSize);
 	if (!str) {
-		LOG(ERR) << "osip_message_to_str produced a NULL pointer.";
+		LOG(ALERT) << "osip_message_to_str produced a NULL pointer.";
 		return;
 	}
 	//if it's any of these transactions, record it in the database
-	// FIXME - We should really remove all direct access to the SR
+	// FIXME - We should really remove all direct access to the SR.
 	string name = osip_message_get_from(msg)->url->username;
 	if (msg->sip_method && 
 	    (!strncmp(msg->sip_method, "INVITE", 6) ||
@@ -180,8 +207,14 @@ void SIPInterface::write(const struct sockaddr_in* dest, osip_message_t *msg)
 	LOG(INFO) << "write " << firstLine;
 	LOG(DEBUG) << "write " << str;
 
+	if (random()%100 < gConfig.getNum("Test.SIP.SimulatedPacketLoss",0)) {
+		LOG(NOTICE) << "simulating dropped outbound SIP packet: " << firstLine;
+		free(str);
+		return;
+	}
+
 	mSocketLock.lock();
-	mSIPSocket.send((const struct sockaddr*)dest,str);
+	mSIPSocket.send((const struct sockaddr*)dest,str,strlen(str));
 	mSocketLock.unlock();
 	free(str);
 }
@@ -199,8 +232,15 @@ void SIPInterface::drive()
 		LOG(ALERT) << "cannot read SIP socket.";
 		return;
 	}
-	// FIXME -- Is this +1 offset correct?  Check it.
+	if (numRead<10) {
+		LOG(WARNING) << "malformed packet (" << numRead << " bytes) on SIP socket";
+		return;
+	}
 	mReadBuffer[numRead] = '\0';
+	if (random()%100 < gConfig.getNum("Test.SIP.SimulatedPacketLoss",0)) {
+		LOG(NOTICE) << "simulating dropped inbound SIP packet: " << mReadBuffer;
+		return;
+	}
 
 	// Get the proxy from the inbound message.
 #if 0
@@ -228,11 +268,25 @@ void SIPInterface::drive()
 		// Parse the mesage.
 		osip_message_t * msg;
 		int i = osip_message_init(&msg);
-		LOG(INFO) << "osip_message_init " << i;
+		LOG(DEBUG) << "osip_message_init " << i;
 		int j = osip_message_parse(msg, mReadBuffer, strlen(mReadBuffer));
 		// seems like it ought to do something more than display an error,
 		// but it used to not even do that.
-		LOG(INFO) << "osip_message_parse " << j;
+		LOG(DEBUG) << "osip_message_parse " << j;
+		// heroic efforts to get it to parse the www-authenticate header failed,
+		// so we'll just crowbar that sucker in.
+		char *p = strcasestr(mReadBuffer, "nonce");
+		if (p) {
+			string RAND = string(mReadBuffer, p-mReadBuffer+6, 32);
+			LOG(INFO) << "crowbar www-authenticate " << RAND;
+			osip_www_authenticate_t *auth;
+			osip_www_authenticate_init(&auth);
+			string auth_type = "Digest";
+			osip_www_authenticate_set_auth_type(auth, osip_strdup(auth_type.c_str()));
+			osip_www_authenticate_set_nonce(auth, osip_strdup(RAND.c_str()));
+			int k = osip_list_add (&msg->www_authenticates, auth, -1);
+			if (k < 0) LOG(ERR) << "problem adding www_authenticate";
+		}
 
 		if (msg->sip_method) LOG(DEBUG) << "read method " << msg->sip_method;
 
@@ -278,7 +332,7 @@ const char* extractIMSI(const osip_message_t *msg)
 	unsigned namelen = strlen(IMSI);
 	if ((namelen>19)||(namelen<18)) {
 		LOG(WARNING) << "INVITE with malformed username \"" << IMSI << "\"";
-		return false;
+		return NULL;
 	}
 	// Skip first 4 char "IMSI".
 	return IMSI+4;
@@ -295,21 +349,22 @@ const char* extractCallID(const osip_message_t* msg)
 
 
 void SIPInterface::sendEarlyError(osip_message_t * cause,
-       const char *proxy,
-       int code, const char * reason)
+	const char *proxy,
+	int code, const char * reason)
 {
-       const char *user = extractIMSI(cause);
-       unsigned port = mSIPSocket.port();
-       struct ::sockaddr_in remote;
-       if (!resolveAddress(&remote,proxy)) {
-               LOG(ALERT) << "cannot resolve IP address for " << proxy;
-               return;
-       }
-       osip_message_t * error = sip_error(cause, gConfig.getStr("SIP.Local.IP").c_str(),
-                                          user, port,
-                                          code, reason);
-       write(&remote,error);
-       osip_message_free(error);
+	const char *user = cause->req_uri->username;
+	unsigned port = mSIPSocket.port();
+	struct ::sockaddr_in remote;
+	if (!resolveAddress(&remote,proxy)) {
+		LOG(ALERT) << "cannot resolve IP address for " << proxy;
+		return;
+	}
+
+	osip_message_t * error = sip_error(cause, gConfig.getStr("SIP.Local.IP").c_str(),
+					   user, port, 
+					   code, reason);
+	write(&remote,error);
+	osip_message_free(error);
 }
 
 
@@ -326,7 +381,7 @@ bool SIPInterface::checkInvite( osip_message_t * msg)
 	if (!method) return false;
 
 	// Check for INVITE or MESSAGE methods.
-	// Check channel availability now, too.
+	// Check channel availability now, too,
 	// even if we are not actually assigning the channel yet.
 	GSM::ChannelType requiredChannel;
 	bool channelAvailable = false;
@@ -377,11 +432,8 @@ bool SIPInterface::checkInvite( osip_message_t * msg)
 		return false;
 	}
 
-
 	// Find any active transaction for this IMSI with an assigned TCH or SDCCH.
 	GSM::LogicalChannel *chan = gTransactionTable.findChannel(mobileID);
-	//will go
-	bool userBusy = false;
 	if (chan) {
 		// If the type is TCH and the service is SMS, get the SACCH.
 		// Otherwise, for now, just say chan=NULL.
@@ -389,8 +441,6 @@ bool SIPInterface::checkInvite( osip_message_t * msg)
 			chan = chan->SACCH();
 		} else {
 			// FIXME -- This will change to support multiple transactions.
-		 	//will go
-			userBusy = (serviceType==L3CMServiceType::MobileTerminatedCall) && !(chan->recyclable());
 			chan = NULL;
 		}
 	}
@@ -408,7 +458,7 @@ bool SIPInterface::checkInvite( osip_message_t * msg)
 		LOG(INFO) << "pre-existing transaction record: " << *transaction;
 		//if this is not the saved invite, it's a RE-invite. Respond saying we don't support it. 
 		if (!transaction->sameINVITE(msg)){
-			/* don't cancel the call */
+		  /* don't cancel the call */
 			LOG(CRIT) << "got reinvite. transaction: " << *transaction << " SIP re-INVITE: " << msg;
 			transaction->MODSendERROR(msg, 488, "Not Acceptable Here", false);
 			/* I think we'd need to create a new transaction for this ack. Right now, just assume the ack makes it back. 
@@ -418,35 +468,35 @@ bool SIPInterface::checkInvite( osip_message_t * msg)
 		}
 
 		// Send trying, if appropriate.
-		if (serviceType != L3CMServiceType::MobileTerminatedShortMessage) transaction->MTCSendTrying();
+		if (serviceType!=L3CMServiceType::MobileTerminatedShortMessage) transaction->MTCSendTrying();
 
 		// And if no channel is established yet, page again.
 		if (!chan) {
 			LOG(INFO) << "repeated SIP INVITE/MESSAGE, repaging for transaction " << *transaction; 
 			gBTS.pager().addID(mobileID,requiredChannel,*transaction);
 		}
+
 		return false;
 	}
 
-	// So we will need ay new channel.
+	// So we will need a new channel.
 	// Check gBTS for channel availability.
 	if (!chan && !channelAvailable) {
-        	LOG(CRIT) << "MTC CONGESTION, no " << requiredChannel << " availble";
+		LOG(CRIT) << "MTC CONGESTION, no channel availble";
 		// FIXME -- We need the retry-after header.
-		sendEarlyError(msg,proxy.c_str(),600,"Busy Everywhere");
+		sendEarlyError(msg,proxy.c_str(),503,"Service Unvailable");
 		return false;
 	}
 	if (chan) { LOG(INFO) << "using existing channel " << chan->descriptiveString(); }
 	else { LOG(INFO) << "set up MTC paging for channel=" << requiredChannel; }
 
-	/* Not yet moved over -kurtis
 	// Check for new user busy condition.
 	if (!chan && gTransactionTable.isBusy(mobileID)) {
 		LOG(NOTICE) << "user busy: " << mobileID;
 		sendEarlyError(msg,proxy.c_str(),486,"Busy Here");
 		return true;
 	}
-	*/
+
 
 	// Add an entry to the SIP Map to route inbound SIP messages.
 	addCall(callIDNum);
@@ -475,7 +525,7 @@ bool SIPInterface::checkInvite( osip_message_t * msg)
 	transaction->SIPUser(callIDNum,IMSI,callerID,callerHost);
 	transaction->saveINVITE(msg,false);
 	// Tell the sender we are trying.
-	transaction->MTCSendTrying();
+	if (serviceType!=L3CMServiceType::MobileTerminatedShortMessage) transaction->MTCSendTrying();
 
 	// SMS?  Get the text message body to deliver.
 	if (serviceType == L3CMServiceType::MobileTerminatedShortMessage) {
@@ -506,13 +556,6 @@ bool SIPInterface::checkInvite( osip_message_t * msg)
 
 	LOG(INFO) << "MTC MTSMS make transaction and add to transaction table: "<< *transaction;
 	gTransactionTable.add(transaction); 
-
-	//will go -kurtis
-	if (userBusy) {
-        	transaction->MODSendERROR(msg, 486, "Busy Here", false);
-        	return true;
-	}
-
 
 	// If there's an existing channel, skip the paging step.
 	if (!chan) {

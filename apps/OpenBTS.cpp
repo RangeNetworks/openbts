@@ -149,7 +149,7 @@ int main(int argc, char *argv[])
 
 	COUT("\n\n" << gOpenBTSWelcome << "\n");
 	gTMSITable.open(gConfig.getStr("Control.Reporting.TMSITable").c_str());
-	gTransactionTable.init();
+	gTransactionTable.init(gConfig.getStr("Control.Reporting.TransactionTable").c_str());
 	gPhysStatus.open(gConfig.getStr("Control.Reporting.PhysStatusTable").c_str());
 	gBTS.init();
 	gSubscriberRegistry.init();

@@ -81,6 +81,8 @@ class Mutex {
 
 	void lock() { pthread_mutex_lock(&mMutex); }
 
+	bool trylock() { return pthread_mutex_trylock(&mMutex)==0; }
+
 	void unlock() { pthread_mutex_unlock(&mMutex); }
 
 	friend class Signal;

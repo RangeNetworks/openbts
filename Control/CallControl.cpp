@@ -904,7 +904,7 @@ void Control::MOCController(TransactionEntry *transaction, GSM::TCHFACCHLogicalC
 		if (transaction->clearingGSM()) return abortAndRemoveCall(transaction,TCH,GSM::L3Cause(0x7F));
 
 		LOG(INFO) << "wait for Ringing or OK";
-		SIP::SIPState state = transaction->MOCWaitForOK();
+		SIP::SIPState state = transaction->MOCCheckForOK();
 		LOG(DEBUG) << "SIP state="<<state;
 		switch (state) {
 			case SIP::Busy:
@@ -948,7 +948,7 @@ void Control::MOCController(TransactionEntry *transaction, GSM::TCHFACCHLogicalC
 	while (state!=SIP::Active) {
 
 		LOG(DEBUG) << "wait for SIP session start";
-		state = transaction->MOCWaitForOK();
+		state = transaction->MOCCheckForOK();
 		LOG(DEBUG) << "SIP state "<< state;
 
 		// check GSM state
@@ -1152,7 +1152,7 @@ void Control::MTCController(TransactionEntry *transaction, GSM::TCHFACCHLogicalC
 	while (state!=SIP::Active) {
 		LOG(DEBUG) << "wait for SIP OKAY-ACK";
 		if (updateGSMSignalling(transaction,TCH)) return abortAndRemoveCall(transaction,TCH,GSM::L3Cause(0x15));
-		state = transaction->MTCWaitForACK();
+		state = transaction->MTCCheckForACK();
 		LOG(DEBUG) << "SIP call state "<< state;
 		switch (state) {
 			case SIP::Active:

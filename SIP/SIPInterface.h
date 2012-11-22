@@ -1,24 +1,16 @@
 /*
 * Copyright 2008 Free Software Foundation, Inc.
 *
-* This software is distributed under the terms of the GNU Affero Public License.
-* See the COPYING file in the main directory for details.
+* This software is distributed under multiple licenses;
+* see the COPYING file in the main directory for licensing
+* information for this specific distribuion.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
 
-	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
 
@@ -105,7 +97,10 @@ public:
 	void write(const std::string& call_id, osip_message_t * sip_msg );
 
 	/** Read sip message out of map+fifo. used by sip engine. */
-	osip_message_t * read(const std::string& call_id, unsigned readTimeout=3600000);
+	osip_message_t * read(const std::string& call_id, unsigned timeout, Mutex *lock);
+
+	/** Read sip message out of map+fifo. used by sip engine. */
+	osip_message_t * read(const std::string& call_id, Mutex *lock);;
 	
 	/** Create a new entry in the map. */
 	bool add(const std::string& call_id, const struct sockaddr_in* returnAddress);
@@ -174,11 +169,12 @@ public:
 	bool checkInvite( osip_message_t *);
 
 	/**
-	   Send an error response before a transaction is even created.
+		Send an error response before a transaction is even created.
 	*/
 	void sendEarlyError(osip_message_t * cause,
-        	const char *proxy,
+		const char *proxy,
 		int code, const char * reason);
+
 
 	/**
 		Schedule SMS for delivery.
@@ -192,8 +188,12 @@ public:
 
 	void write(const struct sockaddr_in*, osip_message_t*);
 
-	osip_message_t* read(const std::string& call_id , unsigned readTimeout=3600000)
-		{ return mSIPMap.read(call_id, readTimeout); }
+	osip_message_t* read(const std::string& call_id, unsigned readTimeout, Mutex *lock=NULL)
+		{ return mSIPMap.read(call_id, readTimeout, lock); }
+
+	osip_message_t* read(const std::string& call_id, Mutex *lock=NULL)
+		{ return mSIPMap.read(call_id, lock); }
+
 
 	/** Create a new message FIFO in the SIP interface. */
 	bool addCall(const std::string& call_id);
