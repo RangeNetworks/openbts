@@ -239,13 +239,19 @@ bool TransactionEntry::dead() const
 {
 	ScopedLock lock(mLock);
 
-	// Don't remove anything less than 3 minutes old.
-	if (stateAge() < 180*1000) return false;
-
+	// 30-second tests
+	if (stateAge() < 30*1000) return false;
+	// Failed?
+	if (mSIP.state()==SIP::Fail) return true;
 	// Null state?
 	if (mGSMState==GSM::NullState) return true;
 	// Stuck in proceeding?
 	if (mSIP.state()==SIP::Proceeding) return true;
+	// SIP cancelled?
+	if (mSIP.state()==SIP::Canceled) return true;
+	
+	// 180-second tests
+	if (stateAge() < 180*1000) return false;
 	
 	// Paging timed out?
 	if (mGSMState==GSM::Paging) {
