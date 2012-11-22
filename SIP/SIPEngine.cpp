@@ -323,6 +323,8 @@ bool SIPEngine::Register( Method wMethod )
 
 	osip_message_free(reg);
 	osip_message_free(msg);
+	// We remove the call FIFO here because there
+	// is no transaction entry associated with the REGISTER.
 	gSIPInterface.removeCall(mCallID);	
 	return success;
 }
