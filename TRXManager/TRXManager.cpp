@@ -85,7 +85,7 @@ void* ClockLoopAdapter(TransceiverManager *transceiver)
 void TransceiverManager::clockHandler()
 {
 	char buffer[MAX_UDP_LENGTH];
-	int msgLen = mClockSocket.read(buffer,3000);
+	int msgLen = mClockSocket.read(buffer,gConfig.getNum("TRX.Timeout.Clock",10)*1000);
 
 	// Did the transceiver die??
 	if (msgLen<0) {
@@ -113,6 +113,11 @@ void TransceiverManager::clockHandler()
 
 
 
+
+unsigned TransceiverManager::C0() const
+{
+	return mARFCNs.at(0)->ARFCN();
+}
 
 
 
@@ -253,9 +258,9 @@ int ::ARFCNManager::sendCommandPacket(const char* command, char* response)
 	LOG(INFO) << "command " << command;
 	mControlLock.lock();
 
-	for (int retry=0; retry<10; retry++) {
+	for (int retry=0; retry<5; retry++) {
 		mControlSocket.write(command);
-		msgLen = mControlSocket.read(response,3000);
+		msgLen = mControlSocket.read(response,1000);
 		if (msgLen>0) {
 			response[msgLen] = '\0';
 			break;
@@ -264,14 +269,14 @@ int ::ARFCNManager::sendCommandPacket(const char* command, char* response)
 	}
 
 	mControlLock.unlock();
-	LOG(DEBUG) << "response " << response;
+	LOG(INFO) << "response " << response;
 
 	if ((msgLen>4) && (strncmp(response,"RSP ",4)==0)) {
 		return msgLen;
 	}
 
-	LOG(ALERT) << "lost control link to transceiver";
-	SOCKET_ERROR;
+	LOG(NOTICE) << "lost control link to transceiver";
+	return 0;
 }
 
 

@@ -220,6 +220,7 @@ void Control::MOSMSController(const GSM::L3CMServiceRequest *req, GSM::LogicalCh
 	LOG(DEBUG) << "data from MS " << *CM;
 	if (CM->MTI()!=CPMessage::DATA) {
 		LOG(NOTICE) << "unexpected SMS CP message with TI=" << CM->MTI();
+		delete CM;
 		throw UnexpectedMessage();
 	}
 	unsigned L3TI = CM->TI() | 0x08;
@@ -241,7 +242,6 @@ void Control::MOSMSController(const GSM::L3CMServiceRequest *req, GSM::LogicalCh
 	try {
 		CPData data;
 		data.parse(*CM);
-		delete CM;
 		LOG(INFO) << "CPData " << data;
 		// Transfer out the RPDU -> TPDU -> delivery.
 		ref = data.RPDU().reference();
@@ -252,12 +252,15 @@ void Control::MOSMSController(const GSM::L3CMServiceRequest *req, GSM::LogicalCh
 		LOG(WARNING) << "SMS parsing failed (above L3)";
 		// Cause 95, "semantically incorrect message".
 		LCH->send(CPData(L3TI,RPError(95,ref)),3);
+		delete CM;
 		throw UnexpectedMessage();
 	}
 	catch (GSM::L3ReadError) {
 		LOG(WARNING) << "SMS parsing failed (in L3)";
+		delete CM;
 		throw UnsupportedMessage();
 	}
+	delete CM;
 
 	// Step 3
 	// Send CP-DATA containing RP-ACK and message reference.
@@ -281,6 +284,7 @@ void Control::MOSMSController(const GSM::L3CMServiceRequest *req, GSM::LogicalCh
 	LOG(DEBUG) << "ack from MS: " << *CM;
 	CPAck ack;
 	ack.parse(*CM);
+	delete CM;
 	LOG(INFO) << "CPAck " << ack;
 
 	/* MOSMS RLLP request */
@@ -386,8 +390,10 @@ bool Control::deliverSMSToMS(const char *callingPartyDigits, const char* message
 	LOG(DEBUG) << "MTSMS: ack from MS " << *CM;
 	if (CM->MTI()!=CPMessage::ACK) {
 		LOG(WARNING) << "MS rejected our RP-DATA with CP message with TI=" << CM->MTI();
+		delete CM;
 		throw UnexpectedMessage();
 	}
+	delete CM;
 
 	// Step 3
 	// Get CP-DATA containing RP-ACK and message reference.
@@ -396,8 +402,10 @@ bool Control::deliverSMSToMS(const char *callingPartyDigits, const char* message
 	LOG(DEBUG) << "MTSMS: data from MS " << *CM;
 	if (CM->MTI()!=CPMessage::DATA) {
 		LOG(NOTICE) << "Unexpected SMS CP message with TI=" << CM->MTI();
+		delete CM;
 		throw UnexpectedMessage();
 	}
+	
 
 	// FIXME -- Check L3 TI.
 
@@ -405,7 +413,6 @@ bool Control::deliverSMSToMS(const char *callingPartyDigits, const char* message
 	CPData data;
 	try {
 		data.parse(*CM);
-		delete CM;
 		LOG(DEBUG) << "CPData " << data;
 	}
 	catch (SMSReadError) {
@@ -418,6 +425,7 @@ bool Control::deliverSMSToMS(const char *callingPartyDigits, const char* message
 		LOG(WARNING) << "SMS parsing failed (in L3)";
 		throw UnsupportedMessage();
 	}
+	delete CM;
 
 	// FIXME -- Check SMS reference.
 

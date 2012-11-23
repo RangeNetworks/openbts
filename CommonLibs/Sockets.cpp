@@ -180,7 +180,7 @@ int DatagramSocket::read(char* buffer)
 int DatagramSocket::read(char* buffer, unsigned timeout)
 {
 	fd_set fds;
-	FD_SET(mSocketFD,&fds);
+	FD_ZERO(&fds);
 	struct timeval tv;
 	tv.tv_sec = timeout/1000;
 	tv.tv_usec = (timeout%1000)*1000;

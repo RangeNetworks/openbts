@@ -759,6 +759,15 @@ int noise(int argc, char** argv, ostream& os)
         return SUCCESS;
 }
 
+int crashme(int argc, char** argv, ostream& os)
+{
+        char *nullp = 0x0;
+	// we actually have to output this,
+	// or the compiler will optimize it out
+	os << *nullp;
+	return FAILURE;
+}
+
 
 //@} // CLI commands
 
@@ -790,6 +799,7 @@ void Parser::addCommands()
 	addCommand("unconfig", unconfig, "key -- remove a config value");
 	addCommand("notices", notices, "-- show startup copyright and legal notices");
 	addCommand("endcall", endcall,"trans# -- terminate the given transaction");
+	addCommand("crashme", crashme, "force crash of OpenBTS for testing purposes");
 }
 
 

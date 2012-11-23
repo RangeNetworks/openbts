@@ -251,7 +251,7 @@ class TLMessage {
 		- 7	RP (9.2.3.17)
 	*/
 	//@{
-	bool mMMS;			///< more messages to send
+	bool mMMS;                      ///< more messages to send (reversed-sense)
 	bool mRD;			///< reject duplicates
 	unsigned mVPF;		///< validity period format
 	bool mSRR;			///< status report request
@@ -277,14 +277,14 @@ class TLMessage {
 	};
 
 	TLMessage()
-		:mMMS(false),mSRI(false),mRP(false)
+		:mMMS(true),mSRI(false),mRP(false)
 	{}
 
 	virtual ~TLMessage(){}
 
 	virtual int MTI() const=0;
 
-	/** The bodtLength is everything beyond the header byte. */
+	/** The bodyLength is everything beyond the header byte. */
 	virtual size_t l2BodyLength() const = 0;
 
 	virtual size_t length() const { return 1+l2BodyLength(); }
@@ -299,6 +299,9 @@ class TLMessage {
 
 	virtual void text(std::ostream& os) const
 		{ os << MTI(); }
+
+	// Accessors
+	bool MMS() const { return mMMS; }
 
 	protected:
 

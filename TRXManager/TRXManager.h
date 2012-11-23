@@ -85,6 +85,9 @@ class TransceiverManager {
 	ARFCNManager* ARFCN(unsigned i) { assert(i<mARFCNs.size()); return mARFCNs.at(i); }
 	//@}
 
+	bool haveClock() const { return mHaveClock; }
+
+	unsigned C0() const;
 	unsigned numARFCNs() const { return mARFCNs.size(); }
 
 	/** Block until the clock is set over the UDP link. */
