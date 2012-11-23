@@ -586,7 +586,7 @@ int alarms(int argc, char** argv, ostream& os)
 int version(int argc, char **argv, ostream& os)
 {
 	if (argc!=1) return BAD_NUM_ARGS;
-	os << "release " VERSION " built " __DATE__ << endl;
+	os << gVersionString << endl;
 	return SUCCESS;
 }
 

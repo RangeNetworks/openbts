@@ -2,7 +2,7 @@
 # Copyright 2008 Free Software Foundation, Inc.
 #
 # This software is distributed under the terms of the GNU Public License.
-# See the COPYING file in the main directory for details.
+# See the COPING file in the main directory for details.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -29,7 +29,10 @@ CLI_INCLUDEDIR = $(top_srcdir)/CLI
 SQLITE_INCLUDEDIR = $(top_srcdir)/sqlite3
 SR_INCLUDEDIR = $(top_srcdir)/SR
 
+SVNDEV = -D'SVN_REV="$(shell svnversion -n $(top_builddir))"'
+
 STD_DEFINES_AND_INCLUDES = \
+	$(SVNDEV) \
 	-I$(COMMON_INCLUDEDIR) \
 	-I$(CONTROL_INCLUDEDIR) \
 	-I$(GSM_INCLUDEDIR) \

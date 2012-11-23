@@ -107,6 +107,9 @@ pid_t gTransceiverPid = 0;
 
 void startTransceiver()
 {
+	// kill any stray transceiver process
+	system("killall transceiver");
+
 	// Start the transceiver binary, if the path is defined.
 	// If the path is not defined, the transceiver must be started by some other process.
 	char TRXnumARFCN[4];
@@ -132,6 +135,17 @@ void startTransceiver()
 
 int main(int argc, char *argv[])
 {
+	// TODO: Properly parse and handle any arguments
+	if (argc > 1) {
+		for (int argi = 0; argi < argc; argi++) {
+			if (!strcmp(argv[argi], "--version") ||
+			    !strcmp(argv[argi], "-v")) {
+				cout << gVersionString << endl;
+			}
+		}
+
+		return 0;
+	}
 
 	int sock = socket(AF_UNIX,SOCK_DGRAM,0);
 	if (sock<0) {

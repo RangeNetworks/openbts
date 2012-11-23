@@ -31,6 +31,9 @@
 #include <TMSITable.h>
 #include <URLEncode.h>
 
+#define PROD_CAT "P"
+
+const char *gVersionString = "release " VERSION " " PROD_CAT " built " __DATE__ " rev" SVN_REV " ";
 
 const char* gOpenBTSWelcome =
 	//23456789123456789223456789323456789423456789523456789623456789723456789
@@ -38,7 +41,7 @@ const char* gOpenBTSWelcome =
 	"Copyright 2008, 2009, 2010, 2011 Free Software Foundation, Inc.\n"
 	"Copyright 2010 Kestrel Signal Processing, Inc.\n"
 	"Copyright 2011, 2012 Range Networks, Inc.\n"
-	"Public Release " VERSION " formal build date " __DATE__ "\n"
+        "Release " VERSION " " PROD_CAT " formal build date " __DATE__ " rev" SVN_REV "\n"
 	"\"OpenBTS\" is a registered trademark of Range Networks, Inc.\n"
 	"\nContributors:\n"
 	"  Range Networks, Inc.:\n"

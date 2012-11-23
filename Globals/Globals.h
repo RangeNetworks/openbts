@@ -51,6 +51,9 @@ extern ConfigurationTable gConfig;
 /** The OpenBTS welcome message. */
 extern const char* gOpenBTSWelcome;
 
+/** The OpenBTS version string. */
+extern const char *gVersionString;
+
 /** The central parser. */
 extern CommandLine::Parser gParser;
 
