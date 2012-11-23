@@ -179,7 +179,7 @@ int main(int argc, char *argv[])
 	bool haveTRX = gTRX.ARFCN(0)->powerOn();
 
 	Thread transceiverThread;
-	if (!gTRX.haveClock()) {
+	if (!haveTRX) {
 		transceiverThread.start((void*(*)(void*)) startTransceiver, NULL);
 		// sleep to let the FPGA code load
 		// TODO: we should be "pinging" the radio instead of sleeping
