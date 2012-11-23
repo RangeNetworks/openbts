@@ -190,7 +190,8 @@ int DatagramSocket::read(char* buffer, unsigned timeout)
 		throw SocketError();
 	}
 	if (sel==0) return -1;
-	return read(buffer);
+	if (FD_ISSET(mSocketFD,&fds)) return read(buffer);
+	return -1;
 }
 
 
