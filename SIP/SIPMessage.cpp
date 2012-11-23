@@ -51,6 +51,125 @@ void openbts_message_init(osip_message_t ** msg){
 	osip_message_set_user_agent(*msg, strdup(tag));
 }
 
+#define MSG_NO_ERROR		(0)
+#define MSG_INVALID_PARAM	(-1)
+#define MSG_EMPTY_HDR		(-2)
+#define MSG_STR_MEM			(-3)
+
+int openbts_message_set_sdp(osip_message_t *request, sdp_message_t *sdp)
+{
+	char * sdp_str = NULL;
+	
+	if (!request || !sdp)
+		return MSG_INVALID_PARAM;
+	
+	sdp_message_to_str(sdp, &sdp_str);
+	if (sdp_str) {
+		osip_message_set_body(request, sdp_str, strlen(sdp_str));
+		osip_free(sdp_str);
+	} else {
+		return MSG_STR_MEM;
+	}
+	osip_message_set_content_type(request, strdup("application/sdp"));
+	return MSG_NO_ERROR;
+}
+
+int openbts_message_set_via(osip_message_t *response, osip_message_t *orig)
+{
+	osip_via_t * via = NULL;
+	
+	if (!orig || !response)
+		return MSG_INVALID_PARAM;
+	
+	osip_message_get_via(orig, 0, &via);
+	if (via) {
+		char * via_str = NULL;
+		osip_via_to_str(via, &via_str);
+		if (via_str) {
+			osip_message_set_via(response, via_str);
+			osip_free(via_str);
+		} else {
+			return MSG_STR_MEM;
+		}
+	} else {
+		return MSG_EMPTY_HDR;
+	}
+	
+	return MSG_NO_ERROR;
+}
+
+int openbts_message_set_contact(osip_message_t *response, osip_message_t *orig)
+{
+	osip_contact_t * cont = NULL;
+
+	if (!orig || !response)
+		return MSG_INVALID_PARAM;
+
+	osip_message_get_contact(orig, 0, &cont);
+	if (cont) {
+		char * cont_str = NULL;
+		osip_contact_to_str(cont, &cont_str);
+		if (cont_str) {
+			osip_message_set_contact(response, cont_str);
+			osip_free(cont_str);
+		} else {
+			return MSG_STR_MEM;
+		}
+	} else {
+		return MSG_EMPTY_HDR;
+	}
+	
+	return MSG_NO_ERROR;
+}
+
+int openbts_message_set_cseq(osip_message_t *response, osip_message_t *orig)
+{
+	osip_cseq_t * cseq = NULL;
+
+	if (!orig || !response)
+		return MSG_INVALID_PARAM;
+
+	cseq = osip_message_get_cseq(orig);
+	if (cseq) {
+		char * cseq_str = NULL;
+		osip_cseq_to_str(cseq ,&cseq_str);
+		if (cseq_str) {
+			osip_message_set_cseq(response, cseq_str);	
+			osip_free(cseq_str);
+		} else {
+			return MSG_STR_MEM;
+		}
+	} else {
+		return MSG_EMPTY_HDR;
+	}
+	
+	return MSG_NO_ERROR;
+}
+
+int openbts_message_set_rr(osip_message_t *response, osip_message_t *orig)
+{
+	osip_record_route_t * rr = NULL;
+
+	if (!orig || !response)
+		return MSG_INVALID_PARAM;
+
+	osip_message_get_record_route(orig, 0, &rr);
+	if (rr) {
+		char * rr_str = NULL;
+		osip_record_route_to_str(rr, &rr_str);
+		if (rr_str) {
+			osip_message_set_record_route(response, rr_str);
+			osip_free(rr_str);
+		} else {
+			return MSG_STR_MEM;
+		}
+	} else {
+		return MSG_EMPTY_HDR;
+	}
+
+	return MSG_NO_ERROR;
+}
+
 osip_message_t * SIP::sip_register( const char * sip_username, short timeout, short wlocal_port, const char * local_ip, const char * proxy_ip, const char * from_tag, const char * via_branch, const char * call_id, int cseq) {
 
  	char local_port[10];
@@ -333,11 +452,8 @@ osip_message_t * SIP::sip_invite5031(short rtp_port, const char * sip_username, 
 	 * be done, but in any case we're going to have to do the extra processing
 	 * to turn it into a string first.
 	 */
-	char * sdp_str;
-	sdp_message_to_str(sdp, &sdp_str);
-	osip_message_set_body(request, sdp_str, strlen(sdp_str));
-	osip_free(sdp_str);
-	osip_message_set_content_type(request, strdup("application/sdp"));
+	openbts_message_set_sdp(request, sdp);
+	// TODO: In the very unlikely event that sdp_str is null, we should probably do some nice cleanup.
 
 	return request;	
 }
@@ -456,11 +572,8 @@ osip_message_t * SIP::sip_invite( const char * dialed_number, short rtp_port, co
 	 * be done, but in any case we're going to have to do the extra processing
 	 * to turn it into a string first.
 	 */
-	char * sdp_str;
-	sdp_message_to_str(sdp, &sdp_str);
-	osip_message_set_body(request, sdp_str, strlen(sdp_str));
-	osip_free(sdp_str);
-	osip_message_set_content_type(request, strdup("application/sdp"));
+	openbts_message_set_sdp(request, sdp);
+	// TODO: In the very unlikely event that sdp_str is null, we should probably do some nice cleanup.
 
 	return request;	
 }
@@ -624,12 +737,7 @@ osip_message_t * SIP::sip_error(osip_message_t * invite,  const char * host, con
 	osip_uri_set_port(unavail->req_uri, strdup(local_port));
 
 	//via
-	osip_via_t * via;
-	char * via_str;
-	osip_message_get_via(invite, 0, &via);
-	osip_via_to_str(via, &via_str);
-	osip_message_set_via(unavail, via_str);
-	osip_free(via_str);
+	openbts_message_set_via(unavail, invite);
 
 	// MAX FORWARDS
 	osip_message_set_max_forwards(unavail, strdup(gConfig.getStr("SIP.MaxForwards").c_str()));
@@ -639,23 +747,13 @@ osip_message_t * SIP::sip_error(osip_message_t * invite,  const char * host, con
 	osip_to_clone(invite->to, &unavail->to);
 
 	//contact
-	osip_contact_t * cont;
-	char * cont_str;
-	osip_message_get_contact(invite, 0, &cont);
-	osip_contact_to_str(cont, &cont_str);
-	osip_message_set_contact(unavail, cont_str);
-	osip_free(cont_str);
+	openbts_message_set_contact(unavail, invite);
 
 	// Get Call-ID.
 	osip_call_id_clone(invite->call_id, &unavail->call_id);
 
 	// Get Cseq.
-	osip_cseq_t * cseq;
-	char * cseq_str;
-	cseq = osip_message_get_cseq(invite);
-	osip_cseq_to_str(cseq ,&cseq_str);
-	osip_message_set_cseq(unavail, cseq_str);	
-	osip_free(cseq_str);
+	openbts_message_set_cseq(unavail, invite);
 
 	return unavail;
 }
@@ -686,35 +784,20 @@ osip_message_t * SIP::sip_cancel( osip_message_t * invite,  const char * host, c
 	osip_uri_set_port(cancel->req_uri, strdup(local_port));
 
 	//via
-	osip_via_t * via;
-	char * via_str;
-	osip_message_get_via(invite, 0, &via);
-	osip_via_to_str(via, &via_str);
-	osip_message_set_via(cancel, via_str);
-	osip_free(via_str);
+	openbts_message_set_via(cancel, invite);
 
 	// from/to header
 	osip_from_clone(invite->from, &cancel->from);
 	osip_to_clone(invite->to, &cancel->to);
 
 	//contact
-	osip_contact_t * cont;
-	char * cont_str;
-	osip_message_get_contact(invite, 0, &cont);
-	osip_contact_to_str(cont, &cont_str);
-	osip_message_set_contact(cancel, cont_str);
-	osip_free(cont_str);
+	openbts_message_set_contact(cancel, invite);
 
 	// Get Call-ID.
 	osip_call_id_clone(invite->call_id, &cancel->call_id);
 
 	  // Get Cseq.
-	osip_cseq_t * cseq;
-	char * cseq_str;
-	cseq = osip_message_get_cseq(invite);
-	osip_cseq_to_str(cseq ,&cseq_str);
-	osip_message_set_cseq(cancel, cseq_str);	
-	osip_free(cseq_str);
+	openbts_message_set_cseq(cancel, invite);
 
 	//update message type
 	osip_cseq_set_method(cancel->cseq, strdup("CANCEL"));
@@ -745,21 +828,10 @@ osip_message_t * SIP::sip_okay_sdp( osip_message_t * inv, const char * sip_usern
 
 	// Get Record Route.
 	// FIXME -- Should use _clone() routines.
-	osip_record_route_t * rr;
-	char * rr_str;
-	osip_message_get_record_route(inv, 0, &rr);
-	osip_record_route_to_str(rr, &rr_str);
-	osip_message_set_record_route(okay, rr_str);
-	osip_free(rr_str);
-
+	openbts_message_set_rr(okay, inv);
 
 	// SIP Okay needs to repeat the Via tags from the INVITE Message.
-	osip_via_t * via;
-	char * via_str;
-	osip_message_get_via(inv, 0, &via);
-	osip_via_to_str(via, &via_str);
-	osip_message_set_via(okay, via_str);
-	osip_free(via_str);
+	openbts_message_set_via(okay, inv);
 
 	// from/to header
 	osip_from_clone(inv->from, &okay->from);
@@ -781,12 +853,7 @@ osip_message_t * SIP::sip_okay_sdp( osip_message_t * inv, const char * sip_usern
 	osip_call_id_clone(inv->call_id, &okay->call_id);
 
 	// Get Cseq.
-	osip_cseq_t * cseq;
-	char * cseq_str;
-	cseq = osip_message_get_cseq(inv);
-	osip_cseq_to_str(cseq ,&cseq_str);
-	osip_message_set_cseq(okay, cseq_str);	
-	osip_free(cseq_str);
+	openbts_message_set_cseq(okay, inv);
 
 	// Session Description Protocol.	
 	sdp_message_t * sdp;
@@ -816,12 +883,7 @@ osip_message_t * SIP::sip_okay_sdp( osip_message_t * inv, const char * sip_usern
 		default: assert(0);
 	};
 
-	char * sdp_str;
-	sdp_message_to_str(sdp, &sdp_str);
-	osip_message_set_body(okay, sdp_str, strlen(sdp_str));
-	osip_free(sdp_str);
-
-	osip_message_set_content_type(okay, strdup("application/sdp"));
+	openbts_message_set_sdp(okay, sdp);
 
 	return okay;
 }
@@ -846,12 +908,7 @@ osip_message_t * SIP::sip_b_okay( osip_message_t * bye  )
 	osip_uri_init(&okay->req_uri);
 
 	// SIP Okay needs to repeat the Via tags from the BYE Message.
-	osip_via_t * via;
-	char * via_str;
-	osip_message_get_via(bye, 0, &via);
-	osip_via_to_str(via, &via_str);
-	osip_message_set_via(okay, via_str);	
-	osip_free(via_str);
+	openbts_message_set_via(okay, bye);
 
 	// from/to header
 	osip_from_clone(bye->from, &okay->from);
@@ -861,12 +918,7 @@ osip_message_t * SIP::sip_b_okay( osip_message_t * bye  )
 	osip_call_id_clone(bye->call_id, &okay->call_id);
 
 	// Get Cseq.
-	osip_cseq_t * cseq;
-	char * cseq_str;
-	cseq = osip_message_get_cseq(bye);
-	osip_cseq_to_str(cseq ,&cseq_str);
-	osip_message_set_cseq(okay, cseq_str);	
-	osip_free(cseq_str);
+	openbts_message_set_cseq(okay, bye);
 
 	return okay;
 }
@@ -885,14 +937,9 @@ osip_message_t * SIP::sip_trying( osip_message_t * invite, const char * sip_user
 	osip_message_set_version(trying, strdup("SIP/2.0"));
 	osip_uri_init(&invite->req_uri);	// FIXME? -- Invite rather than trying?
 
-	// Get Record Route.
-	osip_via_t * via;
-	char * via_str;
-	osip_message_get_via(invite, 0, &via);
-	osip_via_to_str(via, &via_str);
-	osip_message_set_via(trying, via_str);	
-	osip_free(via_str);
-	
+	// Get Via
+	openbts_message_set_via(trying, invite);
+
 	// from/to header
 	osip_from_clone(invite->from, &trying->from);
 	osip_to_clone(invite->to, &trying->to);
@@ -901,12 +948,7 @@ osip_message_t * SIP::sip_trying( osip_message_t * invite, const char * sip_user
 	osip_call_id_clone(invite->call_id, &trying->call_id);
 
 	// Get Cseq.
-	osip_cseq_t * cseq;
-	char * cseq_str;
-	cseq = osip_message_get_cseq(invite);
-	osip_cseq_to_str(cseq ,&cseq_str);
-	osip_message_set_cseq(trying, cseq_str);	
-	osip_free(cseq_str);
+	openbts_message_set_cseq(trying, invite);
 
 	// CONTACT URI
 	osip_contact_t * con;
@@ -936,13 +978,8 @@ osip_message_t * SIP::sip_ringing( osip_message_t * invite, const char * sip_use
 	osip_message_set_version(ringing, strdup("SIP/2.0"));
 	//osip_uri_init(&invite->req_uri);
 
-	// Get Record Route.
-	osip_via_t * via;
-	char * via_str;
-	osip_message_get_via(invite, 0, &via);
-	osip_via_to_str(via, &via_str);
-	osip_message_set_via(ringing, via_str);	
-	osip_free(via_str);
+	// Get Via.
+	openbts_message_set_via(ringing, invite);
 	
 	// from/to header
 	osip_from_clone(invite->from, &ringing->from);
@@ -952,12 +989,7 @@ osip_message_t * SIP::sip_ringing( osip_message_t * invite, const char * sip_use
 	osip_call_id_clone(invite->call_id, &ringing->call_id);
 
 	// Get Cseq.
-	osip_cseq_t * cseq;
-	char * cseq_str;
-	cseq = osip_message_get_cseq(invite);
-	osip_cseq_to_str(cseq ,&cseq_str);
-	osip_message_set_cseq(ringing, cseq_str);	
-	osip_free(cseq_str);
+	openbts_message_set_cseq(ringing, invite);
 
 	// CONTACT URI
 	osip_contact_t * con;
@@ -996,21 +1028,11 @@ osip_message_t * SIP::sip_okay( osip_message_t * inv, const char * sip_username,
 	osip_uri_init(&okay->req_uri);
 
 	// Get Record Route.
-	osip_record_route_t * rr;
-	char * rr_str;
-	osip_message_get_record_route(inv, 0, &rr);
-	osip_record_route_to_str(rr, &rr_str);
-	osip_message_set_record_route(okay, rr_str);
-	osip_free(rr_str);
+	openbts_message_set_rr(okay, inv);
 
 	// SIP Okay needs to repeat the Via tags from the INVITE Message.
 //	osip_via_clone(inv->via, &okay->via);
-	osip_via_t * via;
-	char * via_str;
-	osip_message_get_via(inv, 0, &via);
-	osip_via_to_str(via, &via_str);
-	osip_message_set_via(okay, via_str);	
-	osip_free(via_str);
+	openbts_message_set_via(okay, inv);
 
 	// from/to header
 	osip_from_clone(inv->from, &okay->from);
@@ -1020,12 +1042,7 @@ osip_message_t * SIP::sip_okay( osip_message_t * inv, const char * sip_username,
 	osip_call_id_clone(inv->call_id, &okay->call_id);
 
 	// Get Cseq.
-	osip_cseq_t * cseq;
-	char * cseq_str;
-	cseq = osip_message_get_cseq(inv);
-	osip_cseq_to_str(cseq ,&cseq_str);
-	osip_message_set_cseq(okay, cseq_str);	
-	osip_free(cseq_str);
+	openbts_message_set_cseq(okay, inv);
 
 	return okay;
 }
