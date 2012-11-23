@@ -884,7 +884,7 @@ ssize_t smpl_buf::read(void *buf, size_t len, TIMESTAMP timestamp)
 
 	// How many samples should be copied
 	size_t num_smpls = time_end - timestamp;
-	if (num_smpls > len);
+	if (num_smpls > len)
 		num_smpls = len;
 
 	// Starting index

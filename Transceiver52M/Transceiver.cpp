@@ -36,12 +36,12 @@
 #include "config.h"
 #endif
 
-#define USB_LATENCY_INTRVL		(10,0)
+#define USB_LATENCY_INTRVL		10,0
 
 #if USE_UHD
-#  define USB_LATENCY_MIN		(6,7)
+#  define USB_LATENCY_MIN		6,7
 #else
-#  define USB_LATENCY_MIN		(1,1)
+#  define USB_LATENCY_MIN		1,1
 #endif
 
 Transceiver::Transceiver(int wBasePort,
