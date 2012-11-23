@@ -356,6 +356,14 @@ bool callManagementDispatchGSM(TransactionEntry *transaction, GSM::LogicalChanne
 				//if we cancel the call, Switch might send 487 Request Terminated
 				//listen for that
 				transaction->MODWaitFor487();
+				// TODO: Asterisk fires off two SIP packets, OK and 487. We may not receive them
+				//       in that order. We will want to use the code below to eat both of the
+				//       packets, but accept them in any order.
+				/*vector<unsigned> valid(2);
+				valid.push_back(200);
+				valid.push_back(487);
+				transaction->MODWaitForResponse(&valid);
+				transaction->MODWaitForResponse(&valid);*/
 			}
 			else { //if we received it, send a 4** instead
                                //transaction->MODSendERROR(NULL, 480, "Temporarily Unavailable", true);
