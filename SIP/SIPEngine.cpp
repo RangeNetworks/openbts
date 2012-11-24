@@ -54,7 +54,34 @@ using namespace std;
 using namespace SIP;
 using namespace Control;
 
-
+int get_rtp_tev_type(char dtmf){
+        switch (dtmf){
+                case '1': return TEV_DTMF_1;
+                case '2': return TEV_DTMF_2;
+                case '3': return TEV_DTMF_3;
+                case '4': return TEV_DTMF_4;
+                case '5': return TEV_DTMF_5;
+                case '6': return TEV_DTMF_6;
+                case '7': return TEV_DTMF_7;
+                case '8': return TEV_DTMF_8;
+                case '9': return TEV_DTMF_9;
+                case '0': return TEV_DTMF_0;
+                case '*': return TEV_DTMF_STAR;
+                case '#': return TEV_DTMF_POUND;
+                case 'a':
+                case 'A': return TEV_DTMF_A;
+                case 'B':
+                case 'b': return TEV_DTMF_B;
+                case 'C':
+                case 'c': return TEV_DTMF_C;
+                case 'D':
+                case 'd': return TEV_DTMF_D;
+		case '!': return TEV_FLASH;
+                default:
+		    LOG(WARNING) << "Bad dtmf: " << dtmf;
+		    return -1;
+                }
+}
 
 
 const char* SIP::SIPStateString(SIPState s)
@@ -1135,12 +1162,19 @@ bool SIPEngine::startDTMF(char key)
 {
 	LOG (DEBUG) << key;
 	if (mState!=Active) return false;
+	if (get_rtp_tev_type(key) < 0){
+	    return false;
+	}
 	mDTMF = key;
 	mDTMFDuration = 0;
 	mDTMFStartTime = mTxTime;
-	int code = rtp_session_send_dtmf2(mSession,mDTMF,mDTMFStartTime,mDTMFDuration);
+	//true means start
+	mblk_t *m = rtp_session_create_telephone_event_packet(mSession,true);
+	//volume 10 for some magic reason, false means not end
+	int code = rtp_session_add_telephone_event(mSession,m,get_rtp_tev_type(mDTMF),false,10,mDTMFDuration);
+	int bytes = rtp_session_sendm_with_ts(mSession,m,mDTMFStartTime);
 	mDTMFDuration += 160;
-	if (!code) return true;
+	if (!code && bytes > 0) return true;
 	// Error?  Turn off DTMF sending.
 	LOG(WARNING) << "DTMF RFC-2833 failed on start.";
 	mDTMF = '\0';
@@ -1149,7 +1183,19 @@ bool SIPEngine::startDTMF(char key)
 
 void SIPEngine::stopDTMF()
 {
+	//false means not start
+	mblk_t *m = rtp_session_create_telephone_event_packet(mSession,false);
+	//volume 10 for some magic reason, end is true
+	int code = rtp_session_add_telephone_event(mSession,m,get_rtp_tev_type(mDTMF),true,10,mDTMFDuration);
+	int bytes = rtp_session_sendm_with_ts(mSession,m,mDTMFStartTime);
+	mDTMFDuration += 160;
+	LOG (DEBUG) << "DTMF RFC-2833 sending " << mDTMF << " " << mDTMFDuration;
+	// Turn it off if there's an error.
+	if (code || bytes <= 0) {
+	    LOG(ERR) << "DTMF RFC-2833 failed at end";
+	}
 	mDTMF='\0';
+
 }
 
 
@@ -1160,15 +1206,18 @@ void SIPEngine::txFrame(unsigned char* frame )
 	// HACK -- Hardcoded for GSM/8000.
 	// FIXME -- Make this work for multiple vocoder types.
 	rtp_session_send_with_ts(mSession, frame, 33, mTxTime);
-	mTxTime += 160;		
+	mTxTime += 160;
 
 	if (mDTMF) {
-		// Any RFC-2833 action?
-		int code = rtp_session_send_dtmf2(mSession,mDTMF,mDTMFStartTime,mDTMFDuration);
+		//false means not start
+		mblk_t *m = rtp_session_create_telephone_event_packet(mSession,false);
+		//volume 10 for some magic reason, false means not end
+		int code = rtp_session_add_telephone_event(mSession,m,get_rtp_tev_type(mDTMF),false,10,mDTMFDuration);
+		int bytes = rtp_session_sendm_with_ts(mSession,m,mDTMFStartTime);
 		mDTMFDuration += 160;
 		LOG (DEBUG) << "DTMF RFC-2833 sending " << mDTMF << " " << mDTMFDuration;
 		// Turn it off if there's an error.
-		if (code) {
+		if (code || bytes <=0) {
 			LOG(ERR) << "DTMF RFC-2833 failed after start.";
 			mDTMF='\0';
 		}
