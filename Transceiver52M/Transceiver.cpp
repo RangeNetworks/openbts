@@ -44,6 +44,8 @@
 #  define USB_LATENCY_MIN		1,1
 #endif
 
+#define INIT_ENERGY_THRSHD		5.0f
+
 Transceiver::Transceiver(int wBasePort,
 			 const char *TRXAddress,
 			 int wSamplesPerSymbol,
@@ -101,7 +103,7 @@ Transceiver::Transceiver(int wBasePort,
   mTxFreq = 0.0;
   mRxFreq = 0.0;
   mPower = -10;
-  mEnergyThreshold = 5.0; // based on empirical data
+  mEnergyThreshold = INIT_ENERGY_THRSHD;
   prevFalseDetectionTime = startTime;
 }
 
@@ -506,6 +508,7 @@ void Transceiver::driveControl()
     int newGain;
     sscanf(buffer,"%3s %s %d",cmdcheck,command,&newGain);
     newGain = mRadioInterface->setRxGain(newGain);
+    mEnergyThreshold = INIT_ENERGY_THRSHD;
     sprintf(response,"RSP SETRXGAIN 0 %d",newGain);
   }
   else if (strcmp(command,"NOISELEV")==0) {
