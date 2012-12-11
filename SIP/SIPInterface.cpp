@@ -468,7 +468,9 @@ bool SIPInterface::checkInvite( osip_message_t * msg)
 		}
 
 		// Send trying, if appropriate.
-		if (serviceType!=L3CMServiceType::MobileTerminatedShortMessage) transaction->MTCSendTrying();
+		bool sendTrying = serviceType!=L3CMServiceType::MobileTerminatedShortMessage;
+		sendTrying = sendTrying || !gConfig.getBool("SIP.RFC3428.NoTrying");
+		if (sendTrying) transaction->MTCSendTrying();
 
 		// And if no channel is established yet, page again.
 		if (!chan) {

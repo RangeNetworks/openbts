@@ -94,6 +94,7 @@ INSERT INTO "CONFIG" VALUES('Log.Level.SMSControl.cpp','INFO',0,1,'Default confi
 INSERT INTO "CONFIG" VALUES('NTP.Server','pool.ntp.org',0,1,'NTP server(s) for time-of-day clock syncing.  For multiple servers, use a space-delimited list.  If left undefined, NTP will not be used, but it is strongly recommended.');
 INSERT INTO "CONFIG" VALUES('RTP.Range','98',1,0,'Range of RTP port pool.  Pool is RTP.Start to RTP.Range-1.  Static.');
 INSERT INTO "CONFIG" VALUES('RTP.Start','16484',1,0,'Base of RTP port pool.  Pool is RTP.Start to RTP.Range-1.  Static.');
+INSERT INTO "CONFIG" VALUES('SIP.RFC3428.NoTrying','0',0,1,'If NULL or 0, send 100 Trying response to SIP MESSAGE, even though that violates RFC-3428. In other words, to actually comply with the RFC, set this to something other than NULL or 0');
 INSERT INTO "CONFIG" VALUES('SIP.DTMF.RFC2833','1',0,1,'If not NULL, use RFC-2833 (RTP event signalling) for in-call DTMF.');
 INSERT INTO "CONFIG" VALUES('SIP.DTMF.RFC2833.PayloadType','101',0,1,'Payload type to use for RFC-2833 telephone event packets.  If SIP.DTMF.2833 is defined, this must also be defined.');
 INSERT INTO "CONFIG" VALUES('SIP.DTMF.RFC2967',NULL,0,1,'If not NULL, use RFC-2967 (SIP INFO method) for in-call DTMF.');
