@@ -334,7 +334,12 @@ int main(int argc, char *argv[])
 	gBTS.addPCH(&CCCH2);
 
 	// Be sure we are not over-reserving.
-	LOG_ASSERT(gConfig.getNum("GSM.CCCH.PCH.Reserve")<(int)gBTS.numAGCHs());
+	if (gConfig.getNum("GSM.Channels.SDCCHReserve",0)>=(int)gBTS.SDCCHTotal()) {
+		unsigned val = gBTS.SDCCHTotal() - 1;
+		LOG(CRIT) << "GSM.Channels.SDCCHReserve too big, changing to " << val;
+		gConfig.set("GSM.Channels.SDCCHReserve",val);
+	}
+
 
 	// OK, now it is safe to start the BTS.
 	gBTS.start();

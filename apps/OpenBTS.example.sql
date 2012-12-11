@@ -28,7 +28,7 @@ INSERT INTO "CONFIG" VALUES('Control.TMSITable.MaxSize','100000',0,0,'Maximum si
 INSERT INTO "CONFIG" VALUES('Control.VEA',1,0,1,'If not NULL, user very early assignment for speech call establishment.  See GSM 04.08 Section 7.3.2 for a detailed explanation of assignment types. If VEA is selected, GSM.CellSelection.NECI should be set to 1.  See GSM 04.08 Sections 9.1.8 and 10.5.2.4 for an explanation of the NECI bit.');
 INSERT INTO "CONFIG" VALUES('GSM.CCCH.AGCH.QMax','5',0,0,'Maximum number of access grants to be queued for transmission on AGCH before declaring congrestion.');
 INSERT INTO "CONFIG" VALUES('GSM.CCCH.CCCH-CONF','1',0,0,'CCCH configuration type.  See GSM 10.5.2.11 for encoding.  Value of 1 means we are using a C-V beacon.  Any other value selects a C-IV beacon.');
-INSERT INTO "CONFIG" VALUES('GSM.CCCH.PCH.Reserve','0',0,0,'Number of CCCH subchannels to reserve for paging.');
+INSERT INTO "CONFIG" VALUES('GSM.Channels.SDCCHReserve','0',0,0,'Number of SDCCHs to reserve for non-LUR operations. This can be used to force LUR transactions into a lower priority.');
 INSERT INTO "CONFIG" VALUES('GSM.CellSelection.CELL-RESELECT-HYSTERESIS','3',0,0,'Cell Reselection Hysteresis.  See GSM 04.08 10.5.2.4, Table 10.5.23 for encoding.  Encoding is $2N$ dB, values of $N$ are 0...7 for 0...14 dB.');
 INSERT INTO "CONFIG" VALUES('GSM.CellSelection.MS-TXPWR-MAX-CCH','0',0,0,'Cell selection parameters.  See GSM 04.08 10.5.2.4.');
 INSERT INTO "CONFIG" VALUES('GSM.CellSelection.NCCsPermitted','1',0,0,'NCCs Permitted.  An 8-bit mask of allowed NCCs.  Unless you are coordinating with another carrier, this should probably just select your own NCC.');
