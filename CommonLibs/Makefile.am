@@ -1,5 +1,6 @@
 #
 # Copyright 2008, 2009 Free Software Foundation, Inc.
+# Copyright 2011, 2012 Range Networks, Inc.
 #
 # This software is distributed under the terms of the GNU Public License.
 # See the COPYING file in the main directory for details.
@@ -31,10 +32,11 @@ libcommon_la_SOURCES = \
 	Sockets.cpp \
 	Threads.cpp \
 	Timeval.cpp \
+	Configuration.cpp \
+	sqlite3util.cpp \
 	Logger.cpp \
 	URLEncode.cpp \
-	Configuration.cpp \
-	sqlite3util.cpp
+	Reporting.cpp
 
 noinst_PROGRAMS = \
 	BitVectorTest \
@@ -47,6 +49,8 @@ noinst_PROGRAMS = \
 	LogTest \
 	F16Test
 
+#	ReportingTest
+
 noinst_HEADERS = \
 	BitVector.h \
 	Interthread.h \
@@ -58,6 +62,7 @@ noinst_HEADERS = \
 	Vector.h \
 	URLEncode.h \
 	Configuration.h \
+	Reporting.h \
 	F16.h \
 	Logger.h \
 	sqlite3util.h
@@ -84,6 +89,9 @@ RegexpTest_LDADD = libcommon.la
 
 ConfigurationTest_SOURCES = ConfigurationTest.cpp
 ConfigurationTest_LDADD = libcommon.la 	$(SQLITE_LA)
+
+#ReportingTest_SOURCES = ReportingTest.cpp
+#ReportingTest_LDADD = libcommon.la $(SQLITE_LA)
 
 LogTest_SOURCES = LogTest.cpp
 LogTest_LDADD = libcommon.la $(SQLITE_LA)

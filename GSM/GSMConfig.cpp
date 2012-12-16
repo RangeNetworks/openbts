@@ -28,7 +28,8 @@
 #include "GSMLogicalChannel.h"
 #include <ControlCommon.h>
 #include <Logger.h>
-
+#include <Reporting.h>
+#include <Globals.h>
 
 
 using namespace std;
@@ -64,6 +65,8 @@ void GSMConfig::start()
 
 void GSMConfig::regenerateBeacon()
 {
+	gReports.incr("OpenBTS.GSM.RR.BeaconRegenerated");
+
 	// Update everything from the configuration.
 	LOG(NOTICE) << "regenerating system information messages";
 
@@ -188,7 +191,10 @@ TCHFACCHLogicalChannel *GSMConfig::getTCH()
 {
 	ScopedLock lock(mLock);
 	TCHFACCHLogicalChannel *chan = getChan<TCHFACCHLogicalChannel>(mTCHPool);
-	if (chan) chan->open();
+	if (chan) {
+	    chan->open();
+	    gReports.incr("OpenBTS.GSM.RR.ChannelAssignment");
+	}
 	return chan;
 }
 

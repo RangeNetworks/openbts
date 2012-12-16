@@ -50,6 +50,7 @@ using namespace std;
 using namespace SIP;
 
 #include <Regexp.h>
+#include <Reporting.h>
 #include <Logger.h>
 #undef WARNING
 
@@ -66,12 +67,15 @@ void Control::CMServiceResponder(const L3CMServiceRequest* cmsrq, LogicalChannel
 	LOG(INFO) << *cmsrq;
 	switch (cmsrq->serviceType().type()) {
 		case L3CMServiceType::MobileOriginatedCall:
+			gReports.incr("OpenBTS.GSM.MM.CMServiceRequest.MOC");
 			MOCStarter(cmsrq,DCCH);
 			break;
 		case L3CMServiceType::ShortMessage:
+			gReports.incr("OpenBTS.GSM.MM.CMServiceRequest.MOSMS");
 			MOSMSController(cmsrq,DCCH);
 			break;
 		default:
+			gReports.incr("OpenBTS.GSM.MM.CMServiceRequest.Unhandled");
 			LOG(NOTICE) << "service not supported for " << *cmsrq;
 			// Cause 0x20 means "serivce not supported".
 			DCCH->send(L3CMServiceReject(0x20));
@@ -145,10 +149,11 @@ void Control::LocationUpdatingController(const L3LocationUpdatingRequest* lur, L
 	LOG(INFO) << *lur;
 
 	// The location updating request gets mapped to a SIP
-	// registration with the Asterisk server.
+	// registration with the SIP registrar.
 
 	// We also allocate a new TMSI for every handset we encounter.
 	// If the handset is allowed to register it may receive a TMSI reassignment.
+	gReports.incr("OpenBTS.GSM.MM.LUR.Start");
 
 	// Resolve an IMSI and see if there's a pre-existing IMSI-TMSI mapping.
 	// This operation will throw an exception, caught in a higher scope,
@@ -177,6 +182,7 @@ void Control::LocationUpdatingController(const L3LocationUpdatingRequest* lur, L
 		LOG(ALERT) "SIP registration timed out.  Is the proxy running at " << gConfig.getStr("SIP.Proxy.Registration");
 		// Reject with a "network failure" cause code, 0x11.
 		DCCH->send(L3LocationUpdatingReject(0x11));
+		gReports.incr("OpenBTS.GSM.MM.LUR.Timeout");
 		// HACK -- wait long enough for a response
 		// FIXME -- Why are we doing this?
 		sleep(4);

@@ -38,6 +38,7 @@
 
 #include <CallControl.h>
 
+#include <Reporting.h>
 #include <Logger.h>
 #undef WARNING
 

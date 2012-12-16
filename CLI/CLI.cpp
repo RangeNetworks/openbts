@@ -769,6 +769,30 @@ int crashme(int argc, char** argv, ostream& os)
 }
 
 
+int stats(int argc, char** argv, ostream& os)
+{
+
+	char cmd[200];
+	if (argc==2)
+		sprintf(cmd,"sqlite3 %s 'select name||\": \"||value||\" events over \"||((%lu-clearedtime)/60)||\" minutes\" from reporting where name like \"%%%s%%\";'",
+			gConfig.getStr("Control.Reporting.StatsTable").c_str(), time(NULL), argv[1]);
+	else if (argc==1)
+		sprintf(cmd,"sqlite3 %s 'select name||\": \"||value||\" events over \"||((%lu-clearedtime)/60)||\" minutes\" from reporting;'",
+			gConfig.getStr("Control.Reporting.StatsTable").c_str(), time(NULL));
+	else return BAD_NUM_ARGS;
+	FILE *result = popen(cmd,"r");
+	char *line = (char*)malloc(200);
+	while (!feof(result)) {
+		if (!fgets(line, 200, result)) break;
+		os << line;
+	}
+	free(line);
+	os << endl;
+	pclose(result);
+	return SUCCESS;
+}
+
+
 //@} // CLI commands
 
 
@@ -800,6 +824,7 @@ void Parser::addCommands()
 	addCommand("notices", notices, "-- show startup copyright and legal notices");
 	addCommand("endcall", endcall,"trans# -- terminate the given transaction");
 	addCommand("crashme", crashme, "force crash of OpenBTS for testing purposes");
+	addCommand("stats", stats,"[patt] -- print all, or selected, performance statistics");
 }
 
 

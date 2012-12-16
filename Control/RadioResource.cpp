@@ -42,6 +42,7 @@
 #include <GSMLogicalChannel.h>
 #include <GSMConfig.h>
 
+#include <Reporting.h>
 #include <Logger.h>
 #undef WARNING
 
@@ -132,6 +133,9 @@ void AccessGrantResponder(
 	// This GSM's version of medium access control.
 	// Papa Legba, open that door...
 
+	gReports.incr("OpenBTS.GSM.RR.RACH.TA.All",(int)(timingError));
+	gReports.incr("OpenBTS.GSM.RR.RACH.RA.All",RA);
+
 	// Are we holding off new allocations?
 	if (gBTS.hold()) {
 		LOG(NOTICE) << "ignoring RACH due to BTS hold-off";
@@ -214,6 +218,7 @@ void AccessGrantResponder(
 
 	// Set the channel physical parameters from the RACH burst.
 	LCH->setPhy(RSSI,timingError);
+	gReports.incr("OpenBTS.GSM.RR.RACH.TA.Accepted",(int)(timingError));
 
 	// Assignment, GSM 04.08 3.3.1.1.3.1.
 	// Create the ImmediateAssignment message.

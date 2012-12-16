@@ -1,7 +1,7 @@
 /**@file SIP Call Control -- SIP IETF RFC-3261, RTP IETF RFC-3550. */
 /*
 * Copyright 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
-* Copyright 2011 Range Networks, Inc.
+* Copyright 2011, 2012 Range Networks, Inc.
 *
 * This software is distributed under the terms of the GNU Affero Public License.
 * See the COPYING file in the main directory for details.
@@ -41,6 +41,8 @@
 #include <ControlCommon.h>
 #include <GSMCommon.h>
 #include <GSMLogicalChannel.h>
+#include <Reporting.h>
+#include <Globals.h>
 
 #include "SIPInterface.h"
 #include "SIPUtility.h"
@@ -342,6 +344,9 @@ bool SIPEngine::Register( Method wMethod )
 			mViaBranch.c_str(), mCallID.c_str(), mCSeq
 		);
 	} else { assert(0); }
+
+	//writePrivateHeaders(reg,chan);
+	gReports.incr("OpenBTS.SIP.REGISTER.Out");
  
 	LOG(DEBUG) << "writing registration " << reg;
 	gSIPInterface.write(&mProxyAddr,reg);	
@@ -356,6 +361,7 @@ bool SIPEngine::Register( Method wMethod )
 			msg = gSIPInterface.read(mCallID, gConfig.getNum("SIP.Timer.E"));
 		} catch (SIPTimeout) {
 			// send again
+			LOG(NOTICE) << "SIP REGISTER packet to " << mProxyIP << ":" << mProxyPort << " timeout; resending"; 
 			gSIPInterface.write(&mProxyAddr,reg);	
 			continue;
 		}
@@ -427,6 +433,7 @@ SIPState SIPEngine::SOSSendINVITE(short wRtp_port, unsigned  wCodec, const GSM::
 	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
 	// Before start, need to add mCallID
 	gSIPInterface.addCall(mCallID);
+	gReports.incr("OpenBTS.SIP.INVITE-SOS.Out");
 	
 	// Set Invite params. 
 	// new CSEQ and codec 
@@ -489,6 +496,7 @@ SIPState SIPEngine::MOCSendINVITE( const char * wCalledUsername,
 	// Before start, need to add mCallID
 	gSIPInterface.addCall(mCallID);
 	mInstigator = true;
+	gReports.incr("OpenBTS.SIP.INVITE.Out");
 	
 	// Set Invite params. 
 	// new CSEQ and codec 
@@ -532,8 +540,10 @@ SIPState SIPEngine::MOCResendINVITE()
 SIPState  SIPEngine::MOCCheckForOK(Mutex *lock)
 {
 	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
+	//if (mState==Fail) return Fail;
 
 	osip_message_t * msg;
+	//osip_message_t * msg = NULL;
 
 	// Read off the fifo. if time out will
 	// clean up and return false.
@@ -564,22 +574,106 @@ SIPState  SIPEngine::MOCCheckForOK(Mutex *lock)
 		case 180:	// Ringing
 			mState = Ringing;
 			break;
+
+		// calss 2XX: Success
 		case 200:	// OK
-			// Save the response and update the state,
-			// but the ACK doesn't happen until the call connects.
+				// Save the response and update the state,
+				// but the ACK doesn't happen until the call connects.
 			mState = Active;
+			break;
+
+		// class 3xx: Redirection
+		case 300:	// Multiple Choices
+		case 301:	// Moved Permanently
+		case 302:	// Moved Temporarily
+		case 305:	// Use Proxy
+		case 380:	// Alternative Service
+			LOG(NOTICE) << "redirection not supported code " << status;
+			mState = Fail;
+			gReports.incr("OpenBTS.SIP.Failed.Remote.3xx");
+			MOCSendACK();
 			break;
 		// Anything 400 or above terminates the call, so we ACK.
 		// FIXME -- It would be nice to save more information about the
 		// specific failure cause.
-		case 486:
-		case 503:
+
+		// class 4XX: Request failures
+		case 400:	// Bad Request
+		case 401:	// Unauthorized: Used only by registrars. Proxys should use proxy authorization 407
+		case 402:	// Payment Required (Reserved for future use)
+		case 403:	// Forbidden
+		case 404:	// Not Found: User not found
+		case 405:	// Method Not Allowed
+		case 406:	// Not Acceptable
+		case 407:	// Proxy Authentication Required
+		case 408:	// Request Timeout: Couldn't find the user in time
+		case 409:	// Conflict
+		case 410:	// Gone: The user existed once, but is not available here any more.
+		case 413:	// Request Entity Too Large
+		case 414:	// Request-URI Too Long
+		case 415:	// Unsupported Media Type
+		case 416:	// Unsupported URI Scheme
+		case 420:	// Bad Extension: Bad SIP Protocol Extension used, not understood by the server
+		case 421:	// Extension Required
+		case 422:	// Session Interval Too Small
+		case 423:	// Interval Too Brief
+		case 480:	// Temporarily Unavailable
+		case 481:	// Call/Transaction Does Not Exist
+		case 482:	// Loop Detected
+		case 483:	// Too Many Hops
+		case 484:	// Address Incomplete
+		case 485:	// Ambiguous
+			LOG(NOTICE) << "request failure code " << status;
+			mState = Fail;
+			gReports.incr("OpenBTS.SIP.Failed.Remote.4xx");
+			MOCSendACK();
+			break;
+
+		case 486:	// Busy Here
+			LOG(NOTICE) << "remote end busy code " << status;
 			mState = Busy;
 			MOCSendACK();
 			break;
+		case 487:	// Request Terminated
+		case 488:	// Not Acceptable Here
+		case 491:	// Request Pending
+		case 493:	// Undecipherable: Could not decrypt S/MIME body part
+			LOG(NOTICE) << "request failure code " << status;
+			mState = Fail;
+			gReports.incr("OpenBTS.SIP.Failed.Remote.4xx");
+			MOCSendACK();
+			break;
+
+		// class 5XX: Server failures
+		case 500:	// Server Internal Error
+		case 501:	// Not Implemented: The SIP request method is not implemented here
+		case 502:	// Bad Gateway
+		case 503:	// Service Unavailable
+		case 504:	// Server Time-out
+		case 505:	// Version Not Supported: The server does not support this version of the SIP protocol
+		case 513:	// Message Too Large
+			LOG(NOTICE) << "server failure code " << status;
+			mState = Fail;
+			gReports.incr("OpenBTS.SIP.Failed.Remote.5xx");
+			MOCSendACK();
+			break;
+
+		// class 6XX: Global failures
+		case 600:	// Busy Everywhere
+		case 603:	// Decline
+			mState = Busy;
+			MOCSendACK();
+			break;
+		case 604:	// Does Not Exist Anywhere
+		case 606:	// Not Acceptable
+			LOG(NOTICE) << "global failure code " << status;
+			mState = Fail;
+			gReports.incr("OpenBTS.SIP.Failed.Remote.6xx");
+			MOCSendACK();
 		default:
 			LOG(NOTICE) << "unhandled status code " << status;
 			mState = Fail;
+			gReports.incr("OpenBTS.SIP.Failed.Remote.xxx");
 			MOCSendACK();
 	}
 	osip_message_free(msg);
@@ -613,6 +707,7 @@ SIPState SIPEngine::MODSendBYE()
 {
 	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
 	assert(mINVITE);
+	gReports.incr("OpenBTS.SIP.BYE.Out");
 	char tmp[50];
 	make_branch(tmp);
 	mViaBranch = tmp;
@@ -742,6 +837,8 @@ SIPState SIPEngine::MODWaitForBYEOK(Mutex *lock)
 			osip_message_free(ok);
 			if (code!=200) {
 				LOG(WARNING) << "unexpected " << code << " response to BYE, from proxy " << mProxyIP << ":" << mProxyPort << ". Assuming other end has cleared";
+			} else {
+				gReports.incr("OpenBTS.SIP.BYE-OK.In");
 			}
 			break;
 		}
@@ -751,7 +848,10 @@ SIPState SIPEngine::MODWaitForBYEOK(Mutex *lock)
 		}
 	}
 
-	if (!responded) { LOG(ALERT) << "lost contact with proxy " << mProxyIP << ":" << mProxyPort; }
+	if (!responded) {
+		LOG(ALERT) << "lost contact with proxy " << mProxyIP << ":" << mProxyPort;
+		gReports.incr("OpenBTS.SIP.LostProxy");
+	}
 
 	mState = Cleared;
 
@@ -781,7 +881,10 @@ SIPState SIPEngine::MODWaitForCANCELOK(Mutex *lock)
 		}
 	}
 
-	if (!responded) { LOG(ALERT) << "lost contact with proxy " << mProxyIP << ":" << mProxyPort; }
+	if (!responded) {
+		LOG(ALERT) << "lost contact with proxy " << mProxyIP << ":" << mProxyPort;
+		gReports.incr("OpenBTS.SIP.LostProxy");
+	}
 
 	mState = Canceled;
 
@@ -861,7 +964,10 @@ SIPState SIPEngine::MODWaitForERRORACK(bool cancel, Mutex *lock)
 		}
 	}
 
-	if (!responded) { LOG(ALERT) << "lost contact with proxy " << mProxyIP << ":" << mProxyPort; }
+	if (!responded) {
+		LOG(ALERT) << "lost contact with proxy " << mProxyIP << ":" << mProxyPort;
+		gReports.incr("OpenBTS.SIP.LostProxy");
+	}
 
 	if (cancel){
 		mState = Canceled;
@@ -900,6 +1006,7 @@ SIPState SIPEngine::MTDCheckBYE()
 		if (strcmp(msg->sip_method,"BYE")==0) { 
 			LOG(DEBUG) << "found msg="<<msg->sip_method;	
 			saveBYE(msg,false);
+			gReports.incr("OpenBTS.SIP.BYE.In");
 			mState =  MTDClearing;
 		}
 		//repeated ACK, send OK
@@ -925,6 +1032,7 @@ SIPState SIPEngine::MTDSendBYEOK()
 {
 	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
 	assert(mBYE);
+	gReports.incr("OpenBTS.SIP.BYE-OK.Out");
 	osip_message_t * okay = sip_b_okay(mBYE);
 	gSIPInterface.write(&mProxyAddr,okay);
 	osip_message_free(okay);
@@ -947,8 +1055,12 @@ SIPState SIPEngine::MTDSendCANCELOK()
 SIPState SIPEngine::MTCSendTrying()
 {
 	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
-	if (mINVITE==NULL) mState=Fail;
+	if (mINVITE==NULL) {
+		mState=Fail;
+		gReports.incr("OpenBTS.SIP.Failed.Local");
+	}
 	if (mState==Fail) return mState;
+
 	osip_message_t * trying = sip_trying(mINVITE, mSIPUsername.c_str(), mProxyIP.c_str());
 	gSIPInterface.write(&mProxyAddr,trying);
 	osip_message_free(trying);
@@ -978,6 +1090,7 @@ SIPState SIPEngine::MTCSendOK( short wRTPPort, unsigned wCodec, const GSM::Logic
 {
 	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
 	assert(mINVITE);
+	gReports.incr("OpenBTS.SIP.INVITE-OK.Out");
 	mRTPPort = wRTPPort;
 	mCodec = wCodec;
 	LOG(DEBUG) << "port=" << wRTPPort << " codec=" << mCodec;
@@ -998,6 +1111,8 @@ SIPState SIPEngine::MTCCheckForACK(Mutex *lock)
 	// period, need to split into 2 handle situation 
 	// like MOC where this fxn if called multiple times. 
 	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
+	//if (mState==Fail) return mState;
+	//osip_message_t * ack = NULL;
 	osip_message_t * ack;
 
 	// FIXME -- This is supposed to retransmit BYE on timer I.
@@ -1006,17 +1121,20 @@ SIPState SIPEngine::MTCCheckForACK(Mutex *lock)
 	}
 	catch (SIPTimeout& e) {
 		LOG(NOTICE) << "timeout";
-		mState = Timeout;	
+		gReports.incr("OpenBTS.SIP.ReadTimeout");
+		mState = Timeout;
 		return mState;
 	}
 	catch (SIPError& e) {
 		LOG(NOTICE) << "read error";
+		gReports.incr("OpenBTS.SIP.Failed.Local");
 		mState = Fail;
 		return mState;
 	}
 
 	if (ack->sip_method==NULL) {
 		LOG(NOTICE) << "SIP message with no method, status " <<  ack->status_code;
+		gReports.incr("OpenBTS.SIP.Failed.Local");
 		mState = Fail;
 		osip_message_free(ack);
 		return mState;	
@@ -1042,6 +1160,7 @@ SIPState SIPEngine::MTCCheckForACK(Mutex *lock)
 	// check for strays
 	else {
 		LOG(NOTICE) << "unexpected Message "<<ack->sip_method; 
+		gReports.incr("OpenBTS.SIP.Failed.Local");
 		mState = Fail;
 	}
 
@@ -1057,6 +1176,8 @@ SIPState SIPEngine::MTCCheckForCancel()
 	// period, need to split into 2 handle situation 
 	// like MOC where this fxn if called multiple times. 
 	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
+	//if (mState=Fail) return Fail;
+	//osip_message_t * msg = NULL;
 	osip_message_t * msg;
 
 	try {
@@ -1064,17 +1185,22 @@ SIPState SIPEngine::MTCCheckForCancel()
 		msg = gSIPInterface.read(mCallID,1);
 	}
 	catch (SIPTimeout& e) {
+		gReports.incr("OpenBTS.SIP.ReadTimeout");
 		return mState;
 	}
 	catch (SIPError& e) {
 		LOG(NOTICE) << "read error";
 		mState = Fail;
+		gReports.incr("OpenBTS.SIP.Failed.Local");
 		return mState;
 	}
 
 	if (msg->sip_method==NULL) {
 		LOG(NOTICE) << "SIP message with no method, status " <<  msg->status_code;
-		mState = Fail;
+		if (mState!=Fail) {
+			mState = Fail;
+			gReports.incr("OpenBTS.SIP.Failed.Local");
+		}
 		osip_message_free(msg);
 		return mState;	
 	}
@@ -1094,6 +1220,7 @@ SIPState SIPEngine::MTCCheckForCancel()
 	// check for strays
 	else {
 		LOG(NOTICE) << "unexpected Message " << msg->sip_method; 
+		gReports.incr("OpenBTS.SIP.Failed.Local");
 		mState = Fail;
 	}
 
@@ -1135,8 +1262,8 @@ void SIPEngine::InitRTP(const osip_message_t * msg )
 	// Check for event support.
 	int code = rtp_session_telephone_events_supported(mSession);
 	if (code == -1) {
-		if (rfc2833) { LOG(ALERT) << "RTP session does not support selected DTMF method RFC-2833"; }
-		else { LOG(WARNING) << "RTP session does not support telephone events"; }
+		if (rfc2833) { LOG(CRIT) << "RTP session does not support selected DTMF method RFC-2833"; }
+		else { LOG(CRIT) << "RTP session does not support telephone events"; }
 	}
 
 }
@@ -1250,6 +1377,7 @@ SIPState SIPEngine::MOSMSSendMESSAGE(const char * wCalledUsername,
 	// Before start, need to add mCallID
 	gSIPInterface.addCall(mCallID);
 	mInstigator = true;
+	gReports.incr("OpenBTS.SIP.MESSAGE.Out");
 	
 	// Set MESSAGE params. 
 	char tmp[50];
@@ -1314,6 +1442,7 @@ SIPState SIPEngine::MOSMSWaitForSubmit(Mutex *lock)
 		//demonstrate that these are not forwarded correctly
 		if (ok->status_code >= 400){
 			mState = Fail;
+			gReports.incr("OpenBTS.SIP.Failed.Remote.4xx");
 			LOG (ALERT) << "SIP MESSAGE rejected: " << ok->status_code << " " << ok->reason_phrase;
 			break;
 		}
@@ -1325,7 +1454,10 @@ SIPState SIPEngine::MOSMSWaitForSubmit(Mutex *lock)
 	if (!ok) {
 		//changed from "throw SIPTimeout()", as this seems more correct -k
 		mState = Fail;
+		gReports.incr("OpenBTS.SIP.Failed.Local");
+		gReports.incr("OpenBTS.SIP.ReadTimeout");
 		LOG(ALERT) << "SIP MESSAGE timed out; is the smqueue server " << mProxyIP << ":" << mProxyPort << " OK?";
+		gReports.incr("OpenBTS.SIP.LostProxy");
 	} else {
 		osip_message_free(ok);
 	}
@@ -1386,6 +1518,7 @@ bool SIPEngine::sendINFOAndWaitForOK(unsigned wInfo, Mutex *lock)
 	osip_message_free(info);
 	if (!ok) {
 		LOG(ALERT) << "SIP RFC-2967 INFO timed out; is the proxy at " << mProxyIP << ":" << mProxyPort << " OK?";
+		gReports.incr("OpenBTS.SIP.LostProxy");
 		return false;
 	}
 	LOG(DEBUG) << "received status " << ok->status_code << " " << ok->reason_phrase;

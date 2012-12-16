@@ -31,6 +31,10 @@
 // Load configuration from a file.
 ConfigurationTable gConfig("/etc/OpenBTS/OpenBTS.db");
 
+// Set up the performance reporter.
+#include <Reporting.h>
+ReportingTable gReports(gConfig.getStr("Control.Reporting.StatsTable","/var/log/OpenBTSStats.db").c_str(),LOG_LOCAL7);
+
 #include <TRXManager.h>
 #include <GSML1FEC.h>
 #include <GSMConfig.h>
@@ -133,6 +137,144 @@ void startTransceiver()
 
 
 
+void createStats()
+{
+	// count of OpenBTS start events
+	gReports.create("OpenBTS.Starts");
+
+	// count of exit events driven from the CLI
+	gReports.create("OpenBTS.Exit.Normal.CLI");
+	// count of watchdog restarts
+	gReports.create("OpenBTS.Exit.Error.Watchdog");
+	// count of aborts due to problems with CLI socket
+	gReports.create("OpenBTS.Exit.Error.CLISocket");
+	// count of aborts due to loss of transceiver heartbeat
+	gReports.create("OpenBTS.Exit.Error.TransceiverHeartbeat");
+	// count of aborts due to underfined nono-optional configuration parameters
+	gReports.create("OpenBTS.Exit.Error.ConfigurationParameterNotFound");
+
+	// count of CLI commands sent to OpenBTS
+	gReports.create("OpenBTS.CLI.Command");
+	// count of CLI commands where responses could not be returned
+	gReports.create("OpenBTS.CLI.Command.ResponseFailure");
+
+	// count of SIP transactions that failed with 3xx responses from the remote end
+	gReports.create("OpenBTS.SIP.Failed.Remote.3xx");
+	// count of SIP transactions that failed with 4xx responses from the remote end
+	gReports.create("OpenBTS.SIP.Failed.Remote.4xx");
+	// count of SIP transactions that failed with 5xx responses from the remote end
+	gReports.create("OpenBTS.SIP.Failed.Remote.5xx");
+	// count of SIP transactions that failed with 6xx responses from the remote end
+	gReports.create("OpenBTS.SIP.Failed.Remote.6xx");
+	// count of SIP transactions that failed with unrecognized responses from the remote end
+	gReports.create("OpenBTS.SIP.Failed.Remote.xxx");
+	// count of SIP transactions that failed due to local-end errors
+	gReports.create("OpenBTS.SIP.Failed.Local");
+	// count of timeout events on SIP socket reads 
+	gReports.create("OpenBTS.SIP.ReadTimeout");
+	// count of SIP messages that were never properly acked
+	gReports.create("OpenBTS.SIP.LostProxy");
+	// count of SIP message not sent due to unresolvable host name
+	gReports.create("OpenBTS.SIP.UnresolvedHostname");
+	// count of INVITEs received in the SIP layer
+	gReports.create("OpenBTS.SIP.INVITE.In");
+	// count of SOS INVITEs sent from the SIP layer; these are not included in ..INVITE.OUT
+	gReports.create("OpenBTS.SIP.INVITE-SOS.Out");
+	// count of INVITEs sent from the in SIP layer
+	gReports.create("OpenBTS.SIP.INVITE.Out");
+	// count of INVITE-OKs sent from the in SIP layer (connection established)
+	gReports.create("OpenBTS.SIP.INVITE-OK.Out");
+	// count of MESSAGEs received in the in SIP layer
+	gReports.create("OpenBTS.SIP.MESSAGE.In");
+	// count of MESSAGESs sent from the SIP layer
+	gReports.create("OpenBTS.SIP.MESSAGE.Out");
+	// count of REGISTERSs sent from the SIP layer
+	gReports.create("OpenBTS.SIP.REGISTER.Out");
+	// count of BYEs sent from the SIP layer
+	gReports.create("OpenBTS.SIP.BYE.Out");
+	// count of BYEs received in the SIP layer
+	gReports.create("OpenBTS.SIP.BYE.In");
+	// count of BYE-OKs sent from SIP layer (final disconnect handshake)
+	gReports.create("OpenBTS.SIP.BYE-OK.Out");
+	// count of BYE-OKs received in SIP layer (final disconnect handshake)
+	gReports.create("OpenBTS.SIP.BYE-OK.In");
+
+	// count of initiated LUR attempts
+	gReports.create("OpenBTS.GSM.MM.LUR.Start");
+	// count of LUR attempts where the server timed out
+	gReports.create("OpenBTS.GSM.MM.LUR.Timeout");
+	//gReports.create("OpenBTS.GSM.MM.LUR.Success");
+	//gReports.create("OpenBTS.GSM.MM.LUR.NotFound");
+	//gReports.create("OpenBTS.GSM.MM.LUR.Allowed");
+	//gReports.create("OpenBTS.GSM.MM.LUR.Rejected");
+	// count of all authentication attempts
+	gReports.create("OpenBTS.GSM.MM.Authenticate.Request");
+	// count of authentication attempts the succeeded
+	gReports.create("OpenBTS.GSM.MM.Authenticate.Success");
+	// count of authentication attempts that failed
+	gReports.create("OpenBTS.GSM.MM.Authenticate.Failure");
+	// count of the number of TMSIs assigned to users
+	gReports.create("OpenBTS.GSM.MM.TMSI.Assigned");
+	//gReports.create("OpenBTS.GSM.MM.TMSI.Unknown");
+	// count of CM Service requests for MOC
+	gReports.create("OpenBTS.GSM.MM.CMServiceRequest.MOC");
+	// count of CM Service requests for emergency calls
+	gReports.create("OpenBTS.GSM.MM.CMServiceRequest.SOS");
+	// count of CM Service requests for MOSMS
+	gReports.create("OpenBTS.GSM.MM.CMServiceRequest.MOSMS");
+	// count of CM Service requests for services we don't support
+	gReports.create("OpenBTS.GSM.MM.CMServiceRequest.Unhandled");
+
+	// count of mobile-originated SMS submissions initiated
+	gReports.create("OpenBTS.GSM.SMS.MOSMS.Start");
+	// count of mobile-originated SMS submissions competed (got CP-ACK for RP-ACK)
+	gReports.create("OpenBTS.GSM.SMS.MOSMS.Complete");
+	// count of mobile-temrinated SMS deliveries initiated
+	gReports.create("OpenBTS.GSM.SMS.MTSMS.Start");
+	// count of mobile-temrinated SMS deliveries completed (got RP-ACK)
+	gReports.create("OpenBTS.GSM.SMS.MTSMS.Complete");
+
+	// count of mobile-originated setup messages
+	gReports.create("OpenBTS.GSM.CC.MOC.Setup");
+	// count of mobile-terminated setup messages
+	gReports.create("OpenBTS.GSM.CC.MTC.Setup");
+	// count of mobile-terminated release messages
+	gReports.create("OpenBTS.GSM.CC.MTD.Release");
+	// count of mobile-originated disconnect messages
+	gReports.create("OpenBTS.GSM.CC.MOD.Disconnect");
+	// total number of minutes of carried calls
+	gReports.create("OpenBTS.GSM.CC.CallMinutes");
+
+	// count of CS (non-GPRS) channel assignments
+	gReports.create("OpenBTS.GSM.RR.ChannelAssignment");
+	//gReports.create("OpenBTS.GSM.RR.ChannelRelease");
+	// count of number of times the beacon was regenerated
+	gReports.create("OpenBTS.GSM.RR.BeaconRegenerated");
+	// count of successful channel assignments
+	gReports.create("OpenBTS.GSM.RR.ChannelSiezed");
+	//gReports.create("OpenBTS.GSM.RR.LinkFailure");
+	//gReports.create("OpenBTS.GSM.RR.Paged.IMSI");
+	//gReports.create("OpenBTS.GSM.RR.Paged.TMSI");
+	//gReports.create("OpenBTS.GSM.RR.Handover.Inbound.Request");
+	//gReports.create("OpenBTS.GSM.RR.Handover.Inbound.Accept");
+	//gReports.create("OpenBTS.GSM.RR.Handover.Inbound.Success");
+	//gReports.create("OpenBTS.GSM.RR.Handover.Outbound.Request");
+	//gReports.create("OpenBTS.GSM.RR.Handover.Outbound.Accept");
+	//gReports.create("OpenBTS.GSM.RR.Handover.Outbound.Success");
+	// histogram of timing advance for accepted RACH bursts
+	gReports.create("OpenBTS.GSM.RR.RACH.TA.Accepted",0,63);
+
+	//gReports.create("Transceiver.StaleBurst");
+	//gReports.create("Transceiver.Command.Received");
+	//gReports.create("OpenBTS.TRX.Command.Sent");
+	//gReports.create("OpenBTS.TRX.Command.Failed");
+	//gReports.create("OpenBTS.TRX.FailedStart");
+	//gReports.create("OpenBTS.TRX.LostLink");
+}
+
+
+
+
 int main(int argc, char *argv[])
 {
 	// TODO: Properly parse and handle any arguments
@@ -147,9 +289,15 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 
+	createStats();
+ 
+	gReports.incr("OpenBTS.Starts");
+
 	int sock = socket(AF_UNIX,SOCK_DGRAM,0);
 	if (sock<0) {
-		perror("opening cmd datagram socket");
+		perror("creating CLI datagram socket");
+		LOG(ALERT) << "cannot create socket for CLI";
+		gReports.incr("OpenBTS.Exit.CLI.Socket");
 		exit(1);
 	}
 
@@ -358,6 +506,8 @@ int main(int argc, char *argv[])
 	strcpy(cmdSockName.sun_path,sockpath);
 	if (bind(sock, (struct sockaddr *) &cmdSockName, sizeof(struct sockaddr_un))) {
 		perror("binding name to cmd datagram socket");
+		LOG(ALERT) << "cannot bind socket for CLI at " << sockpath;
+		gReports.incr("OpenBTS.Exit.CLI.Socket");
 		exit(1);
 	}
 
@@ -366,6 +516,7 @@ int main(int argc, char *argv[])
 		struct sockaddr_un source;
 		socklen_t sourceSize = sizeof(source);
 		int nread = recvfrom(sock,cmdbuf,sizeof(cmdbuf)-1,0,(struct sockaddr*)&source,&sourceSize);
+		gReports.incr("OpenBTS.CLI.Command");
 		cmdbuf[nread]='\0';
 		LOG(INFO) << "received command \"" << cmdbuf << "\" from " << source.sun_path;
 		std::ostringstream sout;
@@ -375,15 +526,18 @@ int main(int argc, char *argv[])
 		LOG(INFO) << "sending " << strlen(rsp) << "-char result to " << source.sun_path;
 		if (sendto(sock,rsp,strlen(rsp)+1,0,(struct sockaddr*)&source,sourceSize)<0) {
 			LOG(ERR) << "can't send CLI response to " << source.sun_path;
+			gReports.incr("OpenBTS.CLI.Command.ResponseFailure");
 		}
 		// res<0 means to exit the application
 		if (res<0) break;
+		gReports.incr("OpenBTS.Exit.Normal.CLI");
 	}
 
 	} // try
 
 	catch (ConfigurationTableKeyNotFound e) {
 		LOG(EMERG) << "required configuration parameter " << e.key() << " not defined, aborting";
+		gReports.incr("OpenBTS.Exit.Error.ConfigurationParamterNotFound");
 	}
 
 	//if (gTransceiverPid) kill(gTransceiverPid, SIGKILL);

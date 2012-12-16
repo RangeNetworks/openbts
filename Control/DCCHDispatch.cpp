@@ -40,6 +40,8 @@
 
 #include <Logger.h>
 #undef WARNING
+#include <Reporting.h>
+#include <Globals.h>
 
 using namespace std;
 using namespace GSM;
@@ -130,6 +132,7 @@ void Control::DCCHDispatcher(LogicalChannel *DCCH)
 			LOG(DEBUG) << "waiting for " << *DCCH << " ESTABLISH";
 			DCCH->waitForPrimitive(ESTABLISH);
 			// Pull the first message and dispatch a new transaction.
+			gReports.incr("OpenBTS.GSM.RR.ChannelSiezed");
 			const L3Message *message = getMessage(DCCH);
 			LOG(DEBUG) << *DCCH << " received " << *message;
 			DCCHDispatchMessage(message,DCCH);

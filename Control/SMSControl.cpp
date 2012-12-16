@@ -50,6 +50,7 @@
 #include "TransactionTable.h"
 #include "RRLPServer.h"
 #include <Regexp.h>
+#include <Reporting.h>
 
 
 
@@ -213,6 +214,8 @@ void Control::MOSMSController(const GSM::L3CMServiceRequest *req, GSM::LogicalCh
 	// The first read on SAP3 is the ESTABLISH primitive.
 	delete getFrameSMS(LCH,GSM::ESTABLISH);
 
+	gReports.incr("OpenBTS.GSM.SMS.MOSMS.Start");
+
 	// Step 1
 	// Now get the first message.
 	// Should be CP-DATA, containing RP-DATA.
@@ -286,6 +289,8 @@ void Control::MOSMSController(const GSM::L3CMServiceRequest *req, GSM::LogicalCh
 	ack.parse(*CM);
 	delete CM;
 	LOG(INFO) << "CPAck " << ack;
+
+	gReports.incr("OpenBTS.GSM.SMS.MOSMS.Complete");
 
 	/* MOSMS RLLP request */
 	if (gConfig.defines("Control.SMS.QueryRRLP")) {
@@ -372,6 +377,8 @@ bool Control::deliverSMSToMS(const char *callingPartyDigits, const char* message
 
 #endif
 
+	gReports.incr("OpenBTS.GSM.SMS.MTSMS.Start");
+
 	// Start ABM in SAP3.
 	//LCH->send(GSM::ESTABLISH,3);
 	// Wait for SAP3 ABM to connect.
@@ -434,6 +441,8 @@ bool Control::deliverSMSToMS(const char *callingPartyDigits, const char* message
 		LOG(WARNING) << "unexpected RPDU " << data.RPDU();
 		success = false;
 	}
+
+	gReports.incr("OpenBTS.GSM.SMS.MTSMS.Complete");
 
 	// Step 4
 	// Send CP-ACK to the MS.

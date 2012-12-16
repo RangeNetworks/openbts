@@ -24,6 +24,7 @@
 
 
 
+#include <Reporting.h>
 
 #include "TRXManager.h"
 #include "GSMCommon.h"
@@ -90,6 +91,7 @@ void TransceiverManager::clockHandler()
 	// Did the transceiver die??
 	if (msgLen<0) {
 		LOG(ALERT) << "TRX clock interface timed out, assuming TRX is dead.";
+		gReports.incr("OpenBTS.Exit.Error.TransceiverHeartbeat");
 		abort();
 	}
 

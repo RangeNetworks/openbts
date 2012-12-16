@@ -31,6 +31,8 @@
 #include <sqlite3util.h>
 
 #include <GSML3MMMessages.h>
+#include <Reporting.h>
+#include <Globals.h>
 
 #include <string>
 #include <iostream>
@@ -94,6 +96,8 @@ unsigned TMSITable::assign(const char* IMSI, const GSM::L3LocationUpdatingReques
 	// Create or find an entry based on IMSI.
 	// Return assigned TMSI.
 	assert(mDB);
+
+	gReports.incr("OpenBTS.GSM.MM.TMSI.Assigned");
 
 	LOG(DEBUG) << "IMSI=" << IMSI;
 	// Is there already a record?

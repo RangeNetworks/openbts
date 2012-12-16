@@ -36,6 +36,7 @@ using namespace std;
 #include <SubscriberRegistry.h>
 
 #include <Logger.h>
+#include <Reporting.h>
 
 using namespace GSM;
 using namespace Control;

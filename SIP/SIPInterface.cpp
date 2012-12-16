@@ -400,12 +400,14 @@ bool SIPInterface::checkInvite( osip_message_t * msg)
 			channelAvailable = gBTS.SDCCHAvailable() && gBTS.TCHAvailable();
 		}
 		serviceType = L3CMServiceType::MobileTerminatedCall;
+		gReports.incr("OpenBTS.SIP.INVITE.In");
 	}
 	else if (strcmp(method,"MESSAGE") == 0) {
 		// MESSAGE is for MTSMS.
 		requiredChannel = GSM::SDCCHType;
 		channelAvailable = gBTS.SDCCHAvailable();
 		serviceType = L3CMServiceType::MobileTerminatedShortMessage;
+		gReports.incr("OpenBTS.SIP.MESSAGE.In");
 	}
 	else {
 		// Not a method handled here.

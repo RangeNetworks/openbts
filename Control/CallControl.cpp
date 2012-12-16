@@ -57,6 +57,7 @@
 #include <SIPEngine.h>
 
 #include <Logger.h>
+#include <Reporting.h>
 #undef WARNING
 
 using namespace std;
@@ -328,6 +329,7 @@ bool callManagementDispatchGSM(TransactionEntry *transaction, GSM::LogicalChanne
 	// GSM 04.08 5.4.3.2
 	if (const GSM::L3Disconnect *disc = dynamic_cast<const GSM::L3Disconnect*>(message)) {
 		LOG(INFO) << "GSM Disconnect " << *transaction;
+		gReports.incr("OpenBTS.GSM.CC.MOD.Disconnect");
 		bool early = transaction->GSMState() != GSM::Active;
 		bool normal = (disc->cause().cause() <= 0x10);
 		if (!normal) {
@@ -379,6 +381,7 @@ bool callManagementDispatchGSM(TransactionEntry *transaction, GSM::LogicalChanne
 	// Release (2nd step of MTD)
 	if (dynamic_cast<const GSM::L3Release*>(message)) {
 		LOG(INFO) << "GSM Release " << *transaction;
+		gReports.incr("OpenBTS.GSM.CC.MTD.Release");
 		/* late RLLP request */
 		if (gConfig.defines("Control.Call.QueryRRLP.Late")) {
 			// Query for RRLP
@@ -720,6 +723,7 @@ bool waitInCall(TransactionEntry *transaction, GSM::TCHFACCHLogicalChannel *TCH,
 void callManagementLoop(TransactionEntry *transaction, GSM::TCHFACCHLogicalChannel* TCH)
 {
 	LOG(INFO) << " call connected " << *transaction;
+	gReports.incr("OpenBTS.GSM.CC.CallMinutes");
 	// poll everything until the call is finished
 	while (!pollInCall(transaction,TCH)) { }
 	gTransactionTable.remove(transaction);
@@ -790,6 +794,8 @@ void Control::MOCStarter(const GSM::L3CMServiceRequest* req, GSM::LogicalChannel
 		}
 		throw UnexpectedMessage();
 	}
+
+	gReports.incr("OpenBTS.GSM.CC.MOC.Setup");
 
 	/* early RLLP request */
 	/* this seems to need to be sent after initial call setup
@@ -1048,6 +1054,7 @@ void Control::MTCStarter(TransactionEntry *transaction, GSM::LogicalChannel *LCH
 	// GSM 04.08 5.2.2.1
 	LOG(INFO) << "sending GSM Setup to call " << transaction->calling();
 	LCH->send(GSM::L3Setup(L3TI,GSM::L3CallingPartyBCDNumber(transaction->calling())));
+	gReports.incr("OpenBTS.GSM.CC.MTC.Setup");
 	transaction->setTimer("303");
 	transaction->GSMState(GSM::CallPresent);
 
