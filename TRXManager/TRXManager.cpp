@@ -438,6 +438,18 @@ bool ::ARFCNManager::setTSC(unsigned TSC)
 }
 
 
+bool ::ARFCNManager::setBSIC(unsigned BSIC)
+{
+	assert(BSIC < 64);
+	int status = sendCommand("SETBSIC",BSIC);
+	if (status!=0) {
+		LOG(ALERT) << "SETBSIC failed with status " << status;
+		return false;
+	}
+	return true;
+}
+
+
 bool ::ARFCNManager::setSlot(unsigned TN, unsigned combination)
 {
 	assert(TN<8);

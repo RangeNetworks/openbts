@@ -209,6 +209,13 @@ class ARFCNManager {
 	*/
 	bool setTSC(unsigned TSC);
 
+ 	/**
+		Set the BSIC (including setting TSC for all slots on the ARFCN).
+		@param BSIC BSIC to use.
+		@return true on success.
+	*/
+	bool setBSIC(unsigned BSIC);
+
 	/**
 		Describe the channel combination on a given slot.
 		@param TN The timeslot number 0..7.

@@ -81,6 +81,7 @@ INSERT INTO "CONFIG" VALUES('GSM.Radio.PowerManager.SamplePeriod','2000',0,0,'Sa
 INSERT INTO "CONFIG" VALUES('GSM.Radio.PowerManager.TargetT3122','5000',0,0,'Target value for T3122, the random access hold-off timer, for the power control loop.');
 INSERT INTO "CONFIG" VALUES('GSM.Radio.RxGain','47',1,0,'Receiver gain setting in dB.  Ideal value is dictacted by the hardware.  This database parameter is static but the receiver gain can be modified in real time with the CLI rxgain command.  Static.');
 INSERT INTO "CONFIG" VALUES('GSM.Radio.RSSITarget','-50',0,0,'Target uplink RSSI for MS power control loop, in dB wrt to A/D full scale.  Should be 6-10 dB above the noise floor.');
+INSERT INTO "CONFIG" VALUES('GSM.Radio.NeedBSIC','0',0,0,'Does the Radio type require the full BSIC');
 INSERT INTO "CONFIG" VALUES('GSM.Timer.T3113','10000',0,0,'Paging timer T3113 in ms.  This is the timeout for a handset to respond to a paging request.  This should usually be the same as SIP.Timer.B in your VoIP network.');
 INSERT INTO "CONFIG" VALUES('GSM.Timer.T3122Max','255000',0,0,'Maximum allowed value for T3122, the RACH holdoff timer, in milliseconds.');
 INSERT INTO "CONFIG" VALUES('GSM.Timer.T3122Min','2000',0,0,'Minimum allowed value for T3122, the RACH holdoff timer, in milliseconds.');

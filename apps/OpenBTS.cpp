@@ -364,8 +364,14 @@ int main(int argc, char *argv[])
 		radio->tune(ARFCN);
 	}
 
-	// Set TSC same as BCC everywhere.
-	C0radio->setTSC(gBTS.BCC());
+	// Send either TSC or full BSIC depending on radio need
+	if (gConfig.getBool("GSM.Radio.NeedBSIC")) {
+		// Send BSIC to 
+		C0radio->setBSIC(gBTS.BSIC());
+	} else {
+		// Set TSC same as BCC everywhere.
+		C0radio->setTSC(gBTS.BCC());
+	}
 
 	// Set maximum expected delay spread.
 	C0radio->setMaxDelay(gConfig.getNum("GSM.Radio.MaxExpectedDelaySpread"));
