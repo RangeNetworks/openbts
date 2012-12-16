@@ -32,7 +32,7 @@
 
 using namespace std;
 
-ConfigurationTable gConfig("exampleconfig.db","test",LOG_LOCAL7);
+ConfigurationTable gConfig("exampleconfig.db","test");
 
 void purgeConfig(void*,int,char const*, char const*, sqlite3_int64)
 {

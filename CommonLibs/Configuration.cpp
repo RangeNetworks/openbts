@@ -27,10 +27,11 @@
 
 
 #include "Configuration.h"
+#include "Logger.h"
 #include <fstream>
 #include <iostream>
 #include <string.h>
-#include <syslog.h>
+
 
 using namespace std;
 
@@ -56,10 +57,9 @@ float ConfigurationRecord::floatNumber() const
 }
 
 
-ConfigurationTable::ConfigurationTable(const char* filename, const char *wCmdName, int wFacility)
-	:mFacility(wFacility)
+ConfigurationTable::ConfigurationTable(const char* filename, const char *wCmdName)
 {
-	syslog(LOG_INFO | mFacility, "opening configuration table from path %s", filename);
+	gLogEarly(LOG_INFO, "opening configuration table from path %s", filename);
 	// Connect to the database.
 	int rc = sqlite3_open(filename,&mDB);
 	// (pat) When I used malloc here, sqlite3 sporadically crashes.
@@ -69,14 +69,14 @@ ConfigurationTable::ConfigurationTable(const char* filename, const char *wCmdNam
 		strcat(gCmdName,":");
 	}
 	if (rc) {
-		syslog(LOG_EMERG | mFacility, "cannot open configuration database at %s, error message: %s", filename, sqlite3_errmsg(mDB));
+		gLogEarly(LOG_EMERG, "cannot open configuration database at %s, error message: %s", filename, sqlite3_errmsg(mDB));
 		sqlite3_close(mDB);
 		mDB = NULL;
 		return;
 	}
 	// Create the table, if needed.
 	if (!sqlite3_command(mDB,createConfigTable)) {
-		syslog(LOG_EMERG | mFacility, "cannot create configuration table in database at %s, error message: %s", filename, sqlite3_errmsg(mDB));
+		gLogEarly(LOG_EMERG, "cannot create configuration table in database at %s, error message: %s", filename, sqlite3_errmsg(mDB));
 	}
 }
 
@@ -175,7 +175,7 @@ string ConfigurationTable::getStr(const string& key)
 		return lookup(key).value();
 	} catch (ConfigurationTableKeyNotFound) {
 		// Raise an alert and re-throw the exception.
-		syslog(LOG_ALERT | mFacility, "configuration parameter %s has no defined value", key.c_str());
+		gLogEarly(LOG_ALERT, "configuration parameter %s has no defined value", key.c_str());
 		throw ConfigurationTableKeyNotFound(key);
 	}
 }
@@ -186,7 +186,7 @@ string ConfigurationTable::getStr(const string& key, const char* defaultValue)
 		ScopedLock lock(mLock);
 		return lookup(key).value();
 	} catch (ConfigurationTableKeyNotFound) {
-		syslog(LOG_NOTICE | mFacility, "deinfing missing parameter %s with value %s", key.c_str(),defaultValue);
+		gLogEarly(LOG_NOTICE, "deinfing missing parameter %s with value %s", key.c_str(),defaultValue);
 		set(key,defaultValue);
 		return string(defaultValue);
 	}
@@ -211,7 +211,7 @@ long ConfigurationTable::getNum(const string& key)
 		return lookup(key).number();
 	} catch (ConfigurationTableKeyNotFound) {
 		// Raise an alert and re-throw the exception.
-		syslog(LOG_ALERT | mFacility, "configuration parameter %s has no defined value", key.c_str());
+		gLogEarly(LOG_ALERT, "configuration parameter %s has no defined value", key.c_str());
 		throw ConfigurationTableKeyNotFound(key);
 	}
 }
@@ -223,7 +223,7 @@ long ConfigurationTable::getNum(const string& key, long defaultValue)
 		ScopedLock lock(mLock);
 		return lookup(key).number();
 	} catch (ConfigurationTableKeyNotFound) {
-		syslog(LOG_NOTICE | mFacility, "deinfing missing parameter %s with value %ld", key.c_str(),defaultValue);
+		gLogEarly(LOG_NOTICE, "deinfing missing parameter %s with value %ld", key.c_str(),defaultValue);
 		set(key,defaultValue);
 		return defaultValue;
 	}
@@ -247,7 +247,7 @@ std::vector<string> ConfigurationTable::getVectorOfStrings(const string& key)
 		line = strdup(rec.value().c_str());
 	} catch (ConfigurationTableKeyNotFound) {
 		// Raise an alert and re-throw the exception.
-		syslog(LOG_ALERT | mFacility, "configuration parameter %s has no defined value", key.c_str());
+		gLogEarly(LOG_ALERT, "configuration parameter %s has no defined value", key.c_str());
 		throw ConfigurationTableKeyNotFound(key);
 	}
 
@@ -289,7 +289,7 @@ std::vector<unsigned> ConfigurationTable::getVector(const string& key)
 		line = strdup(rec.value().c_str());
 	} catch (ConfigurationTableKeyNotFound) {
 		// Raise an alert and re-throw the exception.
-		syslog(LOG_ALERT | mFacility, "configuration parameter %s has no defined value", key.c_str());
+		gLogEarly(LOG_ALERT, "configuration parameter %s has no defined value", key.c_str());
 		throw ConfigurationTableKeyNotFound(key);
 	}
 

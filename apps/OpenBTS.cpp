@@ -33,7 +33,7 @@ ConfigurationTable gConfig("/etc/OpenBTS/OpenBTS.db");
 
 // Set up the performance reporter.
 #include <Reporting.h>
-ReportingTable gReports(gConfig.getStr("Control.Reporting.StatsTable","/var/log/OpenBTSStats.db").c_str(),LOG_LOCAL7);
+ReportingTable gReports(gConfig.getStr("Control.Reporting.StatsTable","/var/log/OpenBTSStats.db").c_str());
 
 #include <TRXManager.h>
 #include <GSML1FEC.h>

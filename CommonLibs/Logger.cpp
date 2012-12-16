@@ -28,6 +28,7 @@
 #include <cstdio>
 #include <fstream>
 #include <string>
+#include <stdarg.h>
 
 #include "Configuration.h"
 #include "Logger.h"
@@ -200,6 +201,13 @@ void gLogInit(const char* name, const char* level, int facility)
 }
 
 
-
+void gLogEarly(int level, const char *fmt, ...)
+{
+	va_list args;
+ 
+	va_start(args, fmt);
+	vsyslog(level | LOG_USER, fmt, args);
+	va_end(args);
+}
 
 // vim: ts=4 sw=4
