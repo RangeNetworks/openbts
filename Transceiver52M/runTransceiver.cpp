@@ -89,7 +89,7 @@ int main(int argc, char *argv[])
   srandom(time(NULL));
 
   int mOversamplingRate = numARFCN/2 + numARFCN;
-  RadioDevice *usrp = RadioDevice::make(DEVICERATE);
+  RadioDevice *usrp = RadioDevice::make(DEVICERATE * SAMPSPERSYM);
   if (!usrp->open(deviceArgs)) {
     LOG(ALERT) << "Transceiver exiting..." << std::endl;
     return EXIT_FAILURE;
