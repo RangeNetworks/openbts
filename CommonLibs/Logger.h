@@ -73,7 +73,7 @@ class Log {
 	protected:
 
 	std::ostringstream mStream;		///< This is where we buffer up the log entry.
-	int mPriority;					///< Priority of current repot.
+	int mPriority;					///< Priority of current report.
 	bool mDummyInit;
 
 	public:
@@ -84,7 +84,7 @@ class Log {
 
 	Log(const char* name, const char* level=NULL, int facility=LOG_USER);
 
-	// Most of the work is in the desctructor.
+	// Most of the work is in the destructor.
 	/** The destructor actually generates the log entry. */
 	~Log();
 
