@@ -25,6 +25,7 @@
 
 
 
+#include <config.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <cstdio>
@@ -39,9 +40,6 @@
 #include <string.h>
 #include <stdlib.h>
 
-
-//mutex for protecting non-thread safe gethostbyname
-static Mutex sgGethostbynameLock;
 
 bool resolveAddress(struct sockaddr_in *address, const char *hostAndPort)
 {
@@ -62,16 +60,41 @@ bool resolveAddress(struct sockaddr_in *address, const char *host, unsigned shor
 {
 	assert(address);
 	assert(host);
-	//gethostbyname not thread safe
-	ScopedLock lock(sgGethostbynameLock);
 	// FIXME -- Need to ignore leading/trailing spaces in hostname.
-	struct hostent *hp = gethostbyname(host);
-	if (hp==NULL) {
-		CERR("WARNING -- gethostbyname() failed for " << host << ", " << hstrerror(h_errno));
+	struct hostent *hp;
+	int h_errno_local;
+#ifdef HAVE_GETHOSTBYNAME2_R
+	struct hostent hostData;
+	char tmpBuffer[2048];
+
+	// There are different flavors of gethostbyname_r(), but
+	// latest Linux use the following form:
+	if (gethostbyname2_r(host, AF_INET, &hostData, tmpBuffer, sizeof(tmpBuffer), &hp, &h_errno_local)!=0) {
+		CERR("WARNING -- gethostbyname2_r() failed for " << host << ", " << hstrerror(h_errno_local));
 		return false;
 	}
-	address->sin_family = AF_INET;
-	bcopy(hp->h_addr, &(address->sin_addr), hp->h_length);
+#else
+	static Mutex sGethostbynameMutex;
+	// gethostbyname() is NOT thread-safe, so we should use a mutex here.
+	// Ideally it should be a global mutex for all non thread-safe socket
+	// operations and it should protect access to variables such as
+	// global h_errno.
+	sGethostbynameMutex.lock();
+	hp = gethostbyname(host);
+	h_errno_local = h_errno;
+	sGethostbynameMutex.unlock();
+#endif
+ 	if (hp==NULL) {
+		CERR("WARNING -- gethostbyname() failed for " << host << ", " << hstrerror(h_errno_local));
+		return false;
+	}
+	if (hp->h_addrtype != AF_INET) {
+		CERR("WARNING -- gethostbyname() resolved " << host << " to something other then AF_INET");
+ 		return false;
+ 	}
+	address->sin_family = hp->h_addrtype;
+	assert(sizeof(address->sin_addr) == hp->h_length);
+	memcpy(&(address->sin_addr), hp->h_addr_list[0], hp->h_length);
 	address->sin_port = htons(port);
 	return true;
 }
@@ -80,7 +103,7 @@ bool resolveAddress(struct sockaddr_in *address, const char *host, unsigned shor
 
 DatagramSocket::DatagramSocket()
 {
-	bzero(mDestination,sizeof(mDestination));
+	memset(mDestination, 0, sizeof(mDestination));
 }
 
 

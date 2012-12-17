@@ -130,6 +130,10 @@ PKG_CHECK_MODULES(LIBUSB, libusb-1.0)
 # Prepends -lreadline to LIBS and defines HAVE_LIBREADLINE in config.h
 AC_CHECK_LIB(readline, readline)
 
+# Check for glibc-specific network functions
+AC_CHECK_FUNC(gethostbyname_r, [AC_DEFINE(HAVE_GETHOSTBYNAME_R, 1, Define if libc implements gethostbyname_r)])
+AC_CHECK_FUNC(gethostbyname2_r, [AC_DEFINE(HAVE_GETHOSTBYNAME2_R, 1, Define if libc implements gethostbyname2_r)])
+
 dnl Output files
 AC_CONFIG_FILES([\
     Makefile \
