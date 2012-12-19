@@ -412,9 +412,6 @@ class TLDeliver : public TLMessage {
 };
 
 
-TLMessage * parseTL( const TLFrame& frame );
-
-
 //@} // SMS TL Messages
 
 
