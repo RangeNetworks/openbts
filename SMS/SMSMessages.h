@@ -350,6 +350,7 @@ class TLSubmit : public TLMessage {
 
 	int MTI() const { return SUBMIT; }
 
+	const unsigned PI() const { return mPI; }
 	const TLAddress& DA() const { return mDA; }
 	const TLUserData& UD() const { return mUD; }
 
