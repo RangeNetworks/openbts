@@ -214,7 +214,7 @@ void SIPEngine::saveResponse(osip_message_t *response)
 
 
 
-void SIPEngine::saveBYE(const osip_message_t *BYE, bool mine)
+void SIPEngine::saveBYE(const osip_message_t *BYE, bool /*mine*/)
 {
 	// Instead of cloning, why not just keep the old one?
 	// Because that doesn't work in all calling contexts.
@@ -223,7 +223,7 @@ void SIPEngine::saveBYE(const osip_message_t *BYE, bool mine)
 	osip_message_clone(BYE,&mBYE);
 }
 
-void SIPEngine::saveCANCEL(const osip_message_t *CANCEL, bool mine)
+void SIPEngine::saveCANCEL(const osip_message_t *CANCEL, bool /*mine*/)
 {
 	// Instead of cloning, why not just keep the old one?
 	// Because that doesn't work in all calling contexts.
@@ -232,7 +232,7 @@ void SIPEngine::saveCANCEL(const osip_message_t *CANCEL, bool mine)
 	osip_message_clone(CANCEL,&mCANCEL);
 }
 
-void SIPEngine::saveERROR(const osip_message_t *ERROR, bool mine)
+void SIPEngine::saveERROR(const osip_message_t *ERROR, bool /*mine*/)
 {
 	// Instead of cloning, why not just keep the old one?
 	// Because that doesn't work in all calling contexts.
@@ -276,7 +276,7 @@ void SIPEngine::user( const char * wCallID, const char * IMSI, const char *origI
 }
 
 
-void SIPEngine::writePrivateHeaders(osip_message_t *msg, const GSM::LogicalChannel *chan)
+void SIPEngine::writePrivateHeaders(osip_message_t *msg, const GSM::LogicalChannel* /*chan*/)
 {
 	// P-PHY-Info
 	// This is a non-standard private header in OpenBTS.
@@ -474,7 +474,7 @@ SIPState SIPEngine::SOSSendINVITE(short wRtp_port, unsigned  wCodec, const GSM::
 			gConfig.getStr("Control.Emergency.Geolocation").c_str());
 		osip_message_set_content_type(invite, strdup("application/pidf+xml"));
 		char tmp[20];
-		sprintf(tmp,"%u",strlen(xml));
+        sprintf(tmp,"%u", static_cast<unsigned>(strlen(xml)));
 		osip_message_set_content_length(invite, strdup(tmp));
 		osip_message_set_body(invite,xml,strlen(xml));
 	}
@@ -485,7 +485,7 @@ SIPState SIPEngine::SOSSendINVITE(short wRtp_port, unsigned  wCodec, const GSM::
 	osip_message_free(invite);
 	mState = Starting;
 	return mState;
-};
+}
 
 
 SIPState SIPEngine::MOCSendINVITE( const char * wCalledUsername, 
@@ -526,7 +526,7 @@ SIPState SIPEngine::MOCSendINVITE( const char * wCalledUsername,
 	osip_message_free(invite);
 	mState = Starting;
 	return mState;
-};
+}
 
 
 SIPState SIPEngine::MOCResendINVITE()
@@ -893,7 +893,7 @@ SIPState SIPEngine::MODWaitForCANCELOK(Mutex *lock)
 
 static bool containsResponse(vector<unsigned> *validResponses, unsigned code)
 {
-	for (int i = 0; i < validResponses->size(); i++) {
+    for (size_t i = 0; i < validResponses->size(); i++) {
 		if (validResponses->at(i) == code)
 			return true;
 	}

@@ -135,7 +135,7 @@ class CCCHL2 : public L2DL {
 
 	void writeLowSide(const GSM::L2Frame&) { assert(0); }
 
-	L3Frame* readHighSide(unsigned timeout=3600000) { assert(0); return NULL; }
+    L3Frame* readHighSide(unsigned /*timeout = 3600000*/) { assert(0); return NULL; }
 
 	void writeHighSide(const GSM::L3Frame&);
 

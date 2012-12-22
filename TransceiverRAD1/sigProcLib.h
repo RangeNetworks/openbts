@@ -32,13 +32,13 @@
 using namespace GSM;
 
 /** Indicated signalVector symmetry */
-typedef enum Symmetry {
+enum Symmetry {
   NONE = 0,
   ABSSYM = 1
 };
 
 /** Convolution type indicator */
-typedef enum ConvType {
+enum ConvType {
   FULL_SPAN = 0,
   OVERLAP_ONLY = 1,
   START_ONLY = 2,

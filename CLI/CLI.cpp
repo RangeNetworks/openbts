@@ -284,14 +284,14 @@ int tmsis(int argc, char** argv, ostream& os)
 
 int isIMSI(const char *imsi)
 {
-	int i = 0;
-
 	if (!imsi)
 		return 0;
-	if (strlen(imsi) != 15)
+
+	size_t imsiLen = strlen(imsi);
+	if (imsiLen != 15)
 		return 0;
 	
-	for (i = 0; i < strlen(imsi); i++) {
+	for (size_t i = 0; i < imsiLen; i++) {
 		if (!isdigit(imsi[i]))
 			return 0;
 	}
@@ -461,14 +461,15 @@ int cellID(int argc, char** argv, ostream& os)
 
 
 /** Print table of current transactions. */
-int calls(int argc, char** argv, ostream& os)
+int calls(int argc, char** /*argv*/, ostream& os)
 {
-        bool showAll = false;
-	if (argc==2) showAll = true;
-	if (argc>2) return BAD_NUM_ARGS;
-	size_t count = gTransactionTable.dump(os);
+	if (argc > 2)
+		return BAD_NUM_ARGS;
+
 	//fix later -kurtis
+	//bool showAll = (argc == 2);
 	//size_t count = gTransactionTable.dump(os,showAll);
+	size_t count = gTransactionTable.dump(os);
 	os << endl << count << " transactions in table" << endl;
 	return SUCCESS;
 }

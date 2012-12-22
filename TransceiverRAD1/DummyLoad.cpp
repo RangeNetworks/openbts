@@ -86,10 +86,10 @@ bool DummyLoad::stop()
 
 
 // NOTE: Assumes sequential reads
-int DummyLoad::readSamples(short *buf, int len, bool *overrun, 
+int DummyLoad::readSamples(short *buf, int len, bool* /*overrun*/, 
 			    TIMESTAMP timestamp,
 			    bool *wUnderrun,
-			    unsigned *RSSI) 
+			    unsigned* /*RSSI*/) 
 {
   updateTime();
   underrunLock.lock();
@@ -97,11 +97,11 @@ int DummyLoad::readSamples(short *buf, int len, bool *overrun,
   underrunLock.unlock();
   if (currstamp+len < timestamp) {
 	usleep(100); 
-	return NULL;
+	return 0;
   } 
   else if (currstamp < timestamp) {
 	usleep(100);
-	return NULL;
+	return 0;
   }
   else if (timestamp+len < currstamp) {
 	memcpy(buf,dummyBurst+dummyBurstCursor*2,sizeof(short)*2*(dummyBurstSz-dummyBurstCursor));

@@ -46,7 +46,7 @@ int main(int argc, char *argv[])
 
 	gConfig.setUpdateHook(purgeConfig);
 
-	char *keys[5] = {"key1", "key2", "key3", "key4", "key5"};
+	const char *keys[5] = {"key1", "key2", "key3", "key4", "key5"};
 
 	for (int i=0; i<5; i++) {
 		gConfig.set(keys[i],i);

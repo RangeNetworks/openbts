@@ -35,7 +35,7 @@ string URLEncode(const string &c)
 {
 	static const char *digits = "01234567890ABCDEF";
 	string retVal="";
-	for (int i=0; i<c.length(); i++)
+	for (size_t i=0; i<c.length(); i++)
 	{
 		const char ch = c[i];
 		if (isalnum(ch) || strchr("-_.!~'()",ch)) {
