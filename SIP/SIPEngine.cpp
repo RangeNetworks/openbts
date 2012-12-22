@@ -276,7 +276,7 @@ void SIPEngine::user( const char * wCallID, const char * IMSI, const char *origI
 }
 
 
-void SIPEngine::writePrivateHeaders(osip_message_t *msg, const GSM::LogicalChannel* /*chan*/)
+void SIPEngine::writePrivateHeaders(osip_message_t *msg, const GSM::LogicalChannel* chan)
 {
 	// P-PHY-Info
 	// This is a non-standard private header in OpenBTS.
