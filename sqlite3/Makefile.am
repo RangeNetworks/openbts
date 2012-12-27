@@ -21,14 +21,15 @@
 include $(top_srcdir)/Makefile.common
 
 AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES)
-AM_CXXFLAGS = -Wall -lpthread -ldl
+AM_CXXFLAGS = -Wall -O3 -g -lpthread -ldl
 
 noinst_LTLIBRARIES = libsqlite.la
 
 libsqlite_la_SOURCES = \
-	sqlite3.c
+	sqlite3.c 
 
 noinst_HEADERS = \
 	sqlite3.h \
-	sqlite3ext.h
+	sqlite3ext.h 
+
 
