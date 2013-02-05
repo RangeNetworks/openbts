@@ -100,7 +100,8 @@ TransactionEntry::TransactionEntry(
 	const L3CMServiceType& wService,
 	const L3CallingPartyBCDNumber& wCalling,
 	GSM::CallState wState,
-	const char *wMessage)
+	const char *wMessage,
+	bool wFake)
 	:mID(gTransactionTable.newID()),
 	mSubscriber(wSubscriber),mService(wService),
 	mL3TI(gTMSITable.nextL3TI(wSubscriber.digits())),
@@ -110,7 +111,9 @@ TransactionEntry::TransactionEntry(
 	mNumSQLTries(gConfig.getNum("Control.NumSQLTries")),
 	mChannel(wChannel),
 	mTerminationRequested(false),
-	mRemoved(false)
+	mRemoved(false),
+	mFake(wFake)
+	 
 {
 	if (wMessage) mMessage.assign(wMessage); //strncpy(mMessage,wMessage,160);
 	else mMessage.assign(""); //mMessage[0]='\0';
@@ -134,7 +137,8 @@ TransactionEntry::TransactionEntry(
 	mNumSQLTries(gConfig.getNum("Control.NumSQLTries")),
 	mChannel(wChannel),
 	mTerminationRequested(false),
-	mRemoved(false)
+	mRemoved(false),
+	mFake(false)
 {
 	assert(mSubscriber.type()==GSM::IMSIType);
 	mMessage.assign(""); //mMessage[0]='\0';
@@ -157,7 +161,8 @@ TransactionEntry::TransactionEntry(
 	mNumSQLTries(2*gConfig.getNum("Control.NumSQLTries")),
 	mChannel(wChannel),
 	mTerminationRequested(false),
-	mRemoved(false)
+	mRemoved(false),
+	mFake(false)
 {
 	mMessage.assign(""); //mMessage[0]='\0';
 	initTimers();
@@ -180,7 +185,8 @@ TransactionEntry::TransactionEntry(
 	mNumSQLTries(gConfig.getNum("Control.NumSQLTries")),
 	mChannel(wChannel),
 	mTerminationRequested(false),
-	mRemoved(false)
+	mRemoved(false),
+	mFake(false)
 {
 	assert(mSubscriber.type()==GSM::IMSIType);
 	if (wMessage!=NULL) mMessage.assign(wMessage); //strncpy(mMessage,wMessage,160);
@@ -202,7 +208,8 @@ TransactionEntry::TransactionEntry(
 	mNumSQLTries(gConfig.getNum("Control.NumSQLTries")),
 	mChannel(wChannel),
 	mTerminationRequested(false),
-	mRemoved(false)
+	mRemoved(false),
+	mFake(false)
 {
 	assert(mSubscriber.type()==GSM::IMSIType);
 	mMessage[0]='\0';
@@ -955,7 +962,10 @@ bool TransactionTable::removePaging(unsigned key)
 	if (itr==mTable.end()) return false;
 	if (itr->second->removed()) return true;
 	if (itr->second->GSMState()!=GSM::Paging) return false;
-	itr->second->MODSendERROR(NULL, 480, "Temporarily Unavailable", true);
+	//no one to respond to if we're fake
+	if (!itr->second->fake()){
+		itr->second->MODSendERROR(NULL, 480, "Temporarily Unavailable", true);
+	}
 	itr->second->remove();
 	return true;
 }
