@@ -324,7 +324,7 @@ int main(int argc, char *argv[])
 	LOG(INFO) << "checking transceiver";
 	//gTRX.ARFCN(0)->powerOn();
 	//sleep(gConfig.getNum("TRX.Timeout.Start",2));
-	bool haveTRX = gTRX.ARFCN(0)->powerOn();
+	bool haveTRX = gTRX.ARFCN(0)->powerOn(false);
 
 	Thread transceiverThread;
 	if (!haveTRX) {
@@ -380,7 +380,7 @@ int main(int argc, char *argv[])
 	C0radio->setRxGain(gConfig.getNum("GSM.Radio.RxGain"));
 
 	// Turn on and power up.
-	C0radio->powerOn();
+	C0radio->powerOn(true);
 	C0radio->setPower(gConfig.getNum("GSM.Radio.PowerManager.MinAttenDB"));
 
 	//

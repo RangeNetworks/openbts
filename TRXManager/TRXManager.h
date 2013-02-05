@@ -172,8 +172,11 @@ class ARFCNManager {
 	/** Turn off the transceiver. */
 	bool powerOff();
 
-	/** Turn on the transceiver. */
-	bool powerOn();
+	/** 
+	    Turn on the transceiver. 
+	    @param warn Warn if the transceiver fails to start
+	*/
+	bool powerOn(bool warn);
 
         /**     
 		Set maximum expected delay spread.

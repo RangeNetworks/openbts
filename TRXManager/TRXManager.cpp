@@ -401,11 +401,16 @@ bool ::ARFCNManager::powerOff()
 }
 
 
-bool ::ARFCNManager::powerOn()
+bool ::ARFCNManager::powerOn(bool warn)
 {
 	int status = sendCommand("POWERON");
 	if (status!=0) {
-		LOG(ALERT) << "POWERON failed with status " << status;
+		if (warn){
+			LOG(ALERT) << "POWERON failed with status " << status;
+		}
+		else {
+			LOG(INFO) << "POWERON failed with status " << status;		    
+		}	
 		return false;
 	}
 	return true;
