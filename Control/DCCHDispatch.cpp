@@ -140,7 +140,9 @@ void Control::DCCHDispatcher(LogicalChannel *DCCH)
 		}
 
 		// Catch the various error cases.
-
+		catch (RemovedTransaction except) {
+			LOG(ERR) << "attempt to use removed transaciton " << except.transactionID();
+		}
 		catch (ChannelReadTimeout except) {
 			LOG(NOTICE) << "ChannelReadTimeout";
 			// Cause 0x03 means "abnormal release, timer expired".
