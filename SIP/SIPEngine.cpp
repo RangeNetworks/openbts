@@ -114,7 +114,7 @@ ostream& SIP::operator<<(ostream& os, SIPState s)
 {
 	const char* str = SIPStateString(s);
 	if (str) os << str;
-	else os << "?" << s << "?";
+	else os << "?" << ((int)s) << "?";
 	return os;
 }
 
