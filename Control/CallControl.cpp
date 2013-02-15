@@ -124,6 +124,11 @@ void forceGSMClearing(TransactionEntry *transaction, GSM::LogicalChannel *LCH, c
 */
 void forceSIPClearing(TransactionEntry *transaction)
 {
+	if (transaction->deadOrRemoved()) {
+		LOG(ERR) << "aborting transaction that is already removed or defunct";
+		return;
+	}
+
 	SIP::SIPState state = transaction->SIPState();
 	LOG(INFO) << "SIP state " << state;
 	//why aren't we checking for failed here? -kurtis
@@ -157,9 +162,22 @@ void forceSIPClearing(TransactionEntry *transaction)
 */
 void abortCall(TransactionEntry *transaction, GSM::LogicalChannel *LCH, const GSM::L3Cause& cause)
 {
-	LOG(INFO) << "cause: " << cause << ", transaction: " << *transaction;
-	if (LCH) forceGSMClearing(transaction,LCH,cause);
-	forceSIPClearing(transaction);
+	LOG(DEBUG);
+	if (!transaction->deadOrRemoved()) {
+		LOG(INFO) << "cause: " << cause << ", transaction: " << *transaction;
+		if (LCH) forceGSMClearing(transaction,LCH,cause);
+		forceSIPClearing(transaction);
+	}
+	else {
+		if (LCH) {
+			LOG(ERR) << "aborting transaction that is already removed or defunct on " << *LCH;
+			forceGSMClearing(transaction,LCH,cause);
+		}
+		else {
+			LOG(ERR) << "aborting transaction that is already removed or defunct, no channel";
+		}
+		
+	}
 }
 
 
@@ -171,6 +189,15 @@ void abortCall(TransactionEntry *transaction, GSM::LogicalChannel *LCH, const GS
 */
 void abortAndRemoveCall(TransactionEntry *transaction, GSM::LogicalChannel *LCH, const GSM::L3Cause& cause)
 {
+	if (transaction->deadOrRemoved()) {
+		if (LCH) {
+			LOG(ERR) << "aborting transaction that is already removed or defunct on " << *LCH;
+		}
+		else {
+			LOG(ERR) << "aborting transaction that is already removed or defunct, no channel";
+		}
+		return;
+	}
 	LOG(NOTICE) << "cause: " << cause << ", transaction: " << *transaction;
 	abortCall(transaction,LCH,cause);
 	gTransactionTable.remove(transaction);
@@ -186,6 +213,7 @@ void abortAndRemoveCall(TransactionEntry *transaction, GSM::LogicalChannel *LCH,
 */
 GSM::TCHFACCHLogicalChannel *allocateTCH(GSM::LogicalChannel *DCCH)
 {
+	// Get TCH will open the channel.
 	GSM::TCHFACCHLogicalChannel *TCH = gBTS.getTCH();
 	if (!TCH) {
 		LOG(WARNING) << "congestion, no TCH available for assignment";
@@ -222,6 +250,7 @@ bool assignTCHF(TransactionEntry *transaction, GSM::LogicalChannel *DCCH, GSM::T
 		transaction->channel(TCH);
 		LOG(DEBUG) << "updated transaction " << *transaction;
 		LOG(INFO) << "sending AssignmentCommand for " << *TCH << " on " << *DCCH;
+		// FIXME - We should probably be setting the initial power here.
 		DCCH->send(GSM::L3AssignmentCommand(TCH->channelDescription(),GSM::L3ChannelMode(GSM::L3ChannelMode::SpeechV1)));
 
 		// This read is SUPPOSED to time out if the assignment was successful.
@@ -725,7 +754,24 @@ void callManagementLoop(TransactionEntry *transaction, GSM::TCHFACCHLogicalChann
 	LOG(INFO) << " call connected " << *transaction;
 	gReports.incr("OpenBTS.GSM.CC.CallMinutes");
 	// poll everything until the call is finished
-	while (!pollInCall(transaction,TCH)) { }
+	// A rough count of frames.
+	size_t fCount = 0;
+	while (!pollInCall(transaction,TCH)) {
+
+		if (transaction->deadOrRemoved()) {
+			LOG(ERR) << "attempting to use a defunct transaction";
+			TCH->send(GSM::L3ChannelRelease());
+			return;
+		}
+
+		fCount++;
+		// On average, pollInCall blocks for 20 ms.
+		// Every minute, reset the watchdog timer.
+		if ((fCount%(60*50))==0) {
+			LOG(DEBUG) << fCount << " cycles of call management loop; resetting watchdog";
+			gReports.incr("OpenBTS.GSM.CC.CallMinutes");
+		}
+	}
 	gTransactionTable.remove(transaction);
 }
 
@@ -902,17 +948,30 @@ void Control::MOCStarter(const GSM::L3CMServiceRequest* req, GSM::LogicalChannel
 */
 void Control::MOCController(TransactionEntry *transaction, GSM::TCHFACCHLogicalChannel* TCH)
 {
+	assert(transaction);
+	assert(TCH);
+	if (transaction->deadOrRemoved()) {
+		LOG(ERR) << "dead or defunct transaciton on " << *TCH;
+		TCH->send(GSM::L3ChannelRelease());
+		return;
+	}
 	LOG(DEBUG) << "transaction: " << *transaction;
 	unsigned L3TI = transaction->L3TI();
 	assert(L3TI>7);
-	assert(TCH);
 
 
 	// Look for RINGING or OK from the SIP side.
 	// There's a T310 running on the phone now.
 	// The phone will initiate clearing if it expires.
 	// FIXME -- We should also have a SIP.Timer.B timeout on this end.
+	SIP::SIPState prevState = transaction->SIPState();
 	while (transaction->GSMState()!=GSM::CallReceived) {
+
+		if (transaction->deadOrRemoved()) {
+			LOG(ERR) << "attempting to use a defunct transaction";
+			TCH->send(GSM::L3ChannelRelease());
+			return;
+		}
 
 		if (updateGSMSignalling(transaction,TCH)) return abortAndRemoveCall(transaction,TCH,GSM::L3Cause(0x15));
 		if (transaction->clearingGSM()) return abortAndRemoveCall(transaction,TCH,GSM::L3Cause(0x7F));
@@ -937,10 +996,13 @@ void Control::MOCController(TransactionEntry *transaction, GSM::TCHFACCHLogicalC
 				transaction->GSMState(GSM::CallReceived);
 				break;
 			case SIP::Proceeding:
-				LOG(DEBUG) << "SIP:Proceeding, send progress";
-				TCH->send(GSM::L3Progress(L3TI));
+				if (state != prevState) {
+					LOG(DEBUG) << "SIP::Proceeding, state change, sending L3 progress";
+					TCH->send(GSM::L3Progress(L3TI));
+				}
 				break;
 			case SIP::Timeout:
+				// This is CRIT instead of ALERT because it could also be due to packet loss.
 				LOG(CRIT) << "MOC INVITE Timed out. Is SIP.Proxy.Speech (" << gConfig.getStr("SIP.Proxy.Speech") << ") configured correctly?";
 				state = transaction->MOCResendINVITE();
 				break;
@@ -948,6 +1010,7 @@ void Control::MOCController(TransactionEntry *transaction, GSM::TCHFACCHLogicalC
 				LOG(NOTICE) << "SIP unexpected state " << state;
 				break;
 		}
+		prevState = state;
 	}
 
 	// There's a question here of what entity is generating the "patterns"
@@ -960,6 +1023,12 @@ void Control::MOCController(TransactionEntry *transaction, GSM::TCHFACCHLogicalC
 	LOG(INFO) << "wait for SIP OKAY";
 	SIP::SIPState state = transaction->SIPState();
 	while (state!=SIP::Active) {
+
+		if (transaction->deadOrRemoved()) {
+			LOG(ERR) << "attempting to use a defunct transaction";
+			TCH->send(GSM::L3ChannelRelease());
+			return;
+		}
 
 		LOG(DEBUG) << "wait for SIP session start";
 		state = transaction->MOCCheckForOK();
@@ -1004,6 +1073,13 @@ void Control::MOCController(TransactionEntry *transaction, GSM::TCHFACCHLogicalC
 
 	// Get the Connect Acknowledge message.
 	while (transaction->GSMState()!=GSM::Active) {
+
+		if (transaction->deadOrRemoved()) {
+			LOG(ERR) << "attempting to use a defunct transaction";
+			TCH->send(GSM::L3ChannelRelease());
+			return;
+		}
+
 		LOG(DEBUG) << "MOC Q.931 state=" << transaction->GSMState();
 		if (updateGSMSignalling(transaction,TCH,T313ms)) return abortAndRemoveCall(transaction,TCH,GSM::L3Cause(0x7F));
 	}
@@ -1063,7 +1139,7 @@ void Control::MTCStarter(TransactionEntry *transaction, GSM::LogicalChannel *LCH
 	while (transaction->GSMState()!=GSM::MTCConfirmed) {
 		if (transaction->MTCSendTrying()==SIP::Fail) {
 			LOG(NOTICE) << "call failed on SIP side";
-			LCH->send(GSM::RELEASE);
+			if (TCH) TCH->send(GSM::HARDRELEASE);
 			// Cause 0x03 is "no route to destination"
 			return abortAndRemoveCall(transaction,LCH,GSM::L3Cause(0x03));
 		}
@@ -1071,12 +1147,14 @@ void Control::MTCStarter(TransactionEntry *transaction, GSM::LogicalChannel *LCH
 		// It's the SIP TRYING timeout, whatever that is.
 		if (updateGSMSignalling(transaction,LCH,1000)) {
 			LOG(INFO) << "Release from GSM side";
+			if (TCH) TCH->send(GSM::HARDRELEASE);
 			LCH->send(GSM::RELEASE);
 			return;
 		}
 		// Check for SIP cancel, too.
 		if (transaction->MTCCheckForCancel()==SIP::MTDCanceling) {
 			LOG(INFO) << "call cancelled on SIP side";
+			if (TCH) TCH->send(GSM::HARDRELEASE);
 			transaction->MTDSendCANCELOK();
 			//should probably send a 487 here
 			// Cause 0x15 is "rejected"
@@ -1085,6 +1163,7 @@ void Control::MTCStarter(TransactionEntry *transaction, GSM::LogicalChannel *LCH
 		//lastly check if we're toast
 		if(transaction->SIPState()==SIP::Fail) {
 			LOG(DEBUG) << "Call failed";
+			if (TCH) TCH->send(GSM::HARDRELEASE);
 			return abortAndRemoveCall(transaction,LCH,GSM::L3Cause(0x7F));
 		}
 	}
@@ -1096,6 +1175,7 @@ void Control::MTCStarter(TransactionEntry *transaction, GSM::LogicalChannel *LCH
 		// For very early assignment, we need a mode change.
 		static const GSM::L3ChannelMode mode(GSM::L3ChannelMode::SpeechV1);
 		LCH->send(GSM::L3ChannelModeModify(LCH->channelDescription(),mode));
+		// FIXME - We should call this in a loop in case there are stray messages in the channel.
 		GSM::L3Message* msg_ack = getMessage(LCH);
 		const GSM::L3ChannelModeModifyAcknowledge *ack =
 			dynamic_cast<GSM::L3ChannelModeModifyAcknowledge*>(msg_ack);
@@ -1115,6 +1195,7 @@ void Control::MTCStarter(TransactionEntry *transaction, GSM::LogicalChannel *LCH
 	else {
 		// For late assignment, send the TCH assignment now.
 		// This dispatcher on the next channel will continue the transaction.
+		assert(TCH);
 		assignTCHF(transaction,LCH,TCH);
 	}
 }
