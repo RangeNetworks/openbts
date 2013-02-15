@@ -158,7 +158,7 @@ public:
 	short RTPPort() const { return mRTPPort; }
 
 	/** Return if the call has successfully finished */
-	bool finished() const { return (mState==Cleared || mState==Canceled); }
+	bool finished() const { return (mState==Cleared || mState==Canceled || mState==Fail); }
 
 	/** Return if the communication was started by us (true) or not (false) */
 	/* requires an mINVITE be established */
