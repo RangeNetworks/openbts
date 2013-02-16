@@ -982,7 +982,10 @@ void Control::MOCController(TransactionEntry *transaction, GSM::TCHFACCHLogicalC
 		switch (state) {
 			case SIP::Busy:
 				LOG(INFO) << "SIP:Busy, abort";
-				return abortAndRemoveCall(transaction,TCH,GSM::L3Cause(0x11));
+				transaction->MOCSendACK();
+				forceGSMClearing(transaction,TCH,GSM::L3Cause(0x11));
+				gTransactionTable.remove(transaction);
+				return;
 			case SIP::Fail:
 				LOG(NOTICE) << "SIP:Fail, abort";
 				return abortAndRemoveCall(transaction,TCH,GSM::L3Cause(0x7F));
