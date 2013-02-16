@@ -1109,6 +1109,9 @@ bool TransactionTable::isBusy(const L3MobileIdentity& mobileID)
 			itr->second->GSMState() == GSM::CallReceived ||
 			itr->second->GSMState() == GSM::CallPresent ||
 			itr->second->GSMState() == GSM::ConnectIndication ||
+			itr->second->GSMState() == GSM::HandoverInbound ||
+			itr->second->GSMState() == GSM::HandoverProgress ||
+			itr->second->GSMState() == GSM::HandoverOutbound ||
 			itr->second->GSMState() == GSM::Active;
 		if (inCall) return true;
 	}

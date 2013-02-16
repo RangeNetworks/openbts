@@ -68,6 +68,10 @@ enum CallState {
 	ReleaseRequest,
 	SMSDelivering,
 	SMSSubmitting,
+	HandoverInbound,
+	HandoverProgress,
+	HandoverOutbound,
+	BusyReject,
 };
 
 
@@ -78,6 +82,7 @@ std::ostream& operator<<(std::ostream& os, CallState state);
 
 
 /** A base class for GSM exceptions. */
+
 class GSMError {};
 
 /** Duration ofa GSM frame, in microseconds. */
