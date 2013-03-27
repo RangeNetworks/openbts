@@ -241,10 +241,7 @@ Transceiver::CorrType Transceiver::expectedCorrType(GSM::Time currTime)
       return TSC;*/
     break;
   case II:
-    if (burstFN % 2 == 1)
-      return IDLE;
-    else
-      return TSC;
+    return TSC;
     break;
   case III:
     return TSC;
