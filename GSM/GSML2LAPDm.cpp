@@ -647,6 +647,9 @@ void L2LAPDm::receiveUFrameUA(const L2Frame& frame)
 			// We sent DISC and the peer responded.
 			clearState();
 			break;
+		case LinkEstablished: // Pat added: This is probably just a duplicate SABM establishment acknowledgement.
+			// We could check more carefully if that is true, but who cares...
+			break;
 		default:
 			unexpectedMessage();
 			return;
