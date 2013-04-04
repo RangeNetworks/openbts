@@ -1018,8 +1018,8 @@ bool analyzeTrafficBurst(signalVector &rxBurst,
   unsigned spanTOA = maxTOA;
   if (spanTOA < 5*samplesPerSymbol) spanTOA = 5*samplesPerSymbol;
 
-  unsigned startIx = (66-spanTOA)*samplesPerSymbol;
-  unsigned endIx = (66+16+spanTOA)*samplesPerSymbol;
+  unsigned startIx = 66*samplesPerSymbol-spanTOA;
+  unsigned endIx = (66+16)*samplesPerSymbol+spanTOA;
   unsigned windowLen = endIx - startIx;
   unsigned corrLen = 2*maxTOA+1;
 
