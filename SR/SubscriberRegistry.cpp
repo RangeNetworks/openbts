@@ -1,6 +1,6 @@
 /*
-* Copyright 2011 Range Networks, Inc.
-* Copyright 2011 Free Software Foundation, Inc.
+* Copyright 2011 Kestrel Signal Processing, Inc.
+* Copyright 2011, 2012 Range Networks, Inc.
 *
 * This software is distributed under the terms of the GNU Affero Public License.
 * See the COPYING file in the main directory for details.
@@ -59,6 +59,10 @@ static const char* createDDTable = {
     ")"
 };
 
+static const char* createRateTable = {
+"create table if not exists rates (service varchar(30) not null, rate integer not null)"
+};
+
 static const char* createSBTable = {
     "CREATE TABLE IF NOT EXISTS SIP_BUDDIES ("
 		"id                    integer primary key, "
@@ -79,7 +83,7 @@ static const char* createSBTable = {
 		"callgroup             VARCHAR(10), "
 		"callerid              VARCHAR(80), "
 		"defaultip             VARCHAR(40) DEFAULT '0.0.0.0', "
-		"dtmfmode              VARCHAR(7) DEFAULT 'rfc2833', "
+		"dtmfmode              VARCHAR(7) DEFAULT 'info', "
 		"fromuser              VARCHAR(80), "
 		"fromdomain            VARCHAR(80), "
 		"insecure              VARCHAR(4), "
@@ -92,10 +96,10 @@ static const char* createSBTable = {
 		"rtpholdtimeout        CHAR(3), "
 		"setvar                VARCHAR(100), "
 		"disallow              VARCHAR(100) DEFAULT 'all', "
-		"allow                 VARCHAR(100) DEFAULT 'g729;ilbc;gsm;ulaw;alaw' not null, "
+		"allow                 VARCHAR(100) DEFAULT 'gsm' not null, "
 		"fullcontact           VARCHAR(80), "
 		"ipaddr                VARCHAR(45), "
-		"port                  int(5) DEFAULT 0, "
+		"port                  int(5) DEFAULT 5062, "
 		"username              VARCHAR(80), "
 		"defaultuser           VARCHAR(80), "
 		"subscribecontext      VARCHAR(80), "
@@ -106,10 +110,10 @@ static const char* createSBTable = {
 		"promiscredir          VARCHAR(3), "
 		"useclientcode         VARCHAR(3), "
 		"callcounter           VARCHAR(3), "
-		"busylevel             int(11), "
-		"allowoverlap          VARCHAR(3) DEFAULT 'yes', "
-		"allowsubscribe        VARCHAR(3) DEFAULT 'yes', "
-		"allowtransfer         VARCHAR(3) DEFAULT 'yes', "
+		"busylevel             int(11) default 1, "
+		"allowoverlap          VARCHAR(3) DEFAULT 'no', "
+		"allowsubscribe        VARCHAR(3) DEFAULT 'no', "
+		"allowtransfer         VARCHAR(3) DEFAULT 'no', "
 		"ignoresdpversion      VARCHAR(3) DEFAULT 'no', "
 		"template              VARCHAR(100), "
 		"videosupport          VARCHAR(6) DEFAULT 'no', "
@@ -133,20 +137,22 @@ static const char* createSBTable = {
 		"regseconds            int(11) DEFAULT 0 not null, "
 		"useragent             VARCHAR(100), "
 		"cancallforward        CHAR(3) DEFAULT 'yes' not null, "
-		"canreinvite           CHAR(3) DEFAULT 'yes' not null, "
+		"canreinvite           CHAR(3) DEFAULT 'no' not null, "
 		"mask                  VARCHAR(95), "
 		"musiconhold           VARCHAR(100), "
 		"restrictcid           CHAR(3), "
-		"calllimit             int(5), "
+		"calllimit             int(5) default 1, "
 		"WhiteListFlag         timestamp not null default '0', "
 		"WhiteListCode         varchar(8) not null default '0', "
 		"rand                  varchar(33) default '', "
 		"sres                  varchar(33) default '', "
 		"ki                    varchar(33) default '', "
 		"kc                    varchar(33) default '', "
+		"prepaid               int(1) DEFAULT 0 not null, "	// flag to indicate prepaid customer
+		"account_balance       int(9) default 0 not null, "	// current account, neg is debt, pos is credit
 		"RRLPSupported         int(1) default 1 not null, "
-  		"hardware              VARCHAR(20), " 
-		"regTime               INTEGER default 0 NOT NULL," // Unix time of most recent registration
+  		"hardware              VARCHAR(20), "
+		"regTime               INTEGER default 0 NOT NULL, " // Unix time of most recent registration
 		"a3_a8                 varchar(45) default NULL"
     ")"
 };
@@ -155,26 +161,49 @@ static const char* createSBTable = {
 int SubscriberRegistry::init()
 {
 	string ldb = gConfig.getStr("SubscriberRegistry.db");
+	size_t p = ldb.find_last_of('/');
+	if (p == string::npos) {
+		LOG(EMERG) << "SubscriberRegistry.db not in a directory?";
+		mDB = NULL;
+		return 1;
+	}
+	string dir = ldb.substr(0, p);
+	struct stat buf;
+	if (stat(dir.c_str(), &buf)) {
+		LOG(EMERG) << dir << " does not exist";
+		mDB = NULL;
+		return 1;
+	} 
 	int rc = sqlite3_open(ldb.c_str(),&mDB);
 	if (rc) {
-		LOG(EMERG) << "Cannot open SubscriberRegistry database: " << sqlite3_errmsg(mDB);
+		LOG(EMERG) << "Cannot open SubscriberRegistry database: " << ldb << " error: " << sqlite3_errmsg(mDB);
 		sqlite3_close(mDB);
 		mDB = NULL;
-		return FAILURE;
+		return 1;
 	}
 	if (!sqlite3_command(mDB,createRRLPTable)) {
 		LOG(EMERG) << "Cannot create RRLP table";
-	  return FAILURE;
+		return 1;
 	}
 	if (!sqlite3_command(mDB,createDDTable)) {
 		LOG(EMERG) << "Cannot create DIALDATA_TABLE table";
-		return FAILURE;
+		return 1;
+	}
+	if (!sqlite3_command(mDB,createRateTable)) {
+		LOG(EMERG) << "Cannot create rate table";
+		return 1;
 	}
 	if (!sqlite3_command(mDB,createSBTable)) {
 		LOG(EMERG) << "Cannot create SIP_BUDDIES table";
-		return FAILURE;
+		return 1;
 	}
-	return SUCCESS;
+	if (!getCLIDLocal("IMSI001010000000000")) {
+		// This is a test SIM provided with the BTS.
+		if (addUser("IMSI001010000000000", "2100") != SUCCESS) {
+        		LOG(EMERG) << "Cannot insert test SIM";
+		}
+	}
+	return 0;
 }
 
 
@@ -184,10 +213,7 @@ SubscriberRegistry::~SubscriberRegistry()
 	if (mDB) sqlite3_close(mDB);
 }
 
-
-
-
-SubscriberRegistry::Status SubscriberRegistry::sqlLocal(const char* query, char **resultptr)
+SubscriberRegistry::Status SubscriberRegistry::sqlLocal(const char *query, char **resultptr)
 {
 	LOG(INFO) << query;
 
@@ -198,7 +224,7 @@ SubscriberRegistry::Status SubscriberRegistry::sqlLocal(const char* query, char 
 
 	sqlite3_stmt *stmt;
 	if (sqlite3_prepare_statement(db(), &stmt, query)) {
-		LOG(ERR) << "sqlite3_prepare_statement problem";
+		LOG(ERR) << "sqlite3_prepare_statement problem with query \"" << query << "\"";
 		return FAILURE;
 	}
 	int src = sqlite3_run_query(db(), stmt);
@@ -219,48 +245,53 @@ SubscriberRegistry::Status SubscriberRegistry::sqlLocal(const char* query, char 
 
 
 
-string SubscriberRegistry::sqlQuery(string unknownColumn, string table, string knownColumn, string knownValue)
+char *SubscriberRegistry::sqlQuery(const char *unknownColumn, const char *table, const char *knownColumn, const char *knownValue)
 {
 	char *result = NULL;
 	SubscriberRegistry::Status st;
 	ostringstream os;
 	os << "select " << unknownColumn << " from " << table << " where " << knownColumn << " = \"" << knownValue << "\"";
+	// try to find locally
 	st = sqlLocal(os.str().c_str(), &result);
 	if ((st == SUCCESS) && result) {
+		// got it.  return it.
 		LOG(INFO) << "result = " << result;
 		return result;
-	} else {
-		return "";
 	}
+	LOG(INFO) << "not found: " << os.str();
+	return NULL;
 }
 
 
 
-SubscriberRegistry::Status SubscriberRegistry::sqlUpdate(string stmt)
+SubscriberRegistry::Status SubscriberRegistry::sqlUpdate(const char *stmt)
 {
 	LOG(INFO) << stmt;
-	return sqlLocal(stmt.c_str(), NULL);
+	SubscriberRegistry::Status st = sqlLocal(stmt, NULL);
+	// status of local is only important one because asterisk talks to that db directly
+	// must update local no matter what
+	return st;
 }
 
 string SubscriberRegistry::imsiGet(string imsi, string key)
 {
 	string name = imsi.substr(0,4) == "IMSI" ? imsi : "IMSI" + imsi;
-	return sqlQuery(key, "sip_buddies", "name", imsi);
+	return sqlQuery(key.c_str(), "sip_buddies", "name", imsi.c_str());
 }
 
-SubscriberRegistry::Status SubscriberRegistry::imsiSet(string imsi, string key, string value)
+bool SubscriberRegistry::imsiSet(string imsi, string key, string value)
 {
 	string name = imsi.substr(0,4) == "IMSI" ? imsi : "IMSI" + imsi;
 	ostringstream os;
 	os << "update sip_buddies set " << key << " = \"" << value << "\" where name = \"" << name << "\"";
-	return sqlUpdate(os.str());
+	return sqlUpdate(os.str().c_str()) == FAILURE;
 }
 
-string SubscriberRegistry::getIMSI(string ISDN)
+char *SubscriberRegistry::getIMSI(const char *ISDN)
 {
-	if (ISDN.empty()) {
+	if (!ISDN) {
 		LOG(WARNING) << "SubscriberRegistry::getIMSI attempting lookup of NULL ISDN";
-		return "";
+		return NULL;
 	}
 	LOG(INFO) << "getIMSI(" << ISDN << ")";
 	return sqlQuery("dial", "dialdata_table", "exten", ISDN);
@@ -268,74 +299,69 @@ string SubscriberRegistry::getIMSI(string ISDN)
 
 
 
-string SubscriberRegistry::getCLIDLocal(string IMSI)
+char *SubscriberRegistry::getCLIDLocal(const char* IMSI)
 {
-	if (IMSI.empty()) {
+	if (!IMSI) {
 		LOG(WARNING) << "SubscriberRegistry::getCLIDLocal attempting lookup of NULL IMSI";
-		return "";
+		return NULL;
 	}
 	LOG(INFO) << "getCLIDLocal(" << IMSI << ")";
-	return sqlQuery("callerid", "sip_buddies", "name", IMSI);
+	return sqlQuery("callerid", "sip_buddies", "username", IMSI);
 }
 
 
 
-string SubscriberRegistry::getCLIDGlobal(string IMSI)
+char *SubscriberRegistry::getCLIDGlobal(const char* IMSI)
 {
-	if (IMSI.empty()) {
+	if (!IMSI) {
 		LOG(WARNING) << "SubscriberRegistry::getCLIDGlobal attempting lookup of NULL IMSI";
-		return "";
+		return NULL;
 	}
 	LOG(INFO) << "getCLIDGlobal(" << IMSI << ")";
-	return sqlQuery("callerid", "sip_buddies", "name", IMSI);
+	return sqlQuery("callerid", "sip_buddies", "username", IMSI);
 }
 
 
 
-string SubscriberRegistry::getRegistrationIP(string IMSI)
+char *SubscriberRegistry::getRegistrationIP(const char* IMSI)
 {
-	if (IMSI.empty()) {
+	if (!IMSI) {
 		LOG(WARNING) << "SubscriberRegistry::getRegistrationIP attempting lookup of NULL IMSI";
-		return "";
+		return NULL;
 	}
 	LOG(INFO) << "getRegistrationIP(" << IMSI << ")";
-	return sqlQuery("ipaddr", "sip_buddies", "name", IMSI);
+	return sqlQuery("ipaddr", "sip_buddies", "username", IMSI);
 }
 
 
 
-SubscriberRegistry::Status SubscriberRegistry::setRegTime(string IMSI)
+SubscriberRegistry::Status SubscriberRegistry::setRegTime(const char* IMSI)
 {
-	if (IMSI.empty()) {
+	if (!IMSI) {
 		LOG(WARNING) << "SubscriberRegistry::setRegTime attempting set for NULL IMSI";
 		return FAILURE;
 	}
 	unsigned now = (unsigned)time(NULL);
 	ostringstream os;
-	os << "update sip_buddies set regTime = " << now  << " where name = " << '"' << IMSI << '"';
-	return sqlUpdate(os.str());
+	os << "update sip_buddies set regTime = " << now  << " where username = " << '"' << IMSI << '"';
+	return sqlUpdate(os.str().c_str());
 }
 
 
 
-SubscriberRegistry::Status SubscriberRegistry::addUser(string IMSI, string CLID)
+SubscriberRegistry::Status SubscriberRegistry::addUser(const char* IMSI, const char* CLID)
 {
-	if (IMSI.empty()) {
+	if (!IMSI) {
 		LOG(WARNING) << "SubscriberRegistry::addUser attempting add of NULL IMSI";
 		return FAILURE;
 	}
-	if (CLID.empty()) {
+	if (!CLID) {
 		LOG(WARNING) << "SubscriberRegistry::addUser attempting add of NULL CLID";
 		return FAILURE;
 	}
-	if (!getIMSI(CLID).empty() || !getCLIDLocal(IMSI).empty()) {
-		LOG(WARNING) << "SubscriberRegistry::addUser attempting user duplication";
-		//technically failure, but let's move on
-		return SUCCESS;
-	}
 	LOG(INFO) << "addUser(" << IMSI << "," << CLID << ")";
 	ostringstream os;
-	os << "insert into sip_buddies (name, username, type, context, host, callerid, canreinvite, allow, dtmfmode, ipaddr) values (";
+	os << "insert into sip_buddies (name, username, type, context, host, callerid, canreinvite, allow, dtmfmode, ipaddr, port) values (";
 	os << "\"" << IMSI << "\"";
 	os << ",";
 	os << "\"" << IMSI << "\"";
@@ -355,31 +381,63 @@ SubscriberRegistry::Status SubscriberRegistry::addUser(string IMSI, string CLID)
 	os << "\"" << "info" << "\"";
 	os << ",";
 	os << "\"" << "127.0.0.1" << "\"";
+	os << ",";
+	os << "\"" << "5062" << "\"";
 	os << ")";
 	os << ";";
-	SubscriberRegistry::Status st = sqlUpdate(os.str());
+	SubscriberRegistry::Status st = sqlUpdate(os.str().c_str());
 	ostringstream os2;
 	os2 << "insert into dialdata_table (exten, dial) values (";
 	os2 << "\"" << CLID << "\"";
 	os2 << ",";
 	os2 << "\"" << IMSI << "\"";
 	os2 << ")";
-	SubscriberRegistry::Status st2 = sqlUpdate(os2.str());
+	SubscriberRegistry::Status st2 = sqlUpdate(os2.str().c_str());
+	return st == SUCCESS && st2 == SUCCESS ? SUCCESS : FAILURE;
+}
+
+
+// For handover.  Only remove the local cache.  BS2 will have updated the global.
+SubscriberRegistry::Status SubscriberRegistry::removeUser(const char* IMSI)
+{
+	if (!IMSI) {
+		LOG(WARNING) << "SubscriberRegistry::addUser attempting add of NULL IMSI";
+		return FAILURE;
+	}
+	LOG(INFO) << "removeUser(" << IMSI << ")";
+	string server = gConfig.getStr("SubscriberRegistry.UpstreamServer");
+	if (server.length() == 0) {
+		LOG(INFO) << "not removing user if no upstream server";
+		return FAILURE;
+	}
+	ostringstream os;
+	os << "delete from sip_buddies where name = ";
+	os << "\"" << IMSI << "\"";
+	os << ";";
+	LOG(INFO) << os.str();
+	SubscriberRegistry::Status st = sqlLocal(os.str().c_str(), NULL);
+	ostringstream os2;
+	os2 << "delete from dialdata_table where dial = ";
+	os2 << "\"" << IMSI << "\"";
+	LOG(INFO) << os2.str();
+	SubscriberRegistry::Status st2 = sqlLocal(os2.str().c_str(), NULL);
 	return st == SUCCESS && st2 == SUCCESS ? SUCCESS : FAILURE;
 }
 
 
 
-string SubscriberRegistry::mapCLIDGlobal(string local)
+char *SubscriberRegistry::mapCLIDGlobal(const char *local)
 {
-	if (local.empty()) {
+	if (!local) {
 		LOG(WARNING) << "SubscriberRegistry::mapCLIDGlobal attempting lookup of NULL local";
-		return "";
+		return NULL;
 	}
 	LOG(INFO) << "mapCLIDGlobal(" << local << ")";
-	string IMSI = getIMSI(local);
-	if (IMSI.empty()) return "";
-	return getCLIDGlobal(IMSI);
+	char *IMSI = getIMSI(local);
+	if (!IMSI) return NULL;
+	char *global = getCLIDGlobal(IMSI);
+	free(IMSI);
+	return global;
 }
 
 SubscriberRegistry::Status SubscriberRegistry::RRLPUpdate(string name, string lat, string lon, string err){
@@ -392,20 +450,135 @@ SubscriberRegistry::Status SubscriberRegistry::RRLPUpdate(string name, string la
 	  "datetime('now')"
 	  ")";
 	LOG(INFO) << os.str();
-	return sqlUpdate(os.str());
+	return sqlUpdate(os.str().c_str());
 }
 
-bool SubscriberRegistry::useGateway(string ISDN)
+void SubscriberRegistry::stringToUint(string strRAND, uint64_t *hRAND, uint64_t *lRAND)
+{
+	assert(strRAND.size() == 32);
+	string strhRAND = strRAND.substr(0, 16);
+	string strlRAND = strRAND.substr(16, 16);
+	stringstream ssh;
+	ssh << hex << strhRAND;
+	ssh >> *hRAND;
+	stringstream ssl;
+	ssl << hex << strlRAND;
+	ssl >> *lRAND;
+}
+
+string SubscriberRegistry::uintToString(uint64_t h, uint64_t l)
+{
+	ostringstream os1;
+	os1.width(16);
+	os1.fill('0');
+	os1 << hex << h;
+	ostringstream os2;
+	os2.width(16);
+	os2.fill('0');
+	os2 << hex << l;
+	ostringstream os3;
+	os3 << os1.str() << os2.str();
+	return os3.str();
+}
+
+string SubscriberRegistry::uintToString(uint32_t x)
+{
+	ostringstream os;
+	os.width(8);
+	os.fill('0');
+	os << hex << x;
+	return os.str();
+}
+
+bool SubscriberRegistry::useGateway(const char* ISDN)
 {
 	// FIXME -- Do something more general in Asterisk.
 	// This is a hack for Burning Man.
-	int cmp = strncmp(ISDN.c_str(),"88351000125",11);
+	int cmp = strncmp(ISDN,"88351000125",11);
 	return cmp!=0;
 }
 
+
+
+SubscriberRegistry::Status SubscriberRegistry::setPrepaid(const char *IMSI, bool yes)
+{
+	ostringstream os;
+	os << "update sip_buddies set prepaid = " << (yes ? 1 : 0)  << " where username = " << '"' << IMSI << '"';
+	return sqlUpdate(os.str().c_str());
+}
+
+
+SubscriberRegistry::Status SubscriberRegistry::isPrepaid(const char *IMSI, bool &yes)
+{
+	char *st = sqlQuery("prepaid", "sip_buddies", "username", IMSI);
+	if (!st) {
+		LOG(NOTICE) << "cannot get prepaid status for username " << IMSI;
+		return FAILURE;
+	}
+	yes = *st == '1';
+	free(st);
+	return SUCCESS;
+}
+
+
+SubscriberRegistry::Status SubscriberRegistry::balanceRemaining(const char *IMSI, int &balance)
+{
+	char *st = sqlQuery("account_balance", "sip_buddies", "username", IMSI);
+	if (!st) {
+		LOG(NOTICE) << "cannot get balance for " << IMSI;
+		return FAILURE;
+	}
+	balance = (int)strtol(st, (char **)NULL, 10);
+	free(st);
+	return SUCCESS;
+}
+
+
+SubscriberRegistry::Status SubscriberRegistry::addMoney(const char *IMSI, int moneyToAdd)
+{
+	ostringstream os;
+	os << "update sip_buddies set account_balance = account_balance + " << moneyToAdd << " where username = " << '"' << IMSI << '"';
+	if (sqlUpdate(os.str().c_str()) == FAILURE) {
+		LOG(NOTICE) << "cannot update rate for username " << IMSI;
+		return FAILURE;
+	}
+	return SUCCESS;
+}
+
+int SubscriberRegistry::serviceCost(const char* service)
+{
+	char *rateSt = sqlQuery("rate", "rates", "service", service);
+	if (!rateSt) {
+		LOG(ALERT) << "cannot get rate for service " << service;
+		return -1;
+	}
+	int rate = (int)strtol(rateSt, (char **)NULL, 10);
+	free(rateSt);
+	return rate;
+}
+
+SubscriberRegistry::Status SubscriberRegistry::serviceUnits(const char *IMSI, const char* service, int &units)
+{
+	int balance;
+	Status stat = balanceRemaining(IMSI,balance);
+	if (stat == FAILURE) return FAILURE;
+	int rate = serviceCost(service);
+	if (rate<0) return FAILURE;
+	units = balance / rate;
+	return SUCCESS;
+}
 
 
 
 
 
 // vim: ts=4 sw=4
+
+
+
+
+
+
+
+
+
