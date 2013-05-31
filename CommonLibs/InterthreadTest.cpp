@@ -82,7 +82,8 @@ void* mapReader(void*)
 	for (int i=0; i<20; i++) {
 		int *p = gMap.read(i);
 		COUT("map read " << *p);
-		delete p;
+		// InterthreadMap will delete the pointers
+		// delete p;
 	}
 	return NULL;
 }

@@ -29,6 +29,7 @@
 #include "BitVector.h"
 #include <iostream>
 #include <stdio.h>
+#include <sstream>
 
 using namespace std;
 
@@ -267,9 +268,6 @@ void BitVector::unmap(const unsigned *map, size_t mapSize, BitVector& dest) cons
 		dest.mStart[map[i]] = mStart[i];
 	}
 }
-
-
-
 
 
 
@@ -527,6 +525,22 @@ void SoftVector::decode(ViterbiR2O4 &decoder, BitVector& target) const
 
 
 
+// (pat) Added 6-22-2012
+float SoftVector::getEnergy(float *plow) const
+{
+	const SoftVector &vec = *this;
+	int len = vec.size();
+	float avg = 0; float low = 1;
+	for (int i = 0; i < len; i++) {
+		float bit = vec[i];
+		float energy = 2*((bit < 0.5) ? (0.5-bit) : (bit-0.5));
+		if (energy < low) low = energy;
+		avg += energy/len;
+	}
+	if (plow) { *plow = low; }
+	return avg;
+}
+
 
 ostream& operator<<(ostream& os, const SoftVector& sv)
 {
@@ -577,6 +591,14 @@ void BitVector::hex(ostream& os) const
 	}
 	os << std::dec;
 }
+
+std::string BitVector::hexstr() const
+{
+	std::ostringstream ss;
+	hex(ss);
+	return ss.str();
+}
+
 
 bool BitVector::unhex(const char* src)
 {

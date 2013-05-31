@@ -41,6 +41,10 @@
 #include <stdlib.h>
 
 
+
+
+
+
 bool resolveAddress(struct sockaddr_in *address, const char *hostAndPort)
 {
 	assert(address);
@@ -254,6 +258,11 @@ void UDPSocket::open(unsigned short localPort)
 		perror("socket() failed");
 		throw SocketError();
 	}
+
+	// pat added: This lets the socket be reused immediately, which is needed if OpenBTS crashes.
+	int on = 1;
+	setsockopt(mSocketFD, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
+
 
 	// bind
 	struct sockaddr_in address;

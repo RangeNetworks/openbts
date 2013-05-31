@@ -65,7 +65,7 @@ string getConfig()
 	};
 	string config = "";
 	for (const char **p = configs; *p; p++) {
-		string configValue = gConfig.getStr(*p, "");
+		string configValue = gConfig.getStr(*p);
 		if (configValue.length() == 0) return "";
 		config.append("&");
 		config.append(*p);
@@ -88,7 +88,7 @@ string getConfig()
 RRLPServer::RRLPServer(L3MobileIdentity wMobileID, LogicalChannel *wDCCH)
 {
 	trouble = false;
-	url = gConfig.getStr("GSM.RRLP.SERVER.URL", "");
+	url = gConfig.getStr("GSM.RRLP.SERVER.URL");
 	if (url.length() == 0) {
 		LOG(INFO) << "RRLP not configured";
 		trouble = true;

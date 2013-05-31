@@ -28,6 +28,10 @@
 #include "Vector.h"
 #include <iostream>
 
+// We must have a gConfig now to include Vector.
+#include "Configuration.h"
+ConfigurationTable gConfig;
+
 using namespace std;
 
 typedef Vector<int> TestVector;

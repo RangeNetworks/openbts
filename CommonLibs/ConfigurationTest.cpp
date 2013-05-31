@@ -32,7 +32,8 @@
 
 using namespace std;
 
-ConfigurationTable gConfig("exampleconfig.db","test");
+ConfigurationKeyMap getConfigurationKeys();
+ConfigurationTable gConfig("exampleconfig.db","test", getConfigurationKeys());
 
 void purgeConfig(void*,int,char const*, char const*, sqlite3_int64)
 {
@@ -46,7 +47,7 @@ int main(int argc, char *argv[])
 
 	gConfig.setUpdateHook(purgeConfig);
 
-	const char *keys[5] = {"key1", "key2", "key3", "key4", "key5"};
+	char *keys[5] = {"key1", "key2", "key3", "key4", "key5"};
 
 	for (int i=0; i<5; i++) {
 		gConfig.set(keys[i],i);
@@ -57,7 +58,6 @@ int main(int argc, char *argv[])
 		cout << "table[" << keys[i] << "]=" << gConfig.getNum(keys[i]) <<  endl;
 	}
 
-	gConfig.unset("key1");
 	for (int i=0; i<5; i++) {
 		cout << "defined table[" << keys[i] << "]=" << gConfig.defines(keys[i]) <<  endl;
 	}
@@ -78,8 +78,8 @@ int main(int argc, char *argv[])
 	gConfig.set("booltest",0);
 	cout << "bool " << gConfig.getBool("booltest") << endl;
 
-	gConfig.getStr("newstring","new string value");
-	gConfig.getNum("numnumber",42);
+	gConfig.getStr("newstring");
+	gConfig.getNum("numnumber");
 
 
 	SimpleKeyValue pairs;
@@ -94,7 +94,6 @@ int main(int argc, char *argv[])
 
 	cout << "search fkey:" << endl;
 	gConfig.find("fkey",cout);
-	gConfig.unset("fkey");
 	cout << "search fkey:" << endl;
 	gConfig.find("fkey",cout);
 	gConfig.remove("fkey");
@@ -106,4 +105,45 @@ int main(int argc, char *argv[])
 	} catch (ConfigurationTableKeyNotFound) {
 		cout << "ConfigurationTableKeyNotFound exception successfully caught." << endl;
 	}
+}
+
+ConfigurationKeyMap getConfigurationKeys()
+{
+	ConfigurationKeyMap map;
+	ConfigurationKey *tmp;
+
+	tmp = new ConfigurationKey("booltest","0",
+		"",
+		ConfigurationKey::DEVELOPER,
+		ConfigurationKey::BOOLEAN,
+		"",
+		false,
+		""
+	);
+	map[tmp->getName()] = *tmp;
+	free(tmp);
+
+	tmp = new ConfigurationKey("numnumber","42",
+		"",
+		ConfigurationKey::DEVELOPER,
+		ConfigurationKey::VALRANGE,
+		"0-100",
+		false,
+		""
+	);
+	map[tmp->getName()] = *tmp;
+	free(tmp);
+
+	tmp = new ConfigurationKey("newstring","new string value",
+		"",
+		ConfigurationKey::DEVELOPER,
+		ConfigurationKey::STRING,
+		"",
+		false,
+		""
+	);
+	map[tmp->getName()] = *tmp;
+	free(tmp);
+
+	return map;
 }

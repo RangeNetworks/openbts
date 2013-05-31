@@ -23,6 +23,11 @@
 
 */
 
+// (pat) WARNING is stupidly defined in /usr/local/include/osipparser2/osip_const.h.
+// This must be outside the #ifndef LOGGER_H to fix it as long as Logger.h included after the above file.
+#ifdef WARNING
+#undef WARNING
+#endif
 
 #ifndef LOGGER_H
 #define LOGGER_H
@@ -34,20 +39,41 @@
 #include <list>
 #include <map>
 #include <string>
-#include "Threads.h"
-
 
 #define _LOG(level) \
 	Log(LOG_##level).get() << pthread_self() \
-	<< " " __FILE__  ":"  << __LINE__ << ":" << __FUNCTION__ << ": "
+	<< timestr() << " " __FILE__  ":"  << __LINE__ << ":" << __FUNCTION__ << ": "
+
+#define IS_LOG_LEVEL(wLevel) (gGetLoggingLevel(__FILE__)>=LOG_##wLevel)
 
 #ifdef NDEBUG
 #define LOG(wLevel) \
-	if (LOG_##wLevel!=LOG_DEBUG && gGetLoggingLevel(__FILE__)>=LOG_##wLevel) _LOG(wLevel)
+	if (LOG_##wLevel!=LOG_DEBUG && IS_LOG_LEVEL(wLevel)) _LOG(wLevel)
 #else
 #define LOG(wLevel) \
-	if (gGetLoggingLevel(__FILE__)>=LOG_##wLevel) _LOG(wLevel)
+	if (IS_LOG_LEVEL(wLevel)) _LOG(wLevel)
 #endif
+
+// pat: And for your edification here are the 'levels' as defined in syslog.h:
+// LOG_EMERG   0  system is unusable
+// LOG_ALERT   1  action must be taken immediately
+// LOG_CRIT    2  critical conditions
+// LOG_ERR     3  error conditions
+// LOG_WARNING 4  warning conditions
+// LOG_NOTICE  5  normal, but significant, condition
+// LOG_INFO    6  informational message
+// LOG_DEBUG   7  debug-level message
+
+// (pat) added - print out a var and its name.
+// Use like this: int descriptive_name; LOG(INFO)<<LOGVAR(descriptive_name);
+#define LOGVAR2(name,val) " " << name << "=" << (val)
+#define LOGVAR(var) (" " #var "=") << var
+#define LOGHEX(var) (" " #var "=0x") << hex << ((unsigned)var) << dec
+#define LOGHEX2(name,val) " " << name << "=0x" << hex << ((unsigned)(val)) << dec
+// These are kind of cheesy, but you can use for bitvector
+#define LOGBV2(name,val) " " << name << "=(" << val<<" size:"<<val.size()<<")"
+#define LOGBV(bv) LOGBV2(#bv,bv)
+#define LOGVARRANGE(name,cur,lo,hi) " "<<name <<"=("<<(cur) << " range:"<<(lo) << " to "<<(hi) <<")"
 
 
 #define OBJLOG(wLevel) \
@@ -56,8 +82,8 @@
 #define LOG_ASSERT(x) { if (!(x)) LOG(EMERG) << "assertion " #x " failed"; } assert(x);
 
 
-#define DEFAULT_MAX_ALARMS 10
-
+#include "Threads.h"		// must be after defines above, if these files are to be allowed to use LOG()
+#include "Utils.h"
 
 /**
 	A C++ stream-based thread-safe logger.
@@ -90,6 +116,7 @@ class Log {
 
 	std::ostringstream& get();
 };
+extern bool gLogToConsole;	// Pat added for easy debugging.
 
 
 

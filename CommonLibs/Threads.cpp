@@ -107,8 +107,9 @@ void Thread::start(void *(*task)(void*), void *arg)
 {
 	assert(mThread==((pthread_t)0));
 	bool res;
-	res = pthread_attr_init(&mAttrib);
-	assert(!res);
+	// (pat) Moved initialization to constructor to avoid crash in destructor.
+	//res = pthread_attr_init(&mAttrib);
+	//assert(!res);
 	res = pthread_attr_setstacksize(&mAttrib, mStackSize);
 	assert(!res);
 	res = pthread_create(&mThread, &mAttrib, task, arg);

@@ -207,7 +207,7 @@ void SIPInterface::write(const struct sockaddr_in* dest, osip_message_t *msg)
 	LOG(INFO) << "write " << firstLine;
 	LOG(DEBUG) << "write " << str;
 
-	if (random()%100 < gConfig.getNum("Test.SIP.SimulatedPacketLoss",0)) {
+	if (random()%100 < gConfig.getNum("Test.SIP.SimulatedPacketLoss")) {
 		LOG(NOTICE) << "simulating dropped outbound SIP packet: " << firstLine;
 		free(str);
 		return;
@@ -237,7 +237,7 @@ void SIPInterface::drive()
 		return;
 	}
 	mReadBuffer[numRead] = '\0';
-	if (random()%100 < gConfig.getNum("Test.SIP.SimulatedPacketLoss",0)) {
+	if (random()%100 < gConfig.getNum("Test.SIP.SimulatedPacketLoss")) {
 		LOG(NOTICE) << "simulating dropped inbound SIP packet: " << mReadBuffer;
 		return;
 	}

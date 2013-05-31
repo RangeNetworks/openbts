@@ -32,6 +32,10 @@
 #include <string.h>
 #include <iostream>
 #include <assert.h>
+// We cant use Logger.h in this file...
+extern int gVectorDebug;
+#define BVDEBUG(msg) if (gVectorDebug) {std::cout << msg;}
+
 
 
 /**
@@ -58,6 +62,14 @@ template <class T> class Vector {
 	T* mEnd;		///< end of useful data + 1
 
 	public:
+
+	/****
+	char *inspect() {
+		static char buf[100];
+		sprintf(buf," mData=%p mStart=%p mEnd=%p ",mData,mStart,mEnd);
+		return buf;
+	}
+	***/
 
 	/** Return the size of the Vector. */
 	size_t size() const
@@ -246,6 +258,7 @@ template <class T> class Vector {
 	T* begin() { return mStart; }
 	const T* end() const { return mEnd; }
 	T* end() { return mEnd; }
+	bool isOwner() { return !!mData; }	// Do we own any memory ourselves?
 	//@}
 	
 

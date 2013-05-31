@@ -33,7 +33,7 @@ ConfigurationTable gConfig("/etc/OpenBTS/OpenBTS.db");
 
 // Set up the performance reporter.
 #include <Reporting.h>
-ReportingTable gReports(gConfig.getStr("Control.Reporting.StatsTable","/var/log/OpenBTSStats.db").c_str());
+ReportingTable gReports(gConfig.getStr("Control.Reporting.StatsTable").c_str());
 
 #include <TRXManager.h>
 #include <GSML1FEC.h>
@@ -306,7 +306,7 @@ int main(int argc, char *argv[])
 	srandom(time(NULL));
 
 	gConfig.setUpdateHook(purgeConfig);
-	gLogInit("openbts",gConfig.getStr("Log.Level").c_str(),LOG_LOCAL7);
+	gLogInit("openbts",gConfig.getStr("Log.Level").c_str());
 	LOG(ALERT) << "OpenBTS starting, ver " << VERSION << " build date " << __DATE__;
 
 	COUT("\n\n" << gOpenBTSWelcome << "\n");
@@ -488,7 +488,7 @@ int main(int argc, char *argv[])
 	gBTS.addPCH(&CCCH2);
 
 	// Be sure we are not over-reserving.
-	if (gConfig.getNum("GSM.Channels.SDCCHReserve",0)>=(int)gBTS.SDCCHTotal()) {
+	if (gConfig.getNum("GSM.Channels.SDCCHReserve")>=(int)gBTS.SDCCHTotal()) {
 		unsigned val = gBTS.SDCCHTotal() - 1;
 		LOG(CRIT) << "GSM.Channels.SDCCHReserve too big, changing to " << val;
 		gConfig.set("GSM.Channels.SDCCHReserve",val);
@@ -505,7 +505,7 @@ int main(int argc, char *argv[])
 
 	struct sockaddr_un cmdSockName;
 	cmdSockName.sun_family = AF_UNIX;
-	const char* sockpath = gConfig.getStr("CLI.SocketPath","/var/run/OpenBTS/command").c_str();
+	const char* sockpath = gConfig.getStr("CLI.SocketPath").c_str();
 	char rmcmd[strlen(sockpath)+5];
 	sprintf(rmcmd,"rm %s",sockpath);
 	system(rmcmd);

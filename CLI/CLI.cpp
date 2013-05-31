@@ -515,23 +515,30 @@ int config(int argc, char** argv, ostream& os)
 	return SUCCESS;
 }
 
-/** Remove a configiuration value. */
+/** Disable a configuration key. */
 int unconfig(int argc, char** argv, ostream& os)
 {
 	if (argc!=2) return BAD_NUM_ARGS;
 
-	if (gConfig.unset(argv[1])) {
-		os << "\"" << argv[1] << "\" removed from the configuration table" << endl;
-		return SUCCESS;
+	if (!gConfig.defines(argv[1])) {
+		os << argv[1] << " is not in the table" << endl;
+		return BAD_VALUE;
 	}
-	if (gConfig.defines(argv[1])) {
-		os << "\"" << argv[1] << "\" could not be removed" << endl;
-	} else {
-		os << "\"" << argv[1] << "\" was not in the table" << endl;
-	}
-	return BAD_VALUE;
-}
 
+	if (gConfig.keyDefinedInSchema(argv[1]) && !gConfig.isValidValue(argv[1], "")) {
+		os << argv[1] << " is not disableable" << endl;
+		return BAD_VALUE;
+	}
+
+	if (!gConfig.set(argv[1], "")) {
+		os << "DB ERROR: " << argv[1] << " could not be disabled" << endl;
+		return FAILURE;
+	}
+
+	os << argv[1] << " disabled" << endl;
+
+	return SUCCESS;
+}
 
 /** Dump current configuration to a file. */
 int configsave(int argc, char** argv, ostream& os)

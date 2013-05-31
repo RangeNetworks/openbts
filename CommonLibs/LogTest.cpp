@@ -37,7 +37,7 @@ void printAlarms()
 {
     std::ostream_iterator<std::string> output( std::cout, "\n" );
     std::list<std::string> alarms = gGetLoggerAlarms();
-    std::cout << "#alarms = " << alarms.size() << std::endl;
+    std::cout << "# alarms = " << alarms.size() << std::endl;
     std::copy( alarms.begin(), alarms.end(), output );
 }
 
@@ -55,7 +55,6 @@ int main(int argc, char *argv[])
 	LOG(DEBUG) << " testing the logger.";
     std::cout << "\n\n\n";
     std::cout << "testing Alarms\n";
-	LOG(ALERT) << " testing the logger alarm.";
     std::cout << "you should see three lines:" << std::endl;
     printAlarms();
     std::cout << "----------- generating 20 alarms ----------" << std::endl;

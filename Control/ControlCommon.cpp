@@ -90,7 +90,7 @@ L3Message* Control::getMessage(LogicalChannel *LCH, unsigned SAPI)
 	// But if they do, we should ignore them.
 	// They should not send more than one in any case, but we need to be
 	// ready for whatever crazy behavior they throw at us.
-	unsigned count = gConfig.getNum("GSM.Control.GPRSMaxIgnore",5);
+	unsigned count = gConfig.getNum("GSM.Control.GPRSMaxIgnore");
 	while (count && dynamic_cast<const GSM::L3GPRSSuspensionRequest*>(msg)) {
 		LOG(NOTICE) << "ignoring GPRS suspension request";
 		msg = getMessageCore(LCH,SAPI);

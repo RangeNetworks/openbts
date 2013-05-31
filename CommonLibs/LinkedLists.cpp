@@ -29,7 +29,17 @@
 #include "LinkedLists.h"
 
 
-
+void PointerFIFO::push_front(void* val)	// by pat
+{
+	// Pat added this routine for completeness, but never used or tested.
+	// The first person to use this routine should remove this assert.
+	ListNode *node = allocate();
+	node->data(val);
+	node->next(mHead);
+	mHead = node;
+	if (!mTail) mTail=node;
+	mSize++;
+}
 
 void PointerFIFO::put(void* val)
 {
@@ -58,7 +68,6 @@ void* PointerFIFO::get()
 }
 
 
-
 ListNode *PointerFIFO::allocate()
 {
 	if (mFreeList==NULL) return new ListNode;
@@ -72,6 +81,3 @@ void PointerFIFO::release(ListNode* wNode)
 	wNode->next(mFreeList);
 	mFreeList = wNode;
 }
-
-
-

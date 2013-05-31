@@ -86,7 +86,7 @@ void* ClockLoopAdapter(TransceiverManager *transceiver)
 void TransceiverManager::clockHandler()
 {
 	char buffer[MAX_UDP_LENGTH];
-	int msgLen = mClockSocket.read(buffer,gConfig.getNum("TRX.Timeout.Clock",10)*1000);
+	int msgLen = mClockSocket.read(buffer,gConfig.getNum("TRX.Timeout.Clock")*1000);
 
 	// Did the transceiver die??
 	if (msgLen<0) {

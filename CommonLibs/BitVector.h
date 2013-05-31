@@ -314,6 +314,9 @@ class BitVector : public Vector<char> {
 	void fillFieldReversed(size_t writeIndex, uint64_t value, unsigned length);
 	void writeField(size_t& writeIndex, uint64_t value, unsigned length);
 	void writeFieldReversed(size_t& writeIndex, uint64_t value, unsigned length);
+	void write0(size_t& writeIndex) { writeField(writeIndex,0,1); }
+	void write1(size_t& writeIndex) { writeField(writeIndex,1,1); }
+
 	//@}
 
 	/** Sum of bits. */
@@ -333,10 +336,25 @@ class BitVector : public Vector<char> {
 
 	/** Make a hexdump string. */
 	void hex(std::ostream&) const;
+	std::string hexstr() const;
 
 	/** Unpack from a hexdump string.
 	*  @returns true on success, false on error. */
 	bool unhex(const char*);
+
+	void set(BitVector other)	// That's right.  No ampersand.
+	{
+		clear();
+		mData=other.mData;
+		mStart=other.mStart;
+		mEnd=other.mEnd;
+		other.mData=NULL;
+	}
+
+	void settfb(int i, int j) const
+	{
+		mStart[i] = j;
+	}
 
 };
 
@@ -411,6 +429,11 @@ class SoftVector: public Vector<float> {
 
 	/** Decode soft symbols with the GSM rate-1/2 Viterbi decoder. */
 	void decode(ViterbiR2O4 &decoder, BitVector& target) const;
+
+	// (pat) How good is the SoftVector in the sense of the bits being solid?
+	// Result of 1 is perfect and 0 means all the bits were 0.5
+	// If plow is non-NULL, also return the lowest energy bit.
+	float getEnergy(float *low=0) const;
 
 	/** Fill with "unknown" values. */
 	void unknown() { fill(0.5F); }
