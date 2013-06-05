@@ -18,6 +18,10 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
+#hack to get around symlink svn:externals in git -kurtis
+top_srcdir = $(abs_top_srcdir)
+top_builddir = $(abs_top_builddir)
+
 COMMON_INCLUDEDIR = $(top_srcdir)/CommonLibs
 CONTROL_INCLUDEDIR = $(top_srcdir)/Control
 GSM_INCLUDEDIR = $(top_srcdir)/GSM
