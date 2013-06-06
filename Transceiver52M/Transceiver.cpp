@@ -274,6 +274,9 @@ Transceiver::CorrType Transceiver::expectedCorrType(GSM::Time currTime)
     else
       return TSC;
     break;
+  case XIII:
+    return TSC;
+      break;
   default:
     return OFF;
     break;

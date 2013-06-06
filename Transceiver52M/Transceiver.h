@@ -87,7 +87,11 @@ private:
     VI,                 ///< CCCH+BCCH, uplink RACH
     VII,                ///< SDCCH/8 + SACCH/8
     NONE,               ///< Channel is inactive, default
-    LOOPBACK            ///< similar go VII, used in loopback testing
+    LOOPBACK,           ///< similar go VII, used in loopback testing
+    X,
+    XI,
+    XII,
+    XIII
   } ChannelCombination;
 
 
