@@ -214,6 +214,9 @@ void Transceiver::setModulus(int timeslot)
   case VII:
     fillerModulus[timeslot] = 102;
     break;
+  case XIII:
+    fillerModulus[timeslot] = 52;
+    break;
   default:
     break;
   }
@@ -268,15 +271,22 @@ Transceiver::CorrType Transceiver::expectedCorrType(GSM::Time currTime)
     else
       return TSC;
     break;
+  case XIII: {
+    int mod52 = burstFN % 52;
+    if ((mod52 == 12) || (mod52 == 38))
+      return RACH;
+    else if ((mod52 == 25) || (mod52 == 51))
+      return IDLE;
+    else
+      return TSC;
+    break;
+  }
   case LOOPBACK:
     if ((burstFN % 51 <= 50) && (burstFN % 51 >=48))
       return IDLE;
     else
       return TSC;
     break;
-  case XIII:
-    return TSC;
-      break;
   default:
     return OFF;
     break;
