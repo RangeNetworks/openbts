@@ -21,8 +21,11 @@
 
 include $(top_srcdir)/Makefile.common
 
-AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES)
-AM_CXXFLAGS = -Wall -ldl -pthread
+DESTDIR := 
+
+# These variables are defined in ../Makefile.common
+# AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES)
+# AM_CXXFLAGS = -Wall -ldl -pthread
 
 noinst_PROGRAMS = \
 	OpenBTS \
@@ -50,3 +53,10 @@ OpenBTSDo_SOURCES = OpenBTSDo.cpp
 EXTRA_DIST = \
 	OpenBTS.example.sql
 
+install: OpenBTS OpenBTSCLI OpenBTSDo
+	mkdir -p "$(DESTDIR)/OpenBTS/"
+	install OpenBTS "$(DESTDIR)/OpenBTS/"
+	install OpenBTSCLI "$(DESTDIR)/OpenBTS/"
+	install OpenBTSDo "$(DESTDIR)/OpenBTS/"
+	mkdir -p "$(DESTDIR)/etc/OpenBTS/"
+	install OpenBTS.example.sql "$(DESTDIR)/etc/OpenBTS/"

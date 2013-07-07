@@ -1,0 +1,9 @@
+openbts-public (2.8) UNRELEASED; urgency=low
+
+  [ Donald C. Kirker ]
+  * Test release
+
+  [ Kurtis Heimerl ]
+  * Release of debian scripts into public
+
+ -- Kurtis Heimerl <kurtis.heimerl@rangenetworks.com>  Sat, 06 Jul 2013 17:19:05 -0700

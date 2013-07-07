@@ -20,6 +20,8 @@
 
 include $(top_srcdir)/Makefile.common
 
+DESTDIR := 
+
 AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES) $(USB_INCLUDES) $(WITH_INCLUDES)
 AM_CXXFLAGS = -Wall -pthread -ldl
 #AM_CXXFLAGS = -Wall -O2 -NDEBUG -pthread -ldl
@@ -65,6 +67,9 @@ EXTRA_DIST = \
 	COPYING \
 	README
 
+install: all
+	$(MAKE) -C ./apps install
+	$(MAKE) -C ./TransceiverRAD1 install
 
 dox: FORCE
 	doxygen doxconfig

@@ -1,0 +1,16 @@
+Source: openbts-public
+Section: comm
+Priority: optional
+Maintainer: Range Networks, Inc. <info@rangenetworks.com>
+Homepage: http://www.rangenetworks.com/
+Build-Depends: build-essential, debhelper (>= 7), libosip2-dev, pkg-config, autoconf
+Standards-Version: 3.7.3
+
+Package: openbts-public
+Version: P2.8TRUNK
+Section: comm
+Priority: optional
+Architecture: any
+Essential: no
+Depends: sqlite3, libosip2-4, libusb-1.0-0, libortp8, libglib2.0-0, libgl1-mesa-glx, libc6-i686, libasound2, pkg-config, libpcre3, gawk, screen
+Description: OpenBTS Public Release.
