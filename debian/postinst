@@ -20,15 +20,15 @@
 
 configure()
 {
-DATE=$(date --rfc-3339='date')
-CONFIG_BACKUP=/etc/OpenBTS/OpenBTS.dump-$DATE
+DB_LOC=/etc/OpenBTS/OpenBTS.db
+DATE=$(date +'%Y-%m-%d.%H:%M:%S')
+CONFIG_BACKUP=$DB_LOC.dump-$DATE
 
-
-if [ ! -e $CONFIG_BACKUP ]; then
-        sqlite3 /etc/OpenBTS/OpenBTS.db ".dump" > $CONFIG_BACKUP
+if [ -e $DB_LOC ]; then
+        sqlite3 $DB_LOC ".dump" > $CONFIG_BACKUP
 fi
 
-sqlite3 /etc/OpenBTS/OpenBTS.db ".read /etc/OpenBTS/OpenBTS.example.sql" > /dev/null 2>&1
+sqlite3 $DB_LOC ".read /etc/OpenBTS/OpenBTS.example.sql" > /dev/null 2>&1
 
 #chown openbts:openbts /home/openbts/CLI
 #chown openbts:openbts /home/openbts/openbtsconfig
