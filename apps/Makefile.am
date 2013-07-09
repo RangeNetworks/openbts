@@ -21,11 +21,10 @@
 
 include $(top_srcdir)/Makefile.common
 
-DESTDIR := 
+AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES) $(USB_INCLUDES) $(WITH_INCLUDES) $(OPENBTS_CPPFLAGS)
+AM_CXXFLAGS = -Wall -pthread -ldl $(OPENBTS_CXXFLAGS)
 
-# These variables are defined in ../Makefile.common
-# AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES)
-# AM_CXXFLAGS = -Wall -ldl -pthread
+DESTDIR = 
 
 noinst_PROGRAMS = \
 	OpenBTS \

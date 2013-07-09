@@ -20,7 +20,7 @@
 
 include $(top_srcdir)/Makefile.common
 
-DESTDIR := 
+DESTDIR = 
 
 AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES) $(USB_INCLUDES) $(WITH_INCLUDES)
 AM_CXXFLAGS = -DOMNITHREAD_POSIX=1 -lusb-1.0 -ldl -lpthread

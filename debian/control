@@ -3,7 +3,7 @@ Section: comm
 Priority: optional
 Maintainer: Range Networks, Inc. <info@rangenetworks.com>
 Homepage: http://www.rangenetworks.com/
-Build-Depends: build-essential, debhelper (>= 7), libosip2-dev, pkg-config, autoconf
+Build-Depends: build-essential, debhelper (>= 7), libosip2-dev, pkg-config, autoconf, uhd
 Standards-Version: 3.7.3
 
 Package: openbts-public
@@ -12,5 +12,5 @@ Section: comm
 Priority: optional
 Architecture: any
 Essential: no
-Depends: sqlite3, libosip2-4, libusb-1.0-0, libortp8, libglib2.0-0, libgl1-mesa-glx, libc6, libasound2, pkg-config, libpcre3, gawk, sipauthserve-public
+Depends: sqlite3, libosip2-4, libusb-1.0-0, libortp8, libglib2.0-0, libgl1-mesa-glx, libc6, libasound2, pkg-config, libpcre3, gawk, sipauthserve-public, uhd
 Description: OpenBTS Public Release.

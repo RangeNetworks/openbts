@@ -22,9 +22,6 @@
 top_srcdir = $(abs_top_srcdir)
 top_builddir = $(abs_top_builddir)
 
-AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES) $(USB_INCLUDES) $(WITH_INCLUDES) $(OPENBTS_CPPFLAGS)
-AM_CXXFLAGS = -Wall -pthread -ldl $(OPENBTS_CXXFLAGS)
-
 COMMON_INCLUDEDIR = $(top_srcdir)/CommonLibs
 CONTROL_INCLUDEDIR = $(top_srcdir)/Control
 GSM_INCLUDEDIR = $(top_srcdir)/GSM

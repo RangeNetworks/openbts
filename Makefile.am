@@ -20,7 +20,7 @@
 
 include $(top_srcdir)/Makefile.common
 
-DESTDIR := 
+DESTDIR = 
 
 AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES) $(USB_INCLUDES) $(WITH_INCLUDES)
 AM_CXXFLAGS = -Wall -pthread -ldl
@@ -39,7 +39,6 @@ _SUBDIRS = \
 	SIP \
 	GSM \
 	SMS \
-	TransceiverRAD1 \
 	TRXManager \
 	Control \
 	apps \
@@ -50,18 +49,20 @@ _SUBDIRS = \
 if UHD
 SUBDIRS = $(_SUBDIRS) \
 	  Transceiver52M
+UHD = 1
 else
 if USRP1
 SUBDIRS = $(_SUBDIRS) \
 	  Transceiver52M
+USRP1 = 1
 else
-SUBDIRS = $(_SUBDIRS)
+SUBDIRS = $(_SUBDIRS) \
+	  TransceiverRAD1
 endif
 endif
 
 EXTRA_DIST = \
 	autogen.sh \
-	Transceiver52M \
 	INSTALLATION \
 	LEGAL \
 	COPYING \
@@ -69,7 +70,15 @@ EXTRA_DIST = \
 
 install: all
 	$(MAKE) -C ./apps install
+if UHD
+	$(MAKE) -C ./Transceiver52M install
+else
+if USRP1
+	$(MAKE) -C ./Transceiver52M install
+else
 	$(MAKE) -C ./TransceiverRAD1 install
+endif
+endif
 
 dox: FORCE
 	doxygen doxconfig

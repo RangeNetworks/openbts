@@ -21,6 +21,8 @@
 
 include $(top_srcdir)/Makefile.common
 
+DESTDIR = 
+
 #UHD wins if both are defined
 if UHD
 AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES) $(UHD_CFLAGS)
@@ -117,6 +119,9 @@ else
 endif
 endif
 
+install: transceiver
+	@mkdir -p "$(DESTDIR)/OpenBTS/"
+	install transceiver "$(DESTDIR)/OpenBTS/"
 
 MOSTLYCLEANFILES +=
 
