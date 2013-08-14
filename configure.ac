@@ -137,9 +137,7 @@ AC_CONFIG_FILES([\
     SGSNGGSN/Makefile \
     SIP/Makefile \
     SMS/Makefile \
-    TransceiverDYN/Makefile \
     TransceiverRAD1/Makefile \
-    TransceiverRAD1-DYN65-Hack/Makefile \
     Transceiver52M/Makefile \
     TRXManager/Makefile \
     CLI/Makefile \
