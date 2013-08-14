@@ -1,25 +1,16 @@
 /**@file GSM/SIP Call Control -- GSM 04.08, ISDN ITU-T Q.931, SIP IETF RFC-3261, RTP IETF RFC-3550. */
 /*
 * Copyright 2008, 2009, 2010 Free Software Foundation, Inc.
+* Copyright 2010 Kestrel Signal Processing, Inc.
 *
-* This software is distributed under the terms of the GNU Affero Public License.
-* See the COPYING file in the main directory for details.
+* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
 
-	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
 
@@ -45,8 +36,6 @@ class TransactionEntry;
 void MOCStarter(const GSM::L3CMServiceRequest*, GSM::LogicalChannel*);
 /** Complete the MOC connection. */
 void MOCController(TransactionEntry*, GSM::TCHFACCHLogicalChannel*);
-/** Set up an emergency call, assuming very early assignment. */
-void EmergencyCall(const GSM::L3CMServiceRequest*, GSM::LogicalChannel*);
 //@}
 
 
@@ -69,6 +58,14 @@ void TestCall(TransactionEntry*, GSM::LogicalChannel*);
 void initiateMTTransaction(TransactionEntry* transaction,
 		GSM::ChannelType chanType, unsigned pageTime);
 
+
+/**
+	This is the standard call manangement loop, regardless of the origination type.
+	This function returns when the call is cleared and the channel is released.
+	@param transaction The transaction record for this call, will be cleared on exit.
+	@param TCH The TCH+FACCH for the call.
+*/
+void callManagementLoop(TransactionEntry *transaction, GSM::TCHFACCHLogicalChannel* TCH);
 
 }
 

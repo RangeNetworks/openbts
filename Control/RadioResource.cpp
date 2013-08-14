@@ -1,29 +1,21 @@
 /**@file GSM Radio Resource procedures, GSM 04.18 and GSM 04.08. */
 
 /*
-* Copyright 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+* Copyright 2008, 2009, 2010 Free Software Foundation, Inc.
 * Copyright 2010 Kestrel Signal Processing, Inc.
-* Copyright 2011 Range Networks, Inc.
+* Copyright 2011, 2012 Range Networks, Inc.
 *
-* This software is distributed under the terms of the GNU Affero Public License.
-* See the COPYING file in the main directory for details.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+* This software is distributed under multiple licenses;
+* see the COPYING file in the main directory for licensing
+* information for this specific distribuion.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
-
-	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 */
 
 
@@ -33,6 +25,7 @@
 #include <stdlib.h>
 #include <list>
 
+#include <Defines.h>
 #include "ControlCommon.h"
 #include "TransactionTable.h"
 #include "RadioResource.h"
@@ -41,11 +34,16 @@
 
 #include <GSMLogicalChannel.h>
 #include <GSMConfig.h>
+#include "../GPRS/GPRSExport.h"
+
+#include <NeighborTable.h>
+#include <Peering.h>
+#include <SIPEngine.h>
+
 
 #include <Reporting.h>
 #include <Logger.h>
 #undef WARNING
-
 
 
 
@@ -55,6 +53,7 @@ using namespace GSM;
 using namespace Control;
 
 
+extern unsigned allocateRTPPorts();
 
 
 
@@ -67,12 +66,14 @@ using namespace Control;
 	@param RA The request reference from the channel request message.
 	@return channel type code, undefined if not a supported service
 */
+static
 ChannelType decodeChannelNeeded(unsigned RA)
 {
 	// This code is based on GSM 04.08 Table 9.9.
 
 	unsigned RA4 = RA>>4;
 	unsigned RA5 = RA>>5;
+
 
 	// Answer to paging, Table 9.9a.
 	// We don't support TCH/H, so it's wither SDCCH or TCH/F.
@@ -82,14 +83,15 @@ ChannelType decodeChannelNeeded(unsigned RA)
 	if (RA4 == 0x01) return SDCCHType;		// SDCCH
 	if (RA4 == 0x02) return TCHFType;		// TCH/F
 	if (RA4 == 0x03) return TCHFType;		// TCH/F
+	if ((RA&0xf8) == 0x78 && RA != 0x7f) return PSingleBlock1PhaseType;
+	if ((RA&0xf8) == 0x70) return PSingleBlock2PhaseType;
 
 	int NECI = gConfig.getNum("GSM.CellSelection.NECI");
 	if (NECI==0) {
 		if (RA5 == 0x07) return SDCCHType;		// MOC or SDCCH procedures
 		if (RA5 == 0x00) return SDCCHType;		// location updating
 	} else {
-		assert(NECI==1);
-		if (gConfig.defines("Control.VEA")) {
+		if (gConfig.getBool("Control.VEA")) {
 			// Very Early Assignment
 			if (RA5 == 0x07) return TCHFType;		// MOC for TCH/F
 			if (RA4 == 0x04) return TCHFType;		// MOC, TCH/H sufficient
@@ -103,12 +105,13 @@ ChannelType decodeChannelNeeded(unsigned RA)
 	}
 
 	// Anything else falls through to here.
-	// We are still ignoring data calls, GPRS, LMU.
+	// We are still ignoring data calls, LMU.
 	return UndefinedCHType;
 }
 
 
 /** Return true if RA indicates LUR. */
+static
 bool requestingLUR(unsigned RA)
 {
 	int NECI = gConfig.getNum("GSM.CellSelection.NECI");
@@ -117,10 +120,8 @@ bool requestingLUR(unsigned RA)
 }
 
 
-
-
-
-/** Decode RACH bits and send an immediate assignment; may block waiting for a channel. */
+/** Decode RACH bits and send an immediate assignment; may block waiting for a channel for an SOS call. */
+static
 void AccessGrantResponder(
 		unsigned RA, const GSM::Time& when,
 		float RSSI, float timingError)
@@ -149,18 +150,39 @@ void AccessGrantResponder(
 	static const int maxAge = GSM::RACHSpreadSlots[txInteger] + GSM::RACHWaitSParam[txInteger];
 	// Check burst age.
 	int age = gBTS.time() - when;
-	LOG(INFO) << "RA=0x" << hex << RA << dec
-		<< " when=" << when << " age=" << age
-		<< " delay=" << timingError << " RSSI=" << RSSI;
+	ChannelType chtype = decodeChannelNeeded(RA);
+	int lur = requestingLUR(RA);
+	int gprs = (chtype == PSingleBlock1PhaseType) || (chtype == PSingleBlock2PhaseType); 
+
+	// This is for debugging.
+	if (GPRS::GPRSDebug && gprs) {
+		Time now = gBTS.time();
+		LOG(NOTICE) << "RACH" <<LOGVAR(now) <<LOGVAR(chtype) <<LOGVAR(lur) <<LOGVAR(gprs)
+		<<LOGVAR(when)<<LOGVAR(age)<<LOGVAR2("TE",timingError)<<LOGVAR(RSSI)<<LOGHEX(RA);
+	}
+		LOG(INFO) << "**Incoming Burst**"<<LOGVAR(lur)<<LOGVAR(gprs)
+		<<LOGVAR(when)<<LOGVAR(age)<<LOGVAR2("TE",timingError)<<LOGVAR(RSSI)<<LOGHEX(RA);
+
+	//LOG(INFO) << "Incoming Burst: RA=0x" << hex << RA << dec
+	//	<<LOGVAR(when) <<LOGVAR(age)
+	//	<< " delay=" << timingError <<LOGVAR(chtype);
 	if (age>maxAge) {
 		LOG(WARNING) << "ignoring RACH bust with age " << age;
-		gBTS.growT3122()/1000;
+		// FIXME -- What was supposed to be happening here?
+		gBTS.growT3122()/1000;		// Hmmm...
 		return;
 	}
 
 	// Screen for delay.
 	if (timingError>gConfig.getNum("GSM.MS.TA.Max")) {
-		LOG(WARNING) << "ignoring RACH burst with delay " << timingError;
+		LOG(NOTICE) << "ignoring RACH burst with delay="<<timingError<<LOGVAR(chtype);
+		return;
+	}
+	if (chtype == PSingleBlock1PhaseType || chtype == PSingleBlock2PhaseType) {
+		// This is a request for a GPRS TBF.  It will get queued in the GPRS code
+		// and handled when the GPRS MAC service loop gets around to it.
+		// If GPRS is not enabled or is busy, it may just get dropped.
+		GPRS::GPRSProcessRACH(RA,when,RSSI,timingError);
 		return;
 	}
 
@@ -169,18 +191,21 @@ void AccessGrantResponder(
 	// Someone had better have created a least one AGCH.
 	assert(AGCH);
 	// Check AGCH load now.
-	if (AGCH->load()>gConfig.getNum("GSM.CCCH.AGCH.QMax")) {
-		LOG(WARNING) "AGCH congestion";
+	// (pat) The default value is 5, so about 1.25 second for a system
+	// with a C0T0 beacon with only one CCCH.
+	if ((int)AGCH->load()>gConfig.getNum("GSM.CCCH.AGCH.QMax")) {
+		LOG(CRIT) << "AGCH congestion";
 		return;
 	}
 
 	// Check for location update.
 	// This gives LUR a lower priority than other services.
+	// (pat): LUR = Location Update Request Message
 	if (requestingLUR(RA)) {
 		// Don't answer this LUR if it will not leave enough channels open for other operations.
 		if ((int)gBTS.SDCCHAvailable()<=gConfig.getNum("GSM.Channels.SDCCHReserve")) {
 			unsigned waitTime = gBTS.growT3122()/1000;
-			LOG(WARNING) << "LUR congestion, RA=" << RA << " T3122=" << waitTime;
+			LOG(CRIT) << "LUR congestion, RA=" << RA << " T3122=" << waitTime;
 			const L3ImmediateAssignmentReject reject(L3RequestReference(RA,when),waitTime);
 			LOG(DEBUG) << "LUR rejection, sending " << reject;
 			AGCH->send(reject);
@@ -191,9 +216,24 @@ void AccessGrantResponder(
 	// Allocate the channel according to the needed type indicated by RA.
 	// The returned channel is already open and ready for the transaction.
 	LogicalChannel *LCH = NULL;
-	switch (decodeChannelNeeded(RA)) {
+	switch (chtype) {
 		case TCHFType: LCH = gBTS.getTCH(); break;
 		case SDCCHType: LCH = gBTS.getSDCCH(); break;
+#if 0
+        // GSM04.08 sec 3.5.2.1.2
+        case PSingleBlock1PhaseType:
+        case PSingleBlock2PhaseType:
+            {
+                L3RRMessage *msg = GPRS::GPRSProcessRACH(chtype,
+                        L3RequestReference(RA,when),
+                        RSSI,timingError,AGCH);
+                if (msg) {
+                    AGCH->send(*msg);
+                    delete msg;
+                }
+                return;
+            }
+#endif
 		// If we don't support the service, assign to an SDCCH and we can reject it in L3.
 		case UndefinedCHType:
 			LOG(NOTICE) << "RACH burst for unsupported service RA=" << RA;
@@ -206,18 +246,22 @@ void AccessGrantResponder(
 	// Nothing available?
 	if (!LCH) {
 		// Rejection, GSM 04.08 3.3.1.1.3.2.
-		// But since we recognize SOS calls already,
-		// we might as well save some AGCH bandwidth.
 		unsigned waitTime = gBTS.growT3122()/1000;
-		LOG(WARNING) << "congestion, RA=" << RA << " T3122=" << waitTime;
+		// TODO: If all channels are statically allocated for gprs, dont throw an alert.
+		LOG(CRIT) << "congestion, RA=" << RA << " T3122=" << waitTime;
 		const L3ImmediateAssignmentReject reject(L3RequestReference(RA,when),waitTime);
 		LOG(DEBUG) << "rejection, sending " << reject;
 		AGCH->send(reject);
 		return;
 	}
 
+	// (pat) gprs todo: Notify GPRS that the MS is getting a voice channel.
+	// It may imply abandonment of packet contexts, if the phone does not
+	// support DTM (Dual Transfer Mode.)  There may be other housekeeping
+	// for DTM phones; haven't looked into it.
+
 	// Set the channel physical parameters from the RACH burst.
-	LCH->setPhy(RSSI,timingError);
+	LCH->setPhy(RSSI,timingError,gBTS.clock().systime(when.FN()));
 	gReports.incr("OpenBTS.GSM.RR.RACH.TA.Accepted",(int)(timingError));
 
 	// Assignment, GSM 04.08 3.3.1.1.3.1.
@@ -231,7 +275,11 @@ void AccessGrantResponder(
 		LCH->channelDescription(),
 		L3TimingAdvance(initialTA)
 	);
-	LOG(INFO) << "sending " << assign;
+	LOG(INFO) << "sending L3ImmediateAssignment " << assign;
+	// (pat) This call appears to block.
+	// (david) Not anymore. It got fixed in the trunk while you were working on GPRS.
+	// (doug) Adding in a delay to make sure SI5/6 get out before IA.
+	sleepFrames(20);
 	AGCH->send(assign);
 
 	// On successful allocation, shrink T3122.
@@ -254,6 +302,256 @@ void* Control::AccessGrantServiceLoop(void*)
 	return NULL;
 }
 
+void abortInboundHandover(TransactionEntry* transaction, unsigned cause, GSM::LogicalChannel *LCH=NULL)
+{
+	LOG(DEBUG) << "aborting inbound handover " << *transaction;
+	char ind[100];
+	unsigned holdoff = gConfig.getNum("GSM.Handover.FailureHoldoff");
+	sprintf(ind,"IND HANDOVER_FAILURE %u %u %u", transaction->ID(),cause,holdoff);
+	gPeerInterface.sendUntilAck(transaction,ind);
+
+	if (LCH) LCH->send(HARDRELEASE);
+
+	gTransactionTable.remove(transaction);
+}
+
+
+
+bool Control::SaveHandoverAccess(unsigned handoverReference, float RSSI, float timingError, const GSM::Time& timestamp)
+{
+	// In this function, we are "BS2" in the ladder diagram.
+	// This is called from L1 when a handover burst arrives.
+
+	// We will need to use the transaction record to carry the parameters.
+	// We put this here to avoid dealing with the transaction table in L1.
+	TransactionEntry *transaction = gTransactionTable.inboundHandover(handoverReference);
+	if (!transaction) {
+		LOG(ERR) << "no inbound handover with reference " << handoverReference;
+		return false;
+	}
+
+	if (timingError > gConfig.getNum("GSM.MS.TA.Max")) {
+		// Handover failure.
+		LOG(NOTICE) << "handover failure on due to TA=" << timingError << " for " << *transaction;
+		// RR cause 8: Handover impossible, timing advance out of range
+		abortInboundHandover(transaction,8);
+		return false;
+	}
+
+	LOG(INFO) << "saving handover access for " << *transaction;
+	transaction->setInboundHandover(RSSI,timingError,gBTS.clock().systime(timestamp));
+	return true;
+}
+
+
+
+
+void Control::ProcessHandoverAccess(GSM::TCHFACCHLogicalChannel *TCH)
+{
+	// In this function, we are "BS2" in the ladder diagram.
+	// This is called from the DCCH dispatcher when it gets a HANDOVER_ACCESS primtive.
+	// The information it needs was saved in the transaction table by Control::SaveHandoverAccess.
+
+
+	assert(TCH);
+	LOG(DEBUG) << *TCH;
+
+	TransactionEntry *transaction = gTransactionTable.inboundHandover(TCH);
+	if (!transaction) {
+		LOG(WARNING) << "handover access with no inbound transaction on " << *TCH;
+		TCH->send(HARDRELEASE);
+		return;
+	}
+
+	// clear handover in transceiver
+	LOG(DEBUG) << *transaction;
+	transaction->channel()->handoverPending(false);
+	
+	// Respond to handset with physical information until we get Handover Complete.
+	int TA = (int)(transaction->inboundTimingError() + 0.5F);
+	if (TA<0) TA=0;
+	if (TA>62) TA=62;
+	unsigned repeatTimeout = gConfig.getNum("GSM.Timer.T3105");
+	unsigned sendCount = gConfig.getNum("GSM.Ny1");
+	L3Frame* frame = NULL;
+	while (!frame && sendCount) {
+		TCH->send(L3PhysicalInformation(L3TimingAdvance(TA)),GSM::UNIT_DATA);
+		sendCount--;
+		frame = TCH->recv(repeatTimeout);
+		if (frame && frame->primitive() == HANDOVER_ACCESS) {
+			LOG(NOTICE) << "flushing HANDOVER_ACCESS while waiting for Handover Complete";
+			delete frame;
+			frame = NULL;
+		}
+	}
+
+	// Timed out?
+	if (!frame) {
+		LOG(NOTICE) << "timed out waiting for Handover Complete on " << *TCH << " for " << *transaction;
+		// RR cause 4: Abnormal release, no activity on the radio path
+		abortInboundHandover(transaction,4,TCH);
+		return;
+	}
+
+	// Screwed up channel?
+	if (frame->primitive()!=ESTABLISH) {
+		LOG(NOTICE) << "unexpected primitive waiting for Handover Complete on "
+			<< *TCH << ": " << *frame << " for " << *transaction;
+		delete frame;
+		// RR cause 0x62: Message not compatible with protocol state
+		abortInboundHandover(transaction,0x62,TCH);
+		return;
+	}
+
+	// Get the next frame, should be HandoverComplete.
+	delete frame;
+	frame = TCH->recv();
+	L3Message* msg = parseL3(*frame);
+	if (!msg) {
+		LOG(NOTICE) << "unparsable message waiting for Handover Complete on "
+			<< *TCH << ": " << *frame << " for " << *transaction;
+		delete frame;
+		// RR cause 0x62: Message not compatible with protocol state
+		TCH->send(L3ChannelRelease(0x62));
+		abortInboundHandover(transaction,0x62,TCH);
+		return;
+	}
+	delete frame;
+
+	L3HandoverComplete* complete = dynamic_cast<L3HandoverComplete*>(msg);
+	if (!complete) {
+		LOG(NOTICE) << "expecting for Handover Complete on "
+			<< *TCH << "but got: " << *msg << " for " << *transaction;
+		delete frame;
+		// RR cause 0x62: Message not compatible with protocol state
+		TCH->send(L3ChannelRelease(0x62));
+		abortInboundHandover(transaction,0x62,TCH);
+	}
+	delete msg;
+
+	// Send re-INVITE to the remote party.
+	unsigned RTPPort = allocateRTPPorts();
+	SIP::SIPState st = transaction->inboundHandoverSendINVITE(RTPPort);
+	if (st == SIP::Fail) {
+		abortInboundHandover(transaction,4,TCH);
+		return;
+	}
+
+	transaction->GSMState(GSM::HandoverProgress);
+
+	while (1) {
+		// FIXME - the sip engine should be doing this
+		// FIXME - and checking for timeout
+		// FIXME - and checking for proceeding (stop sending the resends)
+		st = transaction->inboundHandoverCheckForOK();
+		if (st == SIP::Active) break;
+		if (st == SIP::Fail) {
+			LOG(NOTICE) << "received Fail while waiting for OK";
+			abortInboundHandover(transaction,4,TCH);
+			return;
+		}
+	}
+	st = transaction->inboundHandoverSendACK();
+	LOG(DEBUG) << "status of inboundHandoverSendACK: " << st << " for " << *transaction;
+
+	// Send completion to peer BTS.
+	char ind[100];
+	sprintf(ind,"IND HANDOVER_COMPLETE %u", transaction->ID());
+	gPeerInterface.sendUntilAck(transaction,ind);
+
+	// Update subscriber registry to reflect new registration.
+	if (transaction->SRIMSI().length() && transaction->SRCALLID().length()) {
+		gSubscriberRegistry.addUser(transaction->SRIMSI().c_str(), transaction->SRCALLID().c_str());
+	}
+
+	// The call is running.
+	LOG(INFO) << "succesful inbound handover " << *transaction;
+	transaction->GSMState(GSM::Active);
+	callManagementLoop(transaction,TCH);
+}
+
+
+void Control::HandoverDetermination(const L3MeasurementResults& measurements, SACCHLogicalChannel* SACCH)
+{
+	// This is called from the SACCH service loop.
+
+	// Valid measurements?
+	if (measurements.MEAS_VALID()) return;
+
+	// Got neighbors?
+	unsigned N = measurements.NO_NCELL();
+	if (N==0) return;
+
+	if (N == 7) {
+		LOG(DEBUG) << "neighbor cell information not available";
+		return;
+	}
+
+	// Is our current signal OK?
+	int myRxLevel = measurements.RXLEV_SUB_SERVING_CELL_dBm();
+	int localRSSIMin = gConfig.getNum("GSM.Handover.LocalRSSIMin");
+	LOG(DEBUG) << "myRxLevel=" << myRxLevel << " dBm localRSSIMin=" << localRSSIMin << " dBm";
+	if (myRxLevel > localRSSIMin) return;
+	
+
+	// Look at neighbor cell rx levels
+	int best = 0;
+	int bestRxLevel = measurements.RXLEV_NCELL_dBm(best);
+	for (unsigned int i=1; i<N; i++) {
+		int thisRxLevel = measurements.RXLEV_NCELL_dBm(i);
+		if (thisRxLevel>bestRxLevel) {
+			bestRxLevel = thisRxLevel;
+			best = i;
+		}
+	}
+
+	// Does the best exceed the current by more than the threshold?
+	int threshold = gConfig.getNum("GSM.Handover.ThresholdDelta");
+	LOG(DEBUG) << "myRxLevel=" << myRxLevel << " dBm, best neighbor=" <<
+		bestRxLevel << " dBm, threshold=" << threshold << " dB";
+	if (bestRxLevel < (myRxLevel + threshold)) return;
+
+
+	// OK.  So we will initiate a handover.
+	LOG(DEBUG) << measurements;
+	int BCCH_FREQ_NCELL = measurements.BCCH_FREQ_NCELL(best);
+	int BSIC = measurements.BSIC_NCELL(best);
+	char* peer = gNeighborTable.getAddress(BCCH_FREQ_NCELL,BSIC);
+	if (!peer) {
+		LOG(CRIT) << "measurement for unknown neighbor BCCH_FREQ_NCELL " << BCCH_FREQ_NCELL << " BSIC " << BSIC;
+		return;
+	}
+	if (gNeighborTable.holdingOff(peer)) {
+		LOG(NOTICE) << "skipping handover to " << peer << " due to holdoff";
+		return;
+	}
+
+	// Find the transaction record.
+	TransactionEntry* transaction = gTransactionTable.findBySACCH(SACCH);
+	if (!transaction) {
+		LOG(ERR) << "active SACCH with no transaction record: " << *SACCH;
+		return;
+	}
+	if (transaction->GSMState() != GSM::Active) {
+		LOG(DEBUG) << "skipping handover for transaction " << transaction->ID()
+			<< " due to state " << transaction->GSMState();
+		return;
+	}
+	LOG(INFO) << "preparing handover of " << transaction->ID()
+		<< " to " << peer << " with downlink RSSI " << bestRxLevel << " dbm";
+
+	// The handover reference will be generated by the other BTS.
+	// We don't set the handover reference or state until we get RSP HANDOVER.
+
+	// Form and send the message.
+	string msg = string("REQ HANDOVER ") + transaction->handoverString();
+	struct sockaddr_in peerAddr;
+	if (!resolveAddress(&peerAddr,peer)) {
+		LOG(ALERT) << "cannot resolve peer address " << peer;
+		return;
+	}
+	gPeerInterface.sendMessage(&peerAddr,msg.c_str());
+}
 
 
 
@@ -270,6 +568,9 @@ void Control::PagingResponseHandler(const L3PagingResponse* resp, LogicalChannel
 		char *IMSI = gTMSITable.IMSI(mobileID.TMSI());
 		if (IMSI) {
 			mobileID = L3MobileIdentity(IMSI);
+			// (pat) Whenever the MS RACHes, we need to alert the SGSN.
+			// Not sure this is necessary in this particular case, but be safe.
+			GPRS::GPRSNotifyGsmActivity(IMSI);
 			free(IMSI);
 		} else {
 			// Don't try too hard to resolve.
@@ -313,6 +614,9 @@ void Control::PagingResponseHandler(const L3PagingResponse* resp, LogicalChannel
 			return;
 		case L3CMServiceType::MobileTerminatedShortMessage:
 			MTSMSController(transaction, DCCH);
+			return;
+		case L3CMServiceType::TestCall:
+			TestCall(transaction, DCCH);
 			return;
 		default:
 			// Flush stray MOC entries.

@@ -1,25 +1,17 @@
 /*
-* Copyright 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+* Copyright 2008, 2009, 2010 Free Software Foundation, Inc.
 * Copyright 2010 Kestrel Signal Processing, Inc.
 *
-* This software is distributed under the terms of the GNU Affero Public License.
-* See the COPYING file in the main directory for details.
+* This software is distributed under multiple licenses;
+* see the COPYING file in the main directory for licensing
+* information for this specific distribuion.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
 
-	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
 
@@ -37,6 +29,8 @@
 #include <string>
 #include <iostream>
 #include <iomanip>
+
+#include <sys/stat.h>
 
 using namespace std;
 using namespace Control;
@@ -57,8 +51,12 @@ static const char* createTMSITable = {
 		"PREV_MCC INTEGER, "			// previous network MCC
 		"PREV_MNC INTEGER, "			// previous network MNC
 		"PREV_LAC INTEGER, "			// previous network LAC
+		"RANDUPPER INTEGER, "			// authentication token
+		"RANDLOWER INTEGER, "			// authentication token
+		"SRES INTEGER, "				// authentication token
 		"DEG_LAT FLOAT, "				// RRLP result
-		"DEG_LONG FLOAT "				// RRLP result
+		"DEG_LONG FLOAT, "				// RRLP result
+		"kc varchar(33) default '' "
 	")"
 };
 
@@ -67,7 +65,22 @@ static const char* createTMSITable = {
 
 int TMSITable::open(const char* wPath) 
 {
+	// FIXME -- We can't call the logger here because it has not been initialized yet.
+
 	int rc = sqlite3_open(wPath,&mDB);
+	if (rc) {
+		// (pat) Gee, how about if we create the directory first?
+		// OpenBTS crashes if the directory does not exist because the LOG()
+		// below will crash because the Logger class has not been initialized yet.
+		char dirpath[strlen(wPath)+100];
+		strcpy(dirpath,wPath);
+		char *sp = strrchr(dirpath,'/');
+		if (sp) {
+			*sp = 0;
+			mkdir(dirpath,0777);
+			rc = sqlite3_open(wPath,&mDB);	// try try again.
+		}
+	}
 	if (rc) {
 		LOG(EMERG) << "Cannot open TMSITable database at " << wPath << ": " << sqlite3_errmsg(mDB);
 		sqlite3_close(mDB);
@@ -77,6 +90,10 @@ int TMSITable::open(const char* wPath)
 	if (!sqlite3_command(mDB,createTMSITable)) {
 		LOG(EMERG) << "Cannot create TMSI table";
         return 1;
+	}
+	// Set high-concurrency WAL mode.
+	if (!sqlite3_command(mDB,enableWAL)) {
+		LOG(EMERG) << "Cannot enable WAL mode on database at " << wPath << ", error message: " << sqlite3_errmsg(mDB);
 	}
     return 0;
 }
@@ -198,7 +215,7 @@ void printAge(unsigned seconds, ostream& os)
 void TMSITable::dump(ostream& os) const
 {
 	sqlite3_stmt *stmt;
-	if (sqlite3_prepare_statement(mDB,&stmt,"SELECT TMSI,IMSI,CREATED,ACCESSED FROM TMSI_TABLE")) {
+	if (sqlite3_prepare_statement(mDB,&stmt,"SELECT TMSI,IMSI,CREATED,ACCESSED FROM TMSI_TABLE ORDER BY ACCESSED DESC")) {
 		LOG(ERR) << "sqlite3_prepare_statement failed";
 		return;
 	}
@@ -245,13 +262,97 @@ bool TMSITable::classmark(const char* IMSI, const GSM::L3MobileStationClassmark2
 
 
 
+int TMSITable::getPreferredA5Algorithm(const char* IMSI)
+{
+	char query[200];
+	sprintf(query, "SELECT A5_SUPPORT from TMSI_TABLE WHERE IMSI=\"%s\"", IMSI);
+	sqlite3_stmt *stmt;
+	if (sqlite3_prepare_statement(mDB,&stmt,query)) {
+		LOG(ERR) << "sqlite3_prepare_statement failed for " << query;
+		return 0;
+	}
+	if (sqlite3_run_query(mDB,stmt)!=SQLITE_ROW) {
+		// Returning false here just means the IMSI is not there yet.
+		sqlite3_finalize(stmt);
+		return 0;
+	}
+	int cm = sqlite3_column_int(stmt,0);
+	sqlite3_finalize(stmt);
+	if (cm&1) return 3;
+	// if (cm&2) return 2; not supported
+	if (cm&4) return 1;
+	return 0;
+}
+
+
+
+void TMSITable::putAuthTokens(const char* IMSI, uint64_t upperRAND, uint64_t lowerRAND, uint32_t SRES)
+{
+	char query[300];
+	sprintf(query,"UPDATE TMSI_TABLE SET RANDUPPER=%llu,RANDLOWER=%llu,SRES=%u,ACCESSED=%u WHERE IMSI=\"%s\"",
+		upperRAND,lowerRAND,SRES,(unsigned)time(NULL),IMSI);
+	if (!sqlite3_command(mDB,query)) {
+		LOG(ALERT) << "cannot write to TMSI table";
+	}
+}
+
+
+
+bool TMSITable::getAuthTokens(const char* IMSI, uint64_t& upperRAND, uint64_t& lowerRAND, uint32_t& SRES)
+{
+	char query[200];
+	sprintf(query,"SELECT RANDUPPER,RANDLOWER,SRES FROM TMSI_TABLE WHERE IMSI=\"%s\"",IMSI);
+	sqlite3_stmt *stmt;
+	if (sqlite3_prepare_statement(mDB,&stmt,query)) {
+		LOG(ERR) << "sqlite3_prepare_statement failed for " << query;
+		return false;
+	}
+	if (sqlite3_run_query(mDB,stmt)!=SQLITE_ROW) {
+		// Returning false here just means the IMSI is not there yet.
+		sqlite3_finalize(stmt);
+		return false;
+	}
+	upperRAND = sqlite3_column_int64(stmt,0);
+	lowerRAND = sqlite3_column_int64(stmt,1);
+	SRES = sqlite3_column_int(stmt,2);
+	sqlite3_finalize(stmt);
+	return true;
+}
+
+
+
+void TMSITable::putKc(const char* IMSI, string Kc)
+{
+	char query[300];
+	sprintf(query,"UPDATE TMSI_TABLE SET kc=\"%s\" WHERE IMSI=\"%s\"", Kc.c_str(), IMSI);
+	if (!sqlite3_command(mDB,query)) {
+		LOG(ALERT) << "cannot write Kc to TMSI table";
+	}
+}
+
+
+
+string TMSITable::getKc(const char* IMSI)
+{
+	char *Kc;
+	if (!sqlite3_single_lookup(mDB, "TMSI_TABLE", "IMSI", IMSI, "kc", Kc)) {
+		LOG(ERR) << "sqlite3_single_lookup failed to find kc for " << IMSI;
+		return "";
+	}
+	string Kcs = string(Kc);
+	free(Kc);
+	return Kcs;
+}
+
+
+
 unsigned TMSITable::nextL3TI(const char* IMSI)
 {
 	// FIXME -- This should be a single atomic operation.
 	unsigned l3ti;
 	if (!sqlite3_single_lookup(mDB,"TMSI_TABLE","IMSI",IMSI,"L3TI",l3ti)) {
 		LOG(ERR) << "cannot read L3TI from TMSI_TABLE, using random L3TI";
-		return random() % 8;
+		return random() % 7;
 	}
 	// Note that TI=7 is a reserved value, so value values are 0-6.  See GSM 04.07 11.2.3.1.3.
 	unsigned next = (l3ti+1) % 7;

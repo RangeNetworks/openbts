@@ -1,0 +1,356 @@
+Memory Leak:
+With GPRS running continuously:
+	Startup, around 7:46:50
+	4     0 30359 30357  20   0  40388  4396 wait_f Sl+  pts/0      0:01 /home/pat/RangeNetworks/src/range/software/private/openbts/trunk/apps/OpenBTSGprs
+
+	Tue Aug 14 09:01:29 PDT 2012:
+	4     0 24590 10656  20   0  46276  9796 wait_f Sl+  pts/0     16:08 /home/pat/RangeNetworks/src/range/software/private/openbts/trunk/apps/OpenBTSGprs
+
+	Tue Aug 14 09:01:40 PDT 2012:
+	4     0 24590 10656  20   0  46276  9796 wait_f Sl+  pts/0     16:13 /home/pat/RangeNetworks/src/range/software/private/openbts/trunk/apps/OpenBTSGprs
+
+	Tue Aug 14 11:49:04 PDT 2012:
+	4     0 24590 10656  20   0  56260 20064 wait_f Sl+  pts/0     53:05 /home/pat/RangeNetworks/src/range/software/private/openbts/trunk/apps/OpenBTSGprs
+168 minutes, 9984 KB change = 1K/sec
+
+Without GPRS running:
+	Tue Aug 14 13:47:14 PDT 2012
+	4     0 30359 30357  20   0  40388  4396 wait_f Sl+  pts/0      0:17 /home/pat/RangeNetworks/src/range/software/private/openbts/trunk/apps/OpenBTSGprs
+	Tue Aug 14 16:26:28 PDT 2012
+	4     0 30359 30357  20   0  41412  4400 wait_f Sl+  pts/0      4:45 /home/pat/RangeNetworks/src/range/software/private/openb
+
+o IPHONE:
+	Screws up royally.
+	Unlike all the other phones, when you power cycle the bts or the iphone, it does not do a DCCHController registration,
+	but it will register for gprs.
+	This is with GPRS.Timer.T3212=0
+	Even with GPRS.Enable=0, it will usually refuse to register.
+	I tried changing the LAC code, still did not register, power cycled the phone, it finally did a DCCH registration.
+	Next I set GPRS.Enable=1 and T3212=60, phone never ever registered, even after power cycling.  What gives?
+	Tried changing the LAC code and rebooting BTS again...  manual selection still does not work.
+	Power cycled the phone...  Finally, it registered DCCH and then GPRS.  Worked fine.
+	Power cycled the bts, it got gprs service without registering on DCCH.
+
+o Add reporting statistic: IPs in use, available, timingout.
+o Someone sometimes uses the TFI in the global tfi after the TBF has ended.
+o Try changing the decay power params.
+
+o Add more statistics:
+	number of failed/successful tbfs.  Use a better word than 'failed'.
+	number of unanswered/answered RRBPs.
+	total tbf connect time, as well as bytes up/down.
+
+o The FIXME in mtSetState regarding removing unneeded USF reservations.
+o The SGSN.Timer.RAUpdate is a GprsTimer - the IE description (24.008 10.5.7.3) says there
+	is a special 'units' value to deactivate the timer - implement it. test it.
+	update: setting the RAUpdate timer to 0 worked for the Multitech modem - disabled RAUpdate.
+o The timeslot reconfig message does not work, so I took it out.
+o The Blackberry sends packets with a return address that does not match its assignment,
+	and we dont catch that error.
+o The 3101 failure is sometimes due to a GPRS suspension request.
+o Blackberry does not like RAupdate, maybe tmsi status is incorrect.
+Received RAUpdateComplete  MS#3,TLLI=c0087003,8008e001 imsi=310260520943554
+ 08:31:26.6:SGSN:Received GMMStatus: 98=Message_type_not_compatible_with_the_protocol_state MS#3,TLLI=c0087003,8008e001 imsi=310260520943554
+
+
+o GPRS Resumption IE must be included in the GSM CHANNEL RELEASE message, whereever that is.
+	44.018 3.4.13.1.1, IE described 10.5.2.14c
+	GPRS Suspend is in 44.018 9.1.13b
+	Update: It is not critical because the MS is supposed to restart GPRS on its own initiative by sending
+	an RAUpdate.
+
+o Since the IP addresses are semi-static, we may want a 'new' flag to the shell script
+to indicate if the PdpAllocate is a duplicate.
+
+o Why am I getting this from Sgsn.cpp, after enabling TLLI reassignment:
+	LOG(WARNING) << "no corresponding MS for TLLI " << mMsHandle;
+
+o macAddChannel/macFreeChannel are no longer useful.
+
+o If an uplink fails (eg cause=3101) the downlink will probably fail soon.
+	Should wind it down so we dont lose so many TBFs when the downlink is cancelled.
+
+o If the MS becomes non-responsive (eg, misses RRBP) stop sending downlink blocks ahead
+	until we hear from it.  This would avoid losing so many TBFs if it gets cancelled.
+	Currently I think we just keep sending ahead until we stall.
+o If there are communication problems, try sending RLC blocks with an RRBP in CS-1.
+
+o 6-19-2012, from talk with David:
+	- Someday we may want to set GPRS priorities in the HLR so some phones
+		have better GPRS service than others, but probably not limit the bandwidth
+		since if it is available and no one has higher priority, just use it.
+	- Allocate the first GPRS channel for unregistered phones in ARFCN 0.
+	- Allocate other gprs channels dynamically from the end, even
+		if they end up in ARFCN 1.
+	- He also suggested the channel allocator should walk through and look
+	for sets of adjacent channels first.
+I think fixed: o Looks like multislot 3-down/1-up fails.
+
+o Use a single PACCH for all unregistered TLLIs.
+
+o Get rid of engineWriteHighSide()
+
+o Extended downlink TBF - 44.60 9.3.1a: Send an LLC UI Dummy command to keep the line open.
+That is because there is no way to specify that the entire RLC block is filler
+(unlike UMTS where they fixed this); the start is assumed to be the first TBF.
+Naturally, no 'dummy command' is defined in the LLC spec, but I think they maybe
+they mean a NULL UI frame.
+
+o Implement DRX mode paging.
+
+== STATE MACHINE PROBLEMS ==
+	o For uplink TBF, the modem sends the first uplink data blocks
+	before it sends the RRBP reply; tbf is still in state DataWaiting1,
+	make sure this works, and also it should automatically move
+	the tbf to DataTransmit.
+
+o Need high and low priority engine service routines, so if there is nothing else
+	happening on the radio link, can resend old blocks again, as well as blocks
+	that have not been positively acked.
+
+o Multitech modem does not like a detachRequest:
+	58.5:SGSN:Received ActivatePDPContextRequest TransactionId=0 mNSapi=5 mLlcSapi=3 mRequestType=0 mPdpAddress=ByteVector(size=2 data: 01 21) mQoS=ByteVector(size=3 data: 00 00 00) mApName=ByteVector(size=9 data: 08 69 6e 74 65 72 6e 65 74) mPco=ByteVector(size=20 data: 80 80 21 10 01 08 00 10 81 06 00 00 00 00 83 06 00 00 00 00) MS#1,TLLI=c00ef001
+	58.5:SGSN:Sending ActivatePDPContextReject TransactionId=0 mCause=101=Message_not_compatible_with_the_protocol_state MS#1,TLLI=c00ef001 frame=ByteVector(size=3 data: 8a 43 65)
+	58.5:SGSN:Sending GMMStatus mCause=10=Implicitly_detached MS#1,TLLI=c00ef001 frame=ByteVector(size=3 data: 08 20 0a)
+	58.5:SGSN:Sending DetachRequest mDetachType=1 mForceToStandby=0 mGmmCause=10=Implicitly_detached MS#1,TLLI=c00ef001 frame=ByteVector(size=6 data: 08 05 01 25 00 0a)
+	59.9:SGSN:Received GMMStatus: 96=Invalid_mandatory_information MS#1,TLLI=c00ef001
+
+o Check for thread problems in SGSN.  Maybe getMS calls need to be changed
+	to something that return a result instead of a pointer to an MSInfo that
+	might disappear.
+
+o If the BSN runs backwards in an uplink, it is time to send an uplinkacknack.
+
+Tickets:
+== RESERVED TFI BUG ==
+	o BUG: If you send an assignment on CCCH, you cannot reuse an existing TFI
+	for a while. 44.060 9.3.2.6
+	I worked around by round-robin allocating TFIs and it worked great.
+	o Implement T3191; part of this.
+
+== AGCH QUEUE REWORK ==
+	This encompasses ticket 69: Implement proper paging groups.
+	o Either add ability to cancel messages, or add a call-back to create messages on demand.
+	o Get rid of the extraneous AGCH delay.
+	o Neither the returned AGCH, nor the getNextMsgSendTime(), are monotonically increasing.
+		Example: A downlink assignment is sent on CCCH, but a subsequent rach causes
+		a new single-block uplink assignment at an earlier time.  The MS is now sitting on PACCH,
+		and does not respond to the downlink assignment on CCCH, which is then repeated on PACCH.
+		However, this downlink TBF fails: the blackberry will send the control ack for
+		the downlink assignment but then does not respond subsequently. 
+	o DRX mode workaround is really hacked in TBF.cpp.  Instead of sending CCCH in the
+	correct paging group, if the MS stops responding I send the same message
+	on all 6 (count-em) CCCH paging channels.
+	o Get the DRX param from the Attach Request message - it has a non-drx period timer
+	after transfer state.  25.008 10.5.5.6, but DRX mode described GSM05.02 and GSM3.64 sec 6.5.10.
+
+== RA-Update problems ==
+	o user data transmission is suspended during RAupdate,
+		so try setting the RAupdate timers to infinity.
+	- suspended at what level?  The message goes to L3, so do the TBFs really get suspended?
+	o Why is Blackberry sending new raupdate-requests about 100 secs in?
+
+o During a downlink TBF, make sure we send updated timing advance to the MS - in what message?
+
+o Handle GPRS suspend, look at MobilityManagement.cpp:IMSIDetachController
+
+o They are changing the network color codes on the fly now, so make sure
+  they get that integrated into GPRS after merging gprs.
+
+o When you change the GSM beacon (like turning gprs on/off) we may need to set a
+	classmark somewhere so phones update.
+
+o I saw it send an l3immediateassignment while there was an uplink tbf in progress!
+	When? Is this still possible?
+	Yes.  The messages cross in transit.
+
+== TESTING ==
+o Test nokia gprs attach with thai sim card. - dump is in RangeNetworks/ticket_ms_does_not_work
+o Test nokia gprs attach with range sim card - did not work at all with old SGSN.
+o Retest Samsung MS with correct OpenRegistration in sql and grab OpenBTS log.
+
+o Test the transceiver code from the Handover features branch, which
+	has the GPRS filler patch that David integrated, and also has some kind
+	of bug to log a problem where there are multiple transactions with the same
+	timestamp and ARFCN.  This could conceivably be one of the
+	bugs that I am seeing?
+
+== ENHANCEMENTS ==
+
+o Get rid of the extra polls in the state machines.
+o RLC unacknowledged mode.
+o Do CS-4 to CS-1 fallback more intelligently.
+	o After retry, fall back to CS-1 until timer expires.
+o Add CS-3.
+
+RLC Down Engine:
+	o RLCDownEngine: create blocks on the fly, so that we can change CS-1/CS-4 on the fly.
+	o Done. Also allow new PDUs to be tacked onto an existing TBF.
+	o Done. RLCDownEngine: allow BSN to wrap-around.
+	o 3GPP 44.060 has new info on what RLCEngine should send when data exhausted.
+
+
+o Slow down the adaptive delay in TransceiverRAD1.
+
+o recvReservation - harden to check the TBF recipient before setting its msg ack.
+	We probably dont want to accept any data blocks ever, but check users.
+	Update: The MS sends a data block sometimes, and it seems to be ok.
+
+o The RadData is probably saved in the wrong place - it is not related to any particular channel,
+	so it should be in some global place.  Or maybe not, because the single-block assignment
+	is associated with a specific channel.
+	Also:
+	o Only change timing advance by 1 unit at a time.
+
+o Why aren't I seeing measurement reports?
+
+o Other TODO:
+	Dual Transfer Mode?
+	Implement RA Capabilities & QofS?  What would we do - the service is pathetic no matter what.
+	Paging not needed unless we implement dual transfer mode.
+
+o Catch 'stuck' rlc and fix.  - done
+
+o After killing a tbf, send a PacketTbfRelease and either wait for response or 5 seconds. - done
+	Although is that necessary?  The new tbf just takes up where the old left off, which is ok.
+
+o Fixed: Got a core-dump; third mReservations is corrupted, 0 vptr:
+
+o FIXED: I downloaded dinosaur, switched to tmobile, downloaded dinosaur, switched back to Range, downloaded dinosaur,
+and I saw this:
+	It did a new AttachRequest
+	then ActivatePdpContext, goti message: SGSN Duplicate PdpContextRequest
+	then: sndcp: packet too old
+vvvvvv
+	SGSNReceived ActivatePDPContextRequest TransactionId=0 mNSapi=5 mLlcSapi=3 mRequestType=0 mPdpAddress=ByteVector(size=2 data: 01 21) mQoS=ByteVector(size=3 data: 00 00 1f) mApName=ByteVector(size=15 data: 0a 62 6c 61 63 6b 62 65 72 72 79 03 6e 65 74) mPco=ByteVector(size=47 data: 80 80 21 0a 01 9d 00 0a 81 06 00 00 00 00 80 21 0a 01 9e 00 0a 83 06 00 00 00 00 c0 23 11 01 9f 00 11 03 72 69 6d 08 70 61 73 73 77 6f 72 64) MS#2,TLLI=c00ba001 imsi=31026052094355
+	924.5:SGSNDuplicate PdpContextRequest
+	924.5:SGSNSending ActivatePDPContextAccept TransactionId=0 mLlcSapi=3 mPdpAddress=ByteVector(size=6 data: 01 21 c0 a8 63 01) mQoS=ByteVector(size=12 data: 63 92 12 72 99 10 10 43 ff ff ff 00) mRadioPriority=2 mPco=ByteVector(size=47 data: 80 80 21 0a 02 8e 00 0a 81 06 4b 4b 4b 4b 80 21 0a 02 8f 00 0a 83 06 4b 4b 4c 4c c0 23 11 01 90 00 11 03 72 69 6d 08 70 61 73 73 77 6f 72 64) MS#2,TLLI=c00ba001 imsi=31026052094355 frame=ByteVector(size=10 data: 8a 42 03 0c 63 92 12 72 99 10)
+	926.3:LLCllcWriteLowSide sapi=3
+	926.3:LLCUI::llcProcess
+	926.3:SNDCPuplink packet pdunum=0 segnum=0 size=488 header=ByteVector(size=20 data: 65 00 00 00 45 00 01 e8 f4 0f 00 00 80 11 38 5b c0 a8 63 01)
+	926.3:SNDCPflush num=0 sp->mSegCount=1
+	926.3:SNDCPpdpWriteLowSide packetlen=488
+	926.3:ggsn: writing proto=udp 488 byte packet from 192.168.99.1 to 206.51.26.189 at  17:48:23.2
+	928.9:LLCllcWriteLowSide sapi=3
+	928.9:LLCUI::llcProcess
+	928.9:SNDCPuplink packet pdunum=0 segnum=0 size=48 header=ByteVector(size=20 data: 66 00 00 00 45 00 00 30 f4 10 00 00 80 06 b7 cf c0 a8 63 02)
+	928.9:LLCSNDCP packet too old, discarded (number=0,current=521)
+	930.8:LLCllcWriteLowSide sapi=3
+	930.8:LLCUI::llcProcess
+	930.8:SNDCPuplink packet pdunum=1 segnum=0 size=488 header=ByteVector(size=20 data: 65 00 00 01 45 00 01 e8 f4 11 00 00 80 11 38 59 c0 a8 63 01)
+	930.8:SNDCPflush num=1 sp->mSegCount=1
+	930.8:SNDCPpdpWriteLowSide packetlen=488
+^^^^^^^^
+
+o done: Dump the MNC/MCC the phone roams in.  Only dump the phone caps once.
+
+o Extended uplink TBF mode 44.060 9.3.1b - allows uplink to ride out temporary inactive periods.
+o The control-ack bit says whether we are establishing a new downlink TBF!!
+Update: This does not work on the blackberry.  I resorted to sending a TbfRelease message.
+o Fixed: A stalled uplink never completed.
+o Done: Try removing extra unasked-for USF in findNeedy
+o This was caused by the same bug: after it stalled no acknacks were ever sent again.
+	The 06-08 TBF#180 sends the same blocks eg: BSN=(1) multiple times.
+o Done: Fix the "CHAP" message in sgsn.
+o Done: Fix the "Unable to allocate channel" message.
+o Fixed: The STUCK should not count it as stuck if we received some new blocks,
+	even if SSN did not change - if there is an outage there may be many blocks
+	between SSN-64 and SSN to send, so SSN may not change for quite a while.
+o Fixed: mUSF was not inited to 0 on blocks that were resent.
+	Not sure exactly, but this possibly resulted in errors:
+	Radio Block Data Block with unrecognized tfi
+	Uplink Data Block with unknown tfi
+	ERROR: Received reservation in RLC data block
+	After this fix, I could no longer generate the above errors, nor did I
+	see the long pauses in downlink reception.
+
+o Done: implemented LLC Change TLLI procedure
+	I think the LlcEngine should be in the GmmInfo, or at least we need to implement
+	change TLLI procedures.
+
+o Same as above: The LLC spec says the state machine does not change when TLLI reassigned.
+	But I thought I saw somewhere else that it does.  Which is it?
+	Since we dont use ABM, it would only affect the unacknowledged sequence number.
+ 
+o Probably fixed by adding GLOG:
+	Why does LOG(ERR)<< in TBF.cpp (example @@@fail) not work if you
+	use the default Log.Level, but works if you add:
+	INSERT INTO "CONFIG" VALUES('Log.Level.TBF.cpp','DEBUG',0,0,'debug');
+
+o Fixed by mAltTlli, but has it been tested?
+	When we change tlli, when we check for an existing TBF, we have to check
+ 	both MSInfo structs.  The SGSN knows the IMSI for every TLLI, so it should
+	 ship down the assigned TLLI on AttachComplete.
+
+o Maybe fixed by resetting mSP and mUSF:
+	Saw mSP being set in an outgoing data block but without a reservation??
+
+o I think I fixed this by adding the TbfRelease procedue:
+	BUG: The MS will send packet resource request using an expired TFI.
+	I think we need to keep the tfis reserved until the T3312, or until explicitly reused.
+	And if reused, must be for the same MS, or an in-flight packet resource request would be invalid.
+
+o I think this is fixed by a combination of many bug fixes:
+	== cause=3105 error ==
+	Might be T3168 problem  GSM04.60 7.1.3.1 and TBF.cpp:sendAssignemnt()
+	o Try resending the assignment.
+
+o Done: add ms imsi to ggsn.log
+
+o Done, for uplink initiated by downlink acknack:
+	== Multiple uplink TBF ==
+	o Fix the multiple uplink TBF stuff - these will be initiated using the RRBP
+	reservations, not come in on a RACH.
+
+o Done: Accept a new request in the PacketDownlinkAckNack.  Here is one from the blackberry:
+	INFO GPRS,1,412353: TBF#91PacketDownlinkAckNack: PayLoadType=RLCControl mCountDownValue=(0) 
+	mSI=(0) mR=(0) mMessageType=2 mTFI=(1) mFinalAckIndication=(1) mSSN=(2) Bitmap=(0000000000000003)
+	mPeakThroughputClass=(4) mRadioPriority=(1) mRLCMode=(0) mLLCPDUType=(1) mRLCOctetCount=(1345)
+	mSt.TxQNum=2 mSt.VA=2 mSt.VS=1
+	INFO GPRS,1,412353:@@@ok TBF#91 mtMS= MS#2 TLLI=c0009001 usf=0 mtDir=RLCDir::Down mtState==TBFState:DataTransmit
+     mtAttached=1 mtTFI=1 mtMsgAck=1 mtExpectedAckBSN=412350 size=54
+	      mtChannelCoding=3 mtUnAckMode=0 OnCCCH=1 mtAssignCounter=1 descr=user pdu 18:52:31.9
+
+o NO: The way I am doing it now is fine:
+	Need to assign a permanent PACCH.  Need to move the MS off it?
+	MS->BTS RACH
+	MS<-BTS single block
+	MS->BTS resource request
+	MS<-BTS uplink/downlink assignment sent to old channel may assign new ch.
+
+o mControlAck fixed in trunk, but not in GPRS3 yet.
+o Done: 6-18: Re-merge the controlAck fix from the trunk.
+o Done 6-23: Clean up processUplinkResourceRequest:
+	when a RACH comes in cancel the downlink TBF.
+	improve uplink handling as well.
+	Add msUplinkRequest for delayed uplink request.
+o Done 6-23 Add a count of number of reassignments, and possibly other states, to prevent lockup.
+	Added GPRS.Timers.MS.NonResponsive
+o Done 6-26: Allow uplink request in final uplink acknack using TBF_EST.
+o Done 6-27: Add an over-riding non-responsive MS timer.
+o Fixed 7-4: TBFs are not dying properly - why not?  Because the MS lost
+	the channel assignment and so Dead TBF was not serviced.
+o Who cares: windows ftp says: 500 I won't open a connection to 192.168.99.1 (only to 24.20.208.209)
+	(The latter is comcast, probably my static IP.)
+o The Pittsburgh logs have @@@ messages with no antecedent messages.  Why?
+	Because David was turning the debug level on and off on the console.
+o Fixed! If the multitech modem is attached and bts is power cycled, cant get it back.
+	I send a DetachRequest and a GMMStatus, and the modem sends back invalid mandatory information.
+	Try sending each message separately to figure out which one it doesnt like.
+	Try taking out the Gmm "Cause".
+o Done 8-2, Pittsburgh problem: retest the InterThreadQueue fix.
+o Fixed: 8-2, Pittsburgh problem: If multiple modems share the channel, does not work.
+Fixed o A 1-down/2-up config asserted in findNeedyUsf here: assert(ms->msCanUseUplinkTn(tn));
+Done o Send power params in downlink assignment  Probably need to put them there first.
+FIXED: o Possibly the L3ImmediateAssignment for downlink is not working.
+Completely redone: o sendReassignment has to restart the persistent uplink TBF.
+Worked around this: o multitech modem says it is not extended uplink capable?
+DONE o Can increase 3101 now, and multiply it by the number of uplink channels.
+Fixed o The initial assignment is being multislot, and then I am doing a reassignment?
+DONE o Put the power reports (eg: CX) from the MS somewhere in the CLI so David can see it in the field.
+FIXED: o The blackberry uses a local tlli in the packetcontrolacknowledgment, see /OpenBTS/8-10/*.log Causes TBF failure.
+FIXED: o David complained about the ggsn.log.  Make sure everything in there is in the real log.
+	It is, but you have to set LOG.Level to INFO go see it.
+OK o I tried setting GGSN.MS.IP.MaxCount to 4.  After issuing 3 IPs, it denied the fourth (off by one)
+	The iphone reports: Could not acviate cellular network, Samsung says No Connection.
+	I think that is right, because they are reserved for a few minutes.

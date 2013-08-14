@@ -1,39 +1,33 @@
 /*
 * Copyright 2008, 2010 Free Software Foundation, Inc.
+* Copyright 2012 Range Networks, Inc.
 *
-* This software is distributed under the terms of the GNU Affero Public License.
-* See the COPYING file in the main directory for details.
+* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
 
-	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
 
 
 
-#include <Reporting.h>
-
-#include "TRXManager.h"
-#include "GSMCommon.h"
-#include "GSMTransfer.h"
-#include "GSMLogicalChannel.h"
-#include "GSMConfig.h"
-#include "GSML1FEC.h"
 
 #include <Logger.h>
+
+#include "TRXManager.h"
+
+#include <Globals.h>
+#include <GSMCommon.h>
+#include <GSMTransfer.h>
+#include <GSMLogicalChannel.h>
+#include <GSMConfig.h>
+#include <GSML1FEC.h>
+
+#include <Reporting.h>
 
 #include <string>
 #include <string.h>
@@ -74,9 +68,24 @@ void TransceiverManager::start()
 
 void* ClockLoopAdapter(TransceiverManager *transceiver)
 {
+	// This loop checks the clock messages from the transceiver.
+	// These messages keep the BTS clock in sync with the hardware,
+	// and also serve as a heartbeat for the radiomodem.
+
+	// This is a convenient place for other periodic housekeeping as well.
+
+	// This loop has a period of about 3 seconds.
+
+	gResetWatchdog();
 	Timeval nextContact;
 	while (1) {
 		transceiver->clockHandler();
+		LOG(DEBUG) << "watchdog timer expires in " << gWatchdogRemaining() << " seconds";
+		if (gWatchdogExpired()) {
+			LOG(ALERT) << "restarting OpenBTS on expiration of watchdog timer";
+			gReports.incr("OpenBTS.Exit.Error.Watchdog");
+			exit(-2);
+		}
 	}
 	return NULL;
 }
@@ -90,9 +99,15 @@ void TransceiverManager::clockHandler()
 
 	// Did the transceiver die??
 	if (msgLen<0) {
-		LOG(ALERT) << "TRX clock interface timed out, assuming TRX is dead.";
+		LOG(EMERG) << "TRX clock interface timed out, assuming TRX is dead.";
 		gReports.incr("OpenBTS.Exit.Error.TransceiverHeartbeat");
+#ifdef RN_DEVELOPER_MODE
+		// (pat) Added so you can keep debugging without the radio.
+		static int foo = 0;
+		pthread_exit(&foo);
+#else
 		abort();
+#endif
 	}
 
 	if (msgLen==0) {
@@ -103,7 +118,7 @@ void TransceiverManager::clockHandler()
 	if (strncmp(buffer,"IND CLOCK",9)==0) {
 		uint32_t FN;
 		sscanf(buffer,"IND CLOCK %u", &FN);
-		LOG(DEBUG) << "CLOCK indication, clock="<<FN;
+		LOG(INFO) << "CLOCK indication, current clock = " << gBTS.clock().get() << " new clock ="<<FN;
 		gBTS.clock().set(FN);
 		mHaveClock = true;
 		return;
@@ -176,9 +191,11 @@ void ::ARFCNManager::installDecoder(GSM::L1Decoder *wL1d)
 
 
 
-void ::ARFCNManager::writeHighSide(const GSM::TxBurst& burst)
+// (pat) renamed overloaded function to clarify code
+void ::ARFCNManager::writeHighSideTx(const GSM::TxBurst& burst,const char *culprit)
 {
-	LOG(DEBUG) << "transmit at time " << gBTS.clock().get() << ": " << burst;
+	LOG(DEBUG) << culprit << " transmit at time " << gBTS.clock().get() << ": " << burst 
+		<<" steal="<<(int)burst.peekField(60,1)<<(int)burst.peekField(87,1);
 	// format the transmission request message
 	static const int bufferSize = gSlotLen+1+4+1;
 	char buffer[bufferSize];
@@ -283,6 +300,26 @@ int ::ARFCNManager::sendCommandPacket(const char* command, char* response)
 
 
 
+// TODO : lots of duplicate code in these sendCommand()s
+int ::ARFCNManager::sendCommand(const char*command, const char*param, int *responseParam)
+{
+	// Send command and get response.
+	char cmdBuf[MAX_UDP_LENGTH];
+	char response[MAX_UDP_LENGTH];
+	sprintf(cmdBuf,"CMD %s %s", command, param);
+	int rspLen = sendCommandPacket(cmdBuf,response);
+	if (rspLen<=0) return -1;
+	// Parse and check status.
+	char cmdNameTest[15];
+	int status;
+	cmdNameTest[0]='\0';
+        if (!responseParam)
+	  sscanf(response,"RSP %15s %d", cmdNameTest, &status);
+        else
+          sscanf(response,"RSP %15s %d %d", cmdNameTest, &status, responseParam);
+	if (strcmp(cmdNameTest,command)!=0) return -1;
+	return status;
+}
 
 int ::ARFCNManager::sendCommand(const char*command, int param, int *responseParam)
 {
@@ -293,13 +330,13 @@ int ::ARFCNManager::sendCommand(const char*command, int param, int *responsePara
 	int rspLen = sendCommandPacket(cmdBuf,response);
 	if (rspLen<=0) return -1;
 	// Parse and check status.
-	char cmdNameTest[10];
+	char cmdNameTest[15];
 	int status;
 	cmdNameTest[0]='\0';
         if (!responseParam)
-	  sscanf(response,"RSP %10s %d", cmdNameTest, &status);
+	  sscanf(response,"RSP %15s %d", cmdNameTest, &status);
         else
-          sscanf(response,"RSP %10s %d %d", cmdNameTest, &status, responseParam);
+          sscanf(response,"RSP %15s %d %d", cmdNameTest, &status, responseParam);
 	if (strcmp(cmdNameTest,command)!=0) return -1;
 	return status;
 }
@@ -314,10 +351,10 @@ int ::ARFCNManager::sendCommand(const char*command, const char* param)
 	int rspLen = sendCommandPacket(cmdBuf,response);
 	if (rspLen<=0) return -1;
 	// Parse and check status.
-	char cmdNameTest[10];
+	char cmdNameTest[15];
 	int status;
 	cmdNameTest[0]='\0';
-	sscanf(response,"RSP %10s %d", cmdNameTest, &status);
+	sscanf(response,"RSP %15s %d", cmdNameTest, &status);
 	if (strcmp(cmdNameTest,command)!=0) return -1;
 	return status;
 }
@@ -333,10 +370,10 @@ int ::ARFCNManager::sendCommand(const char*command)
 	int rspLen = sendCommandPacket(cmdBuf,response);
 	if (rspLen<=0) return -1;
 	// Parse and check status.
-	char cmdNameTest[10];
+	char cmdNameTest[15];
 	int status;
 	cmdNameTest[0]='\0';
-	sscanf(response,"RSP %10s %d", cmdNameTest, &status);
+	sscanf(response,"RSP %15s %d", cmdNameTest, &status);
 	if (strcmp(cmdNameTest,command)!=0) return -1;
 	return status;
 }
@@ -405,12 +442,12 @@ bool ::ARFCNManager::powerOn(bool warn)
 {
 	int status = sendCommand("POWERON");
 	if (status!=0) {
-		if (warn){
+		if (warn) {
 			LOG(ALERT) << "POWERON failed with status " << status;
+		} else {
+			LOG(INFO) << "POWERON failed with status " << status;
 		}
-		else {
-			LOG(INFO) << "POWERON failed with status " << status;		    
-		}	
+		
 		return false;
 	}
 	return true;
@@ -458,7 +495,8 @@ bool ::ARFCNManager::setBSIC(unsigned BSIC)
 bool ::ARFCNManager::setSlot(unsigned TN, unsigned combination)
 {
 	assert(TN<8);
-	assert(combination<14);
+	// (pat) had to remove assertion here:
+	//assert(combination<8);
 	char paramBuf[MAX_UDP_LENGTH];
 	sprintf(paramBuf,"%d %d", TN, combination);
 	int status = sendCommand("SETSLOT",paramBuf);
@@ -490,6 +528,54 @@ signed ::ARFCNManager::setRxGain(signed rxGain)
         return newRxGain;
 }
 
+
+bool ::ARFCNManager::setHandover(unsigned TN)
+{
+	assert(TN<8);
+	int status = sendCommand("HANDOVER",TN);
+	if (status!=0) {
+		LOG(ALERT) << "HANDOVER failed with status " << status;
+		return false;
+	}
+	return true;
+}
+
+
+bool ::ARFCNManager::clearHandover(unsigned TN)
+{
+	assert(TN<8);
+	int status = sendCommand("NOHANDOVER",TN);
+	if (status!=0) {
+		LOG(ALERT) << "NOHANDOVER failed with status " << status;
+		return false;
+	}
+	return true;
+}
+
+
+signed ::ARFCNManager::setTxAtten(signed txAtten)
+{
+        signed newTxAtten;
+        int status = sendCommand("SETTXATTEN",txAtten,&newTxAtten);
+        if (status!=0) {
+                LOG(ALERT) << "SETTXATTEN failed with status " << status;
+                return false;
+        }
+        return newTxAtten;
+}
+
+signed ::ARFCNManager::setFreqOffset(signed offset)
+{
+        signed newFreqOffset;
+        int status = sendCommand("SETFREQOFFSET",offset,&newFreqOffset);
+        if (status!=0) {
+                LOG(ALERT) << "SETFREQOFFSET failed with status " << status;
+                return false;
+        }
+        return newFreqOffset;
+}
+
+
 signed ::ARFCNManager::getNoiseLevel(void)
 {
 	signed noiselevel;
@@ -501,21 +587,35 @@ signed ::ARFCNManager::getNoiseLevel(void)
         return noiselevel;
 }
 
+signed ::ARFCNManager::getFactoryCalibration(const char * param)
+{
+	signed value;
+	int status = sendCommand("READFACTORY", param, &value);
+	if (status!=0) {
+		LOG(ALERT) << "READFACTORY failed with status " << status;
+		return false;
+	}
+	return value;
+}
+
 void ::ARFCNManager::receiveBurst(const RxBurst& inBurst)
 {
-	LOG(DEBUG) << "receiveBurst: " << inBurst;
+	if (inBurst.RSSI() < gConfig.getNum("TRX.MinimumRxRSSI")) {
+		LOG(DEBUG) << "ignoring " << inBurst;
+		return;
+	}
+
+	LOG(DEBUG) << "processing " << inBurst;
 	uint32_t FN = inBurst.time().FN() % maxModulus;
 	unsigned TN = inBurst.time().TN();
 
-	mTableLock.lock();
+	ScopedLock lock(mTableLock);
 	L1Decoder *proc = mDemuxTable[TN][FN];
 	if (proc==NULL) {
-		LOG(DEBUG) << "ARFNManager::receiveBurst in unconfigured TDMA position TN: " << TN << " FN: " << FN << ".";
-		mTableLock.unlock();
+		LOG(DEBUG) << "ARFNManager::receiveBurst time " << inBurst.time() << " in unconfigured TDMA position T" << TN << " FN=" << FN << ".";
 		return;
 	}
-	proc->writeLowSide(inBurst);
-	mTableLock.unlock();
+	proc->writeLowSideRx(inBurst);
 }
 
 

@@ -693,6 +693,14 @@ Interaction; Use with the GNU General Public License").  This exemption of
 interfaces other than the GSM air interface from the requirements of Section 13
 is an additional permission granted to you.  
 
+2.  GSM "A5" cipher stream generation libraries
+
+Notwithstanding any other provision of this License, you have
+permission to link the Program with GSM "A5" cipher-stream generation
+libraries provided under any license that allows redistribution of
+those libraries in binary form, provided that the function of any such
+library is limited to the generation of cipher-steam bits.
+
 
 Non-Permissive Terms Supplementing The License
 
@@ -704,9 +712,7 @@ license does not include the right to use the OpenBTS trademark in commerce.
 This additional non-permissive term is consistent with Section 7 of the AGPLv3
 license.
 
-
 END OF ADDITIONAL TERMS
-
 
 
 How to comply with Section 13 of the AGPLv3 license.

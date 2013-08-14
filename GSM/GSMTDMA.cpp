@@ -1,24 +1,14 @@
 /*
 * Copyright 2008, 2009, 2010 Free Software Foundation, Inc.
 *
-* This software is distributed under the terms of the GNU Affero Public License.
-* See the COPYING file in the main directory for details.
+* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
 
-	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
 
@@ -242,6 +232,23 @@ MAKE_TDMA_MAPPING(SACCH_C8_7U,SDCCH_8_7,false,true,0xFF,true,102);
 
 
 
+// (pat) The basic 26-multi-frame has SACCH in timeslot #12 and an idle frame in timeslot #35.
+// The entries below all follow this format, but a single SACCH message,
+// comprised of 4 frames, starts at a different spot for each TCH,
+// which is another way of saying that the TCH itself starts in a different place,
+// and the odd numbered ones start with a 13 frame (half a multiframe) offset.
+// The important point for GPRS is that these are the exact same frames needed
+// for the continuous timing advance.  If I want to use these, however, it means
+// that the absolute frame number at which the GPRS 52-multiframe begins for each
+// channel must be syncrhonized with these tables for each channel.
+// More specifically, there are really only two cases, since we wont be using
+// the SACCH frame-to-message assembling machinery.  These cases are whether
+// the SACCH frames start at a multiple of frame 0, or of frame 13.
+// In other words, assuming all 104-multiframe below begin at time 0, the even numbered
+// table entries return SACCH from frame #12 of each 26-multi-frame,
+// and the odd ones return SACCH from frame #25, which would normally be the idle frame,
+// if the 26-multi-frame were aligned at 0.
+// This odd fact is going to get hard-coded into GPRS.
 const unsigned SACCH_TF_T0Frames[] = {12,38,64,90};
 MAKE_TDMA_MAPPING(SACCH_TF_T0,TCHF_0,true,true,0x01,true,104);
 

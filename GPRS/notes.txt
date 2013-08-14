@@ -1,0 +1,151 @@
+7-13, uplink.persist=3000, 1 channel: speed 11.7 latency 1.8 
+	uplink.persist=3000 3-down/2-up: speed 46.2 latency 1.3
+	uplink.persist=3000 4-down/1-up: speed 41.5 latency 1.4
+	again uplink.persist=3000 4-down/1-up: speed 27.8.5 latency 1.1
+	again: uplink.persist=3000 4-down/1-up: speed 38.1 latency 1.3
+
+Fri Jul 13 04:52:16 PDT 2012
+7-11: Multitech modem 4-up/1-down.  This is after fixing the downlink USF bug.
+	These are with T3192Code=2 (1500ms)
+	downlink speed from mobilespeedtest.com: 22Kbps
+	In these there is downlink traffic on the same shared PACCH:
+		uplink ftp: total 1023652 bytes in 324s = 25Kbps
+		Raw (from looking at a single tbf, 3062B in 0.9s) 27Kbps
+		U412 96.5-93 4624b = 11Kbps.  Yuck.
+		uplink ftp 50025 in 15s = 26.7Kbps.
+	for 3-up/2-down: uplink ftp 50025 in 30s = 13Kbps.
+	for 2-up/2-down: uplink ftp 50025 in 18s. second test: 18s = 22.2Kbps
+	I checked the log, and we are definitely getting blocks on all 4 channels.
+	For the 3/2 test that was slow, it looks like the phone is having to RACH in to
+	start nearly every uplink.  For 4/1 the downlinks are so slow that they are still
+	running when the uplink ends.
+	These are with T3192Code=0 (500ms)
+
+
+7-5: 4 channel multislot, T3192Code=0, got 32.8 Kbps.
+7-5: 4 channel multislot, T3192Code=3, got 25, and cause=105 errors (TBF killed by RACH).
+	I suspect setting T3192 too high can force the MS to RACH for an uplink TBF.
+	
+
+7-4-2012:
+	Tried ftp.
+	download 6:40
+	upload: 20 seconds "to calculate the time"
+	then sent a 0 byte file.  Gotta love that.
+6-27-2012:
+	With new channel allocator that guarantees 3-down/2-up assignments:
+	mobilespeedtest.com: 25Kbps, latency 2.2
+	Had to set GPRS.ChannelCodingControl.RSSI to -50 to get it though
+	Setting GPRS.Codecs.Uplink,Downlink to 4 got 25.6Kbps
+	Setting T3192Code to 3 gives 29.4Kbps
+6-21-2012:
+	iphone 001690000000002
+	iphone speedtest.com 20.6KBps, latency 2.6s 100K in 39s.
+	The phone sent XID type 5 (set U and UI frame size) to 1520
+	and XID type 11 (L3 params): LLC:LLC XID xidtype=11 xidlen=3 value=256;  LLC:LLC Sending XID command:03FB1605F02F000100
+	After power cycling the bts,
+	this phone does not accept the DetachRequest or PdpContextReject ImplicitlyDetached thing.
+	if you manually request the operator again with the phone, it sends a RoutingAreaRequest with a new TLLI
+	and after receiving the RoutingAreaUpdateReject does an immediate new attach.
+	--
+	This phone lost connection temporarily in log: iphone/1 around 07:54:46.
+	An uplink TBF#127 was (correctly) cancelled, but I subsequently saw many 'received uplink data block after expiration'
+	How is that possible?
+	--
+	After power cycling the bts, the carrier selection reported ATT and T-MOBILE only; tried 3 times.
+	It did not do anything to gprs, so I think this is a normal registration failure.
+	Then when power cycled, it did an immediate gprs-attach.
+	When I did the "Carrier Selection" again, it showed only 1001, not ATT and T-MOBILE.
+
+	Samsung GT-I5500 Baseband version: I5500NEJP1
+
+Put gprs tests on the wiki.
+
+6-18-2012: Davids galaxy error log:
+	res 303714: TBF#170 uplinkacknack - received
+	res 303715: TBF#171 downlinkassignment - unanswered
+	res 303735: TBF#171 immediate downlinkassignment - received
+	res 305577 TBF#177 sendass PACCH - unans (at 583)
+	res 305585 TBF#177 sendass PACCH - unans (at 591)
+	res 305593 TBF#177 sendass PACCH - unans (at 599)
+	at 5598 res 305601 TBF#177 sendass PACCH - unans (at 607)
+	at 5606 res 305618 TBF#177 sendass imm on TN1. 617 PDCH#51:1 has no usf.
+	at 5623 res 305636 TBF#177 packetuplinkacknack
+
+6-13-2012:
+	After RLC modification to send only negatively acknowledged blocks,
+	now at 22.2Kbps, latency=2.0, 100K in 36.1s.
+
+6-11-2012:
+	After fixing nstuck bug, setting nstuck to 1000, fixing the negatively acknowledged resend bugs:
+	15.6Kbps, 19.8Kbps, 19.3Kbps
+
+With 2-down/2-up I typically get 19Kbps.
+Tried setting Poll1 to 30, got 11-13Kbps on two different tests
+with 8 total cause=3 errors.
+Restarted with Poll1 at 10 (default) got 19Kbps with one cause=3.
+then 10Kbps with one cause=3.
+
+Restarted, removing the the needy USF fix entirely,
+setting Multislot.Max.Downlink/Uplink =1/1 in sql and turning on GPRS.WATCH.
+	18.5Kbps
+Turned off GPRS.WATCH 14.7Kbps with 2x3105 retries
+Turned on GPRS.WATCH 19.7Kbps, did not see any retries.
+Turned off GPRS.WATCH 17.5, no retries, then 16.7 with 1x3105
+Turned on GPRS.WATCH 19.3Kbps, 16.3Kbps
+Turned off GPRS.WATCH 12.6Kpbs, 17.6Kbps (no retries), 17.2Kbps.
+I think it may depend on how long you wait between re-running the test,
+ie, maybe there are still old tcp packets coming that bash the current test.
+
+6-8-2012 GPRS-Beta-4 3-down/2-up with needy USF turned off:
+	Your speed: 18.4
+	Your latency: 1.8s
+	Transferred 100KB in 43.5
+Changing GPRS.USFMode (needy USF) didnt change a thing.
+with 2-down/2-up: 13.9Kbps, 2.2s, 100KB in 57.3s, and it had alot of retries.
+again: 13.5Kbps, 2.3s, 100KB in 60s
+
+6-7-2012 with 3-down/2-up working multislot:
+	Your speed: 19.8Kbps
+	Your latency: 1.8s
+	Transferred 100KB in 40.3
+
+6-3-2012 with 2-down/2-up working multislot:
+	Your speed: 20.78Kbps
+	Your latency: 1.8s
+	Transferred 100KB in 38.5s
+
+mobilespeedtest.com:
+6-3-2012 with 2-down/1-up buggy multislot:
+	Your speed: 18.29Kbps
+	Your latency: 2.86
+	Transferred 100KB in 43.74s
+	
+
+5-22-2012, with continuous tbf, but the speed test stops for maybe 5 seconds right in the middle -why?
+
+	Your speed: 7.08Kbps
+	Your latency: 2.702
+	Transferred 100KB in 113s
+
+
+	google.com -  8 secs
+	pats home page (www.menu1.org/pat) - 15 secs
+	cnn.com - 35-40 secs  (note that this page is not invariant.)
+	wikipedia dinosaur  1:52 
+
+After bug fix, but it still hung half way through, but the hang looked correct (saw fbi) so whats up?
+Your speed: 8.08Kbps
+Your latency: 2.6
+Transferred 100KB in 99s
+
+After setting RLCMsgPacketDownlinkAssignment->mControlAck
+Your speed: 11.17Kbps
+Your latency: 2.8
+Transferred 100KB in 71
+wikipedia dinosaur 1:40
+
+After fixing the mSP bug:
+	wikipedia dinosaur 1:35
+
+============

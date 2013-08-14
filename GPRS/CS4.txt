@@ -1,0 +1,59 @@
+
+SACCH Encoding:
+(Parity(0x10004820009ULL,40,224)
+	Set bits: 0,3,17,23,26,40 
+	g(D) = 1 + D3 + D17 + D23 + D26 + D40
+
+From GSM05.03 sec5.1
+184 bits
+		Parity:
+		  a) Parity bits:
+			 The block of 184 information bits is protected by 40 extra bits used
+			 for error correction and detection. These bits are added to the 184 bits
+			 according to a shortened binary cyclic code (FIRE code) using the generator
+			 polynomial:
+				  g(D) = (D23 + 1)*(D17 + D3 + 1)
+			 The encoding of the cyclic code is performed in a systematic form, which means that, in GF(2), the polynomial:
+			 d(0)D223 + d(1)D222 +...+d(183)D40 + p(1)D38 +...+p(38)D + p(39)
+			 where {p(0),p(1),...,p(39)} are the parity bits , when divided by g(D) yields a remainder equal to:
+				  1 + D + D2 +...+ D39.
+		) Tail bits
+			 Four tail bits equal to 0 are added to the information and parity bits, the result being a block of 228 bits.
+				  u(k) = d(k)       for k= 0,1,...,183
+				  u(k) = p(k-184) for k = 184,185,...,223
+				  u(k) = 0          for k = 224,225,226,227 (tail bits)
+
+
+From GSM03.64 sec6.5.5
+CS-4: 431 bits.
+----
+		a) USF precoding:
+		   The first three bits d(0),d(1),d(2) are block coded into twelve bits u'(0),u'(1),...,u'(11) according to the following
+		   table:
+											d(0),d(1),d(2)              u'(0),u'(1),...,u'(11)
+                                         000                     000 000 000 000
+                                         001                     000 011 011 101
+                                         010                     001 101 110 110
+                                         011                     001 110 101 011
+                                         100                     110 100 001 011
+                                         101                     110 111 010 110
+                                         110                     111 001 111 101
+                                         111                     111 010 100 000
+		b) Parity bits:
+		   Sixteen parity bits p(0),p(1),...,p(15) are defined in such a way that in GF(2) the binary polynomial:
+			   d(0)D446 +...+ d(430)D16 + p(0)D15 +...+ p(15), when divided by:
+			   D16 + D12 + D5 + 1, yields a remainder equal to:
+			   D15 + D14 + D13 + D12 + D11 + D10 + D9 + D8 + D7 + D6 + D5 + D4 + D3 + D2 + D+1.
+		   The result is a block of 456 coded bits, {c(0),c(1),...,c(455)}:
+			   c(k)    = u'(k)        for k = 0,1,...,11
+			   c(k)    = d(k-9)       for k = 12,13,...,439
+			   c(k)    = p(k-440)     for k = 440,441,...,455
+
+
+		5.1.4.5          Mapping on a burst
+		The mapping is given by the rule:
+			  e(B,j) = i(B,j) and e(B,59+j) = i(B,57+j) for j = 0,1,...,56
+		and
+			  e(B+m,57) = q(2m) and e(B+m,58) = q(2m+1) for m = 0,1,2,3
+		where
+		q(0),q(1),...,q(7) = 0,0,0,1,0,1,1,0 identifies the coding scheme CS-4.

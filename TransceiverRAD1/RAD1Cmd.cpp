@@ -2,8 +2,7 @@
 /*
  * USRP - Universal Software Radio Peripheral
  *
- * Copyright (C) 2003,2004,2009,2011 Free Software Foundation, Inc.
- * Copyright 2011 Range Networks, Inc.
+ * Copyright (C) 2003,2004,2009 Free Software Foundation, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -197,7 +196,7 @@ main (int argc, char **argv)
   const char *cmd = argv[optind++];
   nopts--;
 
-  gLogInit("openbts",argv[1],LOG_LOCAL7);
+  gLogInit("openbts",NULL,LOG_LOCAL7);
 
   rnrad1Core *core = new rnrad1Core(which_board,
 				    RAD1_CMD_INTERFACE,

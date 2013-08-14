@@ -2,24 +2,16 @@
 * Copyright 2008 Free Software Foundation, Inc.
 * Copyright 2011 Range Networks, Inc.
 *
-* This software is distributed under the terms of the GNU Affero Public License.
-* See the COPYING file in the main directory for details.
+* This software is distributed under multiple licenses;
+* see the COPYING file in the main directory for licensing
+* information for this specific distribuion.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
 
-	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
 
@@ -135,11 +127,36 @@ class CCCHL2 : public L2DL {
 
 	void writeLowSide(const GSM::L2Frame&) { assert(0); }
 
-    L3Frame* readHighSide(unsigned /*timeout = 3600000*/) { assert(0); return NULL; }
+	L3Frame* readHighSide(unsigned timeout=3600000) { assert(0); return NULL; }
 
 	void writeHighSide(const GSM::L3Frame&);
 
 };
+
+
+/**
+	A "thin" L2 for CBCH.
+	This is a downlink-only channel and does not use LAPDm.
+	See GSM 04.12 3.3.1.
+*/
+class CBCHL2 : public L2DL {
+
+	public:
+
+	unsigned N201(GSM::L2Control::ControlFormat format) const { assert(0); }
+
+	unsigned N200() const { return 0; }
+
+	void open() {}
+
+	void writeLowSide(const GSM::L2Frame&) { assert(0); }
+
+	L3Frame* readHighSide(unsigned timeout=3600000) { assert(0); return NULL; }
+
+	void writeHighSide(const GSM::L3Frame&);
+
+};
+
 
 
 
@@ -392,6 +409,7 @@ class L2LAPDm : public L2DL {
 			- This need not be called when the channel is closed,
 				as L1 will generate its own filler pattern that is more
 				appropriate in this condition.
+			- This does not need to be called for the SACCH or FACCH.
 	*/
 	virtual void sendIdle() { writeL1(mIdleFrame); }
 

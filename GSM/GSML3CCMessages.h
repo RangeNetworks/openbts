@@ -4,24 +4,16 @@
 * Copyright 2008, 2009 Free Software Foundation, Inc.
 * Copyright 2011 Range Networks, Inc.
 *
-* This software is distributed under the terms of the GNU Affero Public License.
-* See the COPYING file in the main directory for details.
+* This software is distributed under multiple licenses;
+* see the COPYING file in the main directory for licensing
+* information for this specific distribuion.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
 
-	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
 
@@ -65,7 +57,6 @@ class L3CCMessage : public L3Message {
 		CallProceeding=0x02,
 		Connect=0x07,
 		Setup=0x05,
-		EmergencySetup=0x0e,
 		ConnectAcknowledge=0x0f,
 		Progress=0x03,
 		//@}
@@ -179,6 +170,7 @@ public:
 		mCause(wCause), 
 		mCallState(wCallState)
 	{}
+	
 	const L3Cause& cause() const { return mCause; }
 	const L3CallState callState() const { return mCallState; }
 
@@ -293,29 +285,6 @@ public:
 
 	void text(std::ostream&) const;
 };
-
-
-/**
-	GSM 04.08 9.3.8
-*/
-class L3EmergencySetup : public L3CCMessage
-{
-
-	// We fill in IEs one at a time as we need them.
-
-public:
-
-	L3EmergencySetup(unsigned wTI=7)
-		:L3CCMessage(wTI)
-	{ }
-
-	
-	int MTI() const { return EmergencySetup; }
-	void parseBody( const L3Frame &src, size_t &rp ) {}
-	size_t l2BodyLength() const { return 0; }
-};
-
-
 
 
 /** GSM 04.08 9.3.3 */

@@ -18,7 +18,7 @@ dnl You should have received a copy of the GNU General Public License
 dnl along with this program.  If not, see <http://www.gnu.org/licenses/>.
 dnl
 
-AC_INIT(openbts,P2.8TRUNK)
+AC_INIT(openbts-public,TRUNK)
 AC_PREREQ(2.57)
 AC_CONFIG_SRCDIR([config/Makefile.am])
 AC_CONFIG_AUX_DIR([.])	
@@ -29,9 +29,6 @@ AC_CANONICAL_HOST
 AC_CANONICAL_TARGET
 
 AM_INIT_AUTOMAKE
-
-dnl Linux kernel KBuild style compile messages
-m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])])
 
 AM_PROG_AS
 AC_PROG_CXX
@@ -118,17 +115,9 @@ AM_CONDITIONAL(RESAMPLE, [test "x$with_resamp" = "xyes"])
 AM_CONDITIONAL(UHD, [test "x$with_uhd" = "xyes"])
 AM_CONDITIONAL(USRP1, [test "x$with_usrp1" = "xyes"])
 
-# Defines OSIP_CFLAGS, OSIP_INCLUDEDIR, and OSIP_LIBS
-PKG_CHECK_MODULES(OSIP, libosip2)
-
-# Defines ORTP_CFLAGS, ORTP_INCLUDEDIR, and ORTP_LIBS
-PKG_CHECK_MODULES(ORTP, ortp)
 
 # Defines LIBUSB_TRANSFER_CANCELLED, LIBUSB_TRANSFER_COMPLETED, LIBUSB_SUCCESS, LIBUSB_ERROR_*
 PKG_CHECK_MODULES(LIBUSB, libusb-1.0)
-
-# Prepends -lreadline to LIBS and defines HAVE_LIBREADLINE in config.h
-AC_CHECK_LIB(readline, readline)
 
 # Check for glibc-specific network functions
 AC_CHECK_FUNC(gethostbyname_r, [AC_DEFINE(HAVE_GETHOSTBYNAME_R, 1, Define if libc implements gethostbyname_r)])
@@ -140,23 +129,23 @@ AC_CONFIG_FILES([\
     apps/Makefile \
     config/Makefile \
     doc/Makefile \
-    tools/Makefile \
-    AsteriskConfig/Makefile \
     CommonLibs/Makefile \
     Globals/Makefile \
     Control/Makefile \
     GSM/Makefile \
+    GPRS/Makefile \
+    SGSNGGSN/Makefile \
     SIP/Makefile \
     SMS/Makefile \
+    TransceiverDYN/Makefile \
     TransceiverRAD1/Makefile \
+    TransceiverRAD1-DYN65-Hack/Makefile \
+    Transceiver52M/Makefile \
     TRXManager/Makefile \
     CLI/Makefile \
+    Peering/Makefile \
     SR/Makefile \
     sqlite3/Makefile \
-]) 
-
-AS_IF([test "x$with_usrp1" = "xyes" -o "x$with_uhd" = "xyes"],
-	    [AC_CONFIG_FILES(Transceiver52M/Makefile)
 ])
 
 AC_OUTPUT

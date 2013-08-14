@@ -4,24 +4,14 @@
 * Copyright 2008, 2010 Free Software Foundation, Inc.
 * Copyright 2011 Kestrel Signal Processing, Inc.
 *
-* This software is distributed under the terms of the GNU Affero Public License.
-* See the COPYING file in the main directory for details.
+* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
 
-	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
 
@@ -35,6 +25,7 @@
 #include "GSML3Message.h"
 #include "GSML3CommonElements.h"
 #include "GSML3RRElements.h"
+#include <ByteVector.h>
 
 namespace GSM {
 
@@ -42,6 +33,20 @@ namespace GSM {
 /**
 	This a virtual class for L3 messages in the Radio Resource protocol.
 	These messages are defined in GSM 04.08 9.1.
+	(pat) The GSM 04.08 and 04.18 specs list all these messages together, but say
+	nothing about their transport mechanisms, which are wildly different and described elsewhere.
+	For example, GPRS Mobility Management messages are handled inside the SGSN,
+	which wraps them in an LLC protocol and sends them to the RLC/MAC layer
+	(via BSSG and NS protocols, in which these messages reside temporarily)
+	which wraps them in an RLC Header, then wraps them with a MAC header,
+	before delivering to the radio transmit, which munges them even further.
+	And by the way, if the MS is in DTM (Dual Transfer Mode) the MAC layer
+	may (or should?) unwrap the L3 Message from its LLC wrapper and send it on a
+	dedicated RR message channel instead of sending it via GPRS PDCH.
+
+	Note that the message numbers are reused several times in the tables
+	for different purposes, for example, MessageTypes for Mobility Management reuse
+	numbers in Message Types for Radio Rsource Management.
 */
 class L3RRMessage : public L3Message {
 
@@ -64,7 +69,7 @@ class L3RRMessage : public L3Message {
 		SystemInformationType7=0x1f,
 		SystemInformationType8=0x18,
 		SystemInformationType9=0x04,
-		SystemInformationType13=0x00,
+		SystemInformationType13=0x00,	// (pat) yes, this is correct.
 		SystemInformationType16=0x3d,
 		SystemInformationType17=0x3e,
 		//@}
@@ -89,10 +94,14 @@ class L3RRMessage : public L3Message {
 		///@name Handover
 		//@{
 		HandoverCommand=0x2b,
+		HandoverComplete=0x2c,
+		HandoverFailure=0x28,
+		PhysicalInformation=0x2d,
 		//@}
 		///@name ciphering
 		//@{
 		CipheringModeCommand=0x35,
+		CipheringModeComplete=0x32,
 		//@}
 		///@name miscellaneous
 		//@{
@@ -108,12 +117,14 @@ class L3RRMessage : public L3Message {
 		//@{
 		SynchronizationChannelInformation=0x100,
 		ChannelRequest=0x101,
+		HandoverAccess=0x102,
 		//@}
 		///@name application information - used for RRLP
 		//@{
 		ApplicationInformation=0x38,
 		//@}
 	};
+	static const char *name(MessageType mt);
 
 
 	L3RRMessage():L3Message() { } 
@@ -129,6 +140,9 @@ std::ostream& operator<<(std::ostream& os, L3RRMessage::MessageType);
 
 
 /** Subclass for L3 RR Messages with no rest octets.  */
+// (pat) L3RRMessagesRO subclass must define:
+//  l2BodyLength - length of body only, and there are no rest octets.
+// 	writeBody() - writes the body.
 class L3RRMessageNRO : public L3RRMessage {
 
 	public:
@@ -140,6 +154,10 @@ class L3RRMessageNRO : public L3RRMessage {
 };
 
 /** Subclass for L3 RR messages with rest octets */
+// (pat) L3RRMessagesRO subclass must define:
+//  l2BodyLength - length of body only, in bytes
+//  restOctetsLength - length of rest octets only, in bytes.
+// 	writeBody() - writes the body AND the rest octets.
 class L3RRMessageRO : public L3RRMessage {
 
 	public:
@@ -293,7 +311,13 @@ class L3SystemInformationType2 : public L3RRMessageNRO {
 
 	public:
 
-	L3SystemInformationType2():L3RRMessageNRO() {}
+	//L3SystemInformationType2():L3RRMessageNRO() {}
+
+	L3SystemInformationType2(const std::vector<unsigned>& wARFCNs)
+		:L3RRMessageNRO(),
+		mBCCHFrequencyList(wARFCNs)
+	{ }
+
 
 	void BCCHFrequencyList(const L3NeighborCellsDescription& wBCCHFrequencyList)
 		{ mBCCHFrequencyList = wBCCHFrequencyList; }
@@ -335,14 +359,16 @@ class L3SystemInformationType3 : public L3RRMessageRO {
 	L3CellSelectionParameters mCellSelectionParameters;
 	L3RACHControlParameters mRACHControlParameters;
 
-	bool mHaveRestOctets;
+	// (pat) GSM04.08 table 9.32 says RestOctets are mandatory, so why are they optional here?
+	// I moved this control into the rest octets and changed the logic.
+	//bool mHaveRestOctets;
+	// (pat) The rest of the Type3 setup information is in L3SI3RestOctets:
 	L3SI3RestOctets mRestOctets;
 
 	public:
 
 	L3SystemInformationType3()
-		:L3RRMessageRO(),
-		mHaveRestOctets(gConfig.defines("GSM.SI3RO"))
+		:L3RRMessageRO()
 	{ }
 
 	void CI(const L3CellIdentity& wCI) { mCI = wCI; }
@@ -372,6 +398,15 @@ class L3SystemInformationType3 : public L3RRMessageRO {
 
 
 
+struct L3SIType4RestOctets
+{
+	unsigned mRA_COLOUR;
+	L3SIType4RestOctets();
+	void writeV(L3Frame &dest, size_t &wp) const;
+	void writeText(std::ostream& os) const;
+	size_t lengthBits() const;
+	size_t lengthV() const { return (lengthBits()+7)/8; }
+};
 
 
 /**
@@ -379,14 +414,19 @@ class L3SystemInformationType3 : public L3RRMessageRO {
 	- Location Area Identification 10.5.1.3 M V 5 
 	- Cell Selection Parameters 10.5.2.4 M V 2 
 	- RACH Control Parameters 10.5.2.29 M V 3 
+	pats note: We included the GPRS Indicator in the rest octets for SI3, so I am assuming
+	we do not also have to included it in SI4.
 */
-class L3SystemInformationType4 : public L3RRMessageNRO {
+class L3SystemInformationType4 : public L3RRMessageRO {
 
 	private:
 
 	L3LocationAreaIdentity mLAI;
 	L3CellSelectionParameters mCellSelectionParameters;
 	L3RACHControlParameters mRACHControlParameters;
+	bool mHaveCBCH;
+	L3ChannelDescription mCBCHChannelDescription;
+	L3SIType4RestOctets mType4RestOctets;
 
 	public:
 
@@ -403,7 +443,7 @@ class L3SystemInformationType4 : public L3RRMessageNRO {
 	int MTI() const { return (int)SystemInformationType4; }
 
 	size_t l2BodyLength() const;
-
+	size_t restOctetsLength() const;
 	void writeBody(L3Frame &dest, size_t &wp) const;
 	void text(std::ostream&) const;
 };
@@ -423,7 +463,12 @@ class L3SystemInformationType5 : public L3RRMessageNRO {
 
 	public:
 
-	L3SystemInformationType5():L3RRMessageNRO() { }
+	//L3SystemInformationType5():L3RRMessageNRO() { }
+
+	L3SystemInformationType5(const std::vector<unsigned>& wARFCNs)
+		:L3RRMessageNRO(),
+		mBCCHFrequencyList(wARFCNs)
+	{ }
 
 	void BCCHFrequencyList(const L3NeighborCellsDescription& wBCCHFrequencyList)
 		{ mBCCHFrequencyList = wBCCHFrequencyList; }
@@ -477,38 +522,114 @@ class L3SystemInformationType6 : public L3RRMessageNRO {
 };
 
 
+// GSM 04.08 10.5.2.16
+struct L3IARestOctets : public GenericMessageElement
+{
+	// Someday this may include frequence parameters, but now all it can be is Packet Assignment.
+	struct L3IAPacketAssignment mPacketAssignment;
+
+	size_t lengthBits() const {
+		return mPacketAssignment.lengthBits();
+	}
+	void writeBits(L3Frame &dest, size_t &wp) const {
+		mPacketAssignment.writeBits(dest, wp);
+		while (wp & 7) { dest.writeL(wp); }	// fill out to byte boundary.
+	}
+	void text(std::ostream& os) const {
+		mPacketAssignment.text(os);
+	}
+};
+
 
 
 /** Immediate Assignment, GSM 04.08 9.1.18 */
-class L3ImmediateAssignment : public L3RRMessageNRO {
+// (pat) The elements below correspond directly to the parts of the Immediate Assignment
+// message content as defined in 9.1.18, table 9.18.
+// (pat) some deobfuscation.
+//	// Example from Control::AccessGrantResponder()
+//	L3ImmediateAssignment assign(	// Initialization of assign message
+//		L3RequestReference(
+//			unsigned RA,	// => L3RequestReference::mRA
+//			GSM::Time &when // => L3RequestReference::mT1p,mT2,mT3
+//		),	// {/*empty body*/}
+//		LogicalChannel *LCH->channelDescription(),
+//			// returns L3ChannelDescription(
+//			//	LCH->mL1.typeAndOffset(), // => L3ChannelDescription::mTypeAndOffset;
+//			//	LCH->mL1.TN(),		// => L3ChannelDescription::mTN
+//			//	LCH->mL1.TSC(), 	// => L3ChannelDescription::mTSC
+//			//	LCH->mL1.ARFCN())	// => L3ChannelDescription::mARFCN;
+//			//	{ L3ChannelDescription::mHFlag = 0, ::mMAIO = 0, ::mHSN = 0 }
+//		L3TimingAdvance(
+//			int initialTA	// => L3TimingAdvance::mTimingAdvance
+//			// L3TimingAdvance : L3ProtocolElement() [virtual class, no constructor]
+//		)
+//	);
+
+
+class L3ImmediateAssignment : public L3RRMessageRO
+{
 
 private:
 
 	L3PageMode mPageMode;
 	L3DedicatedModeOrTBF mDedicatedModeOrTBF;
 	L3RequestReference mRequestReference;
+	// (pat) Note that either "Channel Description" or "Packet Channel Description"
+	// appears in the message.  They are identical except for some new options
+	// added to Packet Channel Description.
 	L3ChannelDescription mChannelDescription;  
 	L3TimingAdvance mTimingAdvance;
+	// Used for Packet uplink/downlink assignment messages, which, when transmitted
+	// on CCCH, appear in the rest octets of the Immediate Assignment message.
+	struct L3IARestOctets mIARestOctets;
+
 
 public:
+	size_t restOctetsLength() const { return (mIARestOctets.lengthBits()+7)/8; }
 
 
 	L3ImmediateAssignment(
 				const L3RequestReference& wRequestReference,
 				const L3ChannelDescription& wChannelDescription,
-				const L3TimingAdvance& wTimingAdvance = L3TimingAdvance(0))
-		:L3RRMessageNRO(),
+				const L3TimingAdvance& wTimingAdvance = L3TimingAdvance(0),
+				const bool forTBF = false, bool wDownlink = false)
+		:L3RRMessageRO(),
+		mPageMode(0),
+		mDedicatedModeOrTBF(forTBF,wDownlink),
 		mRequestReference(wRequestReference),
 		mChannelDescription(wChannelDescription),
 		mTimingAdvance(wTimingAdvance)
 	{}
 
+
 	int MTI() const { return (int)ImmediateAssignment; }
-	size_t l2BodyLength() const { return 9; }
+	size_t l2BodyLength() const {
+		// 1/2: page mode
+		// 1/2: Dedicated mode or TBF
+		// 3: channel description or packet channel description 
+		// 3: request reference
+		// 1: timing advance
+		// 1-9: Mobile Allocation (not implemented, so just 1 byte)
+		// 0: starting time, not implemented
+		// = 9 total bytes.
+		return 9;
+	}
+
+	// (pat) Return the PacketAssignment part of the message for the client to fill in.
+	// I did it this way to cause the least change to the preexisting L3ImmediateAssignment class.
+	struct L3IAPacketAssignment *packetAssign() { return &mIARestOctets.mPacketAssignment; }
+
+
+	// (pat) writeBody called via:
+	// CCCHLogicalChannel:send(L3RRMessage msg)
+	// calls L3FrameFIFO mq.L3FrameFIFO::write(new L3Frame(L3Message msg,UNIT_DATA));
+	// L3Frame::L3Frame(L3Message&,Primitive) : BitVector(msg.bitsNeeded)
+	//                      mPrimitive(wPrimitive),
+	//                      mL2Length(wPrimitive) { L3Message msg.write(); }
+	// L3Message::write() calls writeBody()
 
 	void writeBody(L3Frame &dest, size_t &wp) const;
 	void text(std::ostream&) const;
-
 };
 
 
@@ -549,12 +670,17 @@ class L3ChannelRelease : public L3RRMessageNRO {
 private:
 
 	L3RRCause mRRCause;
+	// 3GPP 44.018 10.5.2.14c GPRS Resumption.
+	// It is one bit to specify to the MS whether GPRS services should resume.
+	// Kinda important.
+	bool mGprsResumptionPresent;
+	bool mGprsResumptionBit;
 
 public:
 	
 	/** The default cause is 0x0, "normal event". */
 	L3ChannelRelease(const L3RRCause& cause = L3RRCause(0x0))
-		:L3RRMessageNRO(),mRRCause(cause)
+		:L3RRMessageNRO(),mRRCause(cause),mGprsResumptionPresent(0)
 	{}
 
 	int MTI() const { return (int) ChannelRelease; }
@@ -819,16 +945,37 @@ class L3ApplicationInformation : public L3RRMessageNRO {
 };
 
 
-/** GSM 04.08 9.1.13b */
-class L3GPRSSuspensionRequest : public L3RRMessageNRO {
+/** GSM 04.08 (or 04.18) 9.1.13b */
+// 44.018 3.4.25 GPRS Suspension procedure.
+// 44.018 3.4.13 RR Connection releasee procedure - GPRS resumption if includes:
+// 10.5.2.14c GPRS Resumption IEI
+class L3GPRSSuspensionRequest : public L3RRMessageNRO
+{	public:
+	// The TLLI is what we most need out of this message to identify the MS.
+	// Note that TLLI is not just a simple number; encoding defined in 23.003.
+	// We dont worry about it here; the SGSN handles that.
+	uint32_t mTLLI;
+	// 3GPP 24.008 10.5.5.15 Routing Area Identification.
+	// Similar to L3LocationAreaIdentity but includes RAC too.
+	// We dont really care about it now, and when we do, all we will care
+	// is if it matches our own or not, so just squirrel away the 6 bytes as a ByteVector.
+	// This is an immediate object whose memory will be deleted automatically.
+	ByteVector mRaId;
+	// Suspension cause 44.018 10.5.2.47.
+	// Can be 0: mobile originated call, 1: Location area update, 2: SMS, or others
+	uint8_t mSuspensionCause;
+	// Optional service support, IEI=0x01.
+	// It is for MBMS and we dont really care about it, but get it anyway.
+	uint8_t mServiceSupport;
 
-	public:
+	// Must init only the optional elements:
+	L3GPRSSuspensionRequest() : mServiceSupport(0) {}
 
 	int MTI() const { return (int) GPRSSuspensionRequest; }
 
-	size_t l2BodyLength() const { return 11; }
-
+	size_t l2BodyLength() const { return 11; }	// This is uplink only so not relevant.
 	void parseBody(const L3Frame&, size_t&);
+	void text(std::ostream&) const;
 };
 
 
@@ -865,9 +1012,209 @@ class L3ClassmarkChange : public L3RRMessageNRO {
 };
 
 
+/** GSM 04.08 9.1.43a */
+// (pat) Someone kindly added this before I got here...
+// SI13 includes GPRS Cell Options in its rest octets,
+// so we broadcast it on BCCH if GPRS is supported.
+class L3SystemInformationType13 : public L3RRMessageRO {
+
+	protected:
+
+	L3SI13RestOctets mRestOctets;
+
+	public:
+
+	L3SystemInformationType13()
+		:L3RRMessageRO()
+	{ }
+
+	int MTI() const { return (int)SystemInformationType13; }
+
+	size_t l2BodyLength() const { return 0; }
+
+	size_t restOctetsLength() const { return mRestOctets.lengthV(); }
+
+	void writeBody(L3Frame &dest, size_t &wp) const
+	{
+		size_t wpstart = wp;
+		mRestOctets.writeV(dest,wp);
+		assert(wp-wpstart == fullBodyLength() * 8);
+	}
+
+	void text(std::ostream& os) const
+		{ L3RRMessage::text(os); os << mRestOctets; }
+};
+
+
+
+
+class L3HandoverCommand : public L3RRMessageNRO {
+
+	protected:
+
+	L3CellDescription mCellDescription;
+	L3ChannelDescription2 mChannelDescriptionAfter;
+	L3HandoverReference mHandoverReference;
+	L3PowerCommandAndAccessType mPowerCommandAccessType;
+	L3SynchronizationIndication mSynchronizationIndication;
+
+	public:
+
+	L3HandoverCommand(const L3CellDescription& wCellDescription,
+		const L3ChannelDescription2 wChannelDescriptionAfter,
+		const L3HandoverReference& wHandoverReference,
+		const L3PowerCommandAndAccessType& wPowerCommandAccessType,
+		const L3SynchronizationIndication& wSynchronizationIndication)
+		:L3RRMessageNRO(),
+		mCellDescription(wCellDescription),
+		mChannelDescriptionAfter(wChannelDescriptionAfter),
+		mHandoverReference(wHandoverReference),
+		mPowerCommandAccessType(wPowerCommandAccessType),
+		mSynchronizationIndication(wSynchronizationIndication)
+		{ }
+
+	int MTI() const { return (int) HandoverCommand; }
+
+	size_t l2BodyLength() const;
+	void writeBody(L3Frame&, size_t&) const;
+	void text(std::ostream&) const;
+};
+
+
+
+/** GSM 04.08 9.1.16 */
+class L3HandoverComplete : public L3RRMessageNRO {
+
+	protected:
+
+	L3RRCause mCause;
+
+	public:
+
+	int MTI() const { return (int) HandoverComplete; }
+
+	size_t l2BodyLength() const { return mCause.lengthV(); }
+	void parseBody(const L3Frame&, size_t&);
+	void text(std::ostream&) const;
+
+	const L3RRCause& cause() const { return mCause; }
+};
+
+
+
+/** GSM 04.08 9.1.17 */
+class L3HandoverFailure : public L3RRMessageNRO {
+
+	protected:
+
+	L3RRCause mCause;
+
+	public:
+
+	int MTI() const { return (int) HandoverFailure; }
+
+	size_t l2BodyLength() const { return mCause.lengthV(); }
+	void parseBody(const L3Frame&, size_t&);
+	void text(std::ostream&) const;
+
+	const L3RRCause& cause() const { return mCause; }
+};
+
+
+/** GSM 04.08 9.1.9 */
+class L3CipheringModeCommand : public L3RRMessageNRO {
+
+	protected:
+
+	L3CipheringModeSetting mCipheringModeSetting;
+	L3CipheringModeResponse mCipheringResponse;
+
+	public:
+
+	L3CipheringModeCommand(L3CipheringModeSetting wCipheringModeSetting, L3CipheringModeResponse wCipheringResponse)
+		: mCipheringModeSetting(wCipheringModeSetting),
+		mCipheringResponse(wCipheringResponse)
+	{ }
+
+	int MTI() const;
+
+	size_t l2BodyLength() const { return 1; }
+	void writeBody(L3Frame&, size_t&) const;
+	void text(std::ostream&) const;
+};
+
+/** GSM 04.08 9.1.10 */
+class L3CipheringModeComplete : public L3RRMessageNRO {
+
+	protected:
+
+	public:
+
+	int MTI() const;
+
+	size_t l2BodyLength() const { return 0; }
+	void parseBody(const L3Frame&, size_t&);
+	void text(std::ostream&) const;
+};
+
+
+/** GSM 04.08 9.1.28 */
+class L3PhysicalInformation : public L3RRMessageNRO {
+
+	protected:
+
+	L3TimingAdvance mTA;
+
+	public:
+
+	L3PhysicalInformation(const L3TimingAdvance& wTA)
+		:L3RRMessageNRO(),
+		mTA(wTA)
+	{ }
+
+
+	int MTI() const { return (int) PhysicalInformation; }
+
+	size_t l2BodyLength() const { return mTA.lengthV(); }
+	void writeBody(L3Frame&, size_t&) const;
+	void text(std::ostream&) const;
+};
+
+
+
+#if 0
+/**
+	GSM 04.08 9.1.14
+	This messages has no parse or write methods, but is used to
+	transfer information from L1 to the control layer.
+*/
+class L3HandoverAccess : public L3RRMessageNRO {
+
+	protected:
+
+	unsigned mReference;
+	float mTimingError;
+	float mRSSI;
+
+	public:
+
+	L3HandoverAccess(unsigned wReference, unsigned wTimingError, float wRSSI)
+		:L3RRMessageNRO(),
+		mReference(wReference),mTimingError(wTimingError),mRSSI(wRSSI)
+	{ }
+
+	int MTI() const { return (int) HandoverAccess; }
+
+	size_t l2BodyLength() const { return 1; }
+
+	unsigned reference() const { return mReference; }
+	float timingError() const { return mTimingError; }
+	float RSSI() const { return mRSSI; }
+};
+#endif
+
+
 } // GSM
-
-
 
 #endif
 // vim: ts=4 sw=4

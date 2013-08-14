@@ -1,6 +1,5 @@
 /*
-* Copyright 2008, 2009, 2011 Free Software Foundation, Inc.
-* Copyright 2011 Range Networks, Inc.
+* Copyright 2008, 2009 Free Software Foundation, Inc.
 *
 * This software is distributed under the terms of the GNU Public License.
 * See the COPYING file in the main directory for details.
@@ -31,7 +30,7 @@
 #include <Configuration.h>
 #include "RAD1Device.h"
 
-ConfigurationTable gConfig;
+ConfigurationTable gConfig("/etc/OpenBTS/OpenBTS.db");
 
 using namespace std;
 
@@ -52,8 +51,8 @@ int main(int argc, char *argv[]) {
 
   TIMESTAMP timestamp;
 
-  if (!usrp->setTxFreq(1825.2e6,113)) printf("TX failed!");
-  if (!usrp->setRxFreq(1825.2e6,113)) printf("RX failed!");
+  if (!usrp->setTxFreq(925.2e6,113)) printf("TX failed!");
+  if (!usrp->setRxFreq(925.2e6,113)) printf("RX failed!");
 
   usrp->start();
 
@@ -98,7 +97,7 @@ int main(int argc, char *argv[]) {
       }
       printf("For %llu to %llu, power is %f\n",timestamp,timestamp+511,pwr);
       timestamp += rd;
-      usrp->writeSamples((short*) data2,512*numpkts,&underrun,timestamp+1000);
+      //usrp->writeSamples((short*) data2,512*numpkts,&underrun,timestamp+1000);
     }
   }
 

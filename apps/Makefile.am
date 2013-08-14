@@ -21,21 +21,26 @@
 
 include $(top_srcdir)/Makefile.common
 
-AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES) $(USB_INCLUDES) $(WITH_INCLUDES) $(OPENBTS_CPPFLAGS)
-AM_CXXFLAGS = -Wall -pthread -ldl $(OPENBTS_CXXFLAGS)
+DESTDIR := 
 
-DESTDIR = 
+# These variables are defined in ../Makefile.common
+# AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES)
+# AM_CXXFLAGS = -Wall -ldl -pthread
 
 noinst_PROGRAMS = \
 	OpenBTS \
 	OpenBTSDo \
 	OpenBTSCLI
 
-OpenBTS_SOURCES = OpenBTS.cpp
-OpenBTS_LDADD = \
+OpenBTS_SOURCES = OpenBTS.cpp GetConfigurationKeys.cpp
+OpenBTS_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES)
+
+ourlibs = \
 	$(CLI_LA) \
 	$(SIP_LA) \
 	$(GSM_LA) \
+	$(GPRS_LA) \
+	$(SGSNGGSN_LA) \
 	$(TRX_LA) \
 	$(GLOBALS_LA) \
 	$(CONTROL_LA) \
@@ -43,14 +48,25 @@ OpenBTS_LDADD = \
 	$(COMMON_LA) \
 	$(SQLITE_LA) \
 	$(SMS_LA) \
+	$(PEERING_LA) \
 	$(OSIP_LIBS) \
 	$(ORTP_LIBS)
 
+OpenBTS_LDADD = $(ourlibs) -ldl -losipparser2 -losip2 -lortp -la53
+
 OpenBTSCLI_SOURCES = OpenBTSCLI.cpp
+# RedHat RHEL5 needs to have ncurses included
+OpenBTSCLI_LDADD = -lreadline -lncurses
 OpenBTSDo_SOURCES = OpenBTSDo.cpp
 
 EXTRA_DIST = \
-	OpenBTS.example.sql
+	OpenBTS.example.sql \
+	setUpFiles.sh \
+	generateConfigTable.sh \
+	exportConfigTable.sh \
+	importConfigTable.sh \
+	generateKeys.sh \
+	verifyKey.sh
 
 install: OpenBTS OpenBTSCLI OpenBTSDo
 	mkdir -p "$(DESTDIR)/OpenBTS/"
@@ -58,4 +74,13 @@ install: OpenBTS OpenBTSCLI OpenBTSDo
 	install OpenBTSCLI "$(DESTDIR)/OpenBTS/"
 	install OpenBTSDo "$(DESTDIR)/OpenBTS/"
 	mkdir -p "$(DESTDIR)/etc/OpenBTS/"
+	install iptables.rules "$(DESTDIR)/etc/OpenBTS/"
 	install OpenBTS.example.sql "$(DESTDIR)/etc/OpenBTS/"
+	mkdir -p "$(DESTDIR)/etc/rsyslog.d/"
+	mkdir -p "$(DESTDIR)/etc/logrotate.d/"
+	install rsyslogd.OpenBTS.conf "$(DESTDIR)/etc/rsyslog.d/OpenBTS.conf"
+	install OpenBTS.logrotate "$(DESTDIR)/etc/logrotate.d/OpenBTS"
+	mkdir -p "$(DESTDIR)/home/openbts/"
+	install CLI "$(DESTDIR)/home/openbts/"
+	install openbtsconfig "$(DESTDIR)/home/openbts/"
+

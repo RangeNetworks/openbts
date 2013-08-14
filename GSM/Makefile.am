@@ -20,8 +20,8 @@
 
 include $(top_srcdir)/Makefile.common
 
-AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES) $(USB_INCLUDES) $(WITH_INCLUDES) $(OPENBTS_CPPFLAGS)
-AM_CXXFLAGS = -Wall -pthread -ldl $(OPENBTS_CXXFLAGS)
+AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES)
+#AM_CXXFLAGS = -O2 -g
 
 noinst_LTLIBRARIES = libGSM.la
 
@@ -34,6 +34,7 @@ libGSM_la_SOURCES = \
 	GSML3CCElements.cpp \
 	GSML3CCMessages.cpp \
 	GSML3CommonElements.cpp \
+	GSML3GPRSElements.cpp \
 	GSML3Message.cpp \
 	GSML3MMElements.cpp \
 	GSML3MMMessages.cpp \
@@ -44,6 +45,7 @@ libGSM_la_SOURCES = \
 	GSMTDMA.cpp \
 	GSMTransfer.cpp \
 	GSMTAPDump.cpp \
+	GSMSMSCBL3Messages.cpp \
 	PowerManager.cpp\
 	PhysicalStatus.cpp
 
@@ -56,6 +58,7 @@ noinst_HEADERS = \
 	GSML3CCElements.h \
 	GSML3CCMessages.h \
 	GSML3CommonElements.h \
+	GSML3GPRSElements.h \
 	GSML3Message.h \
 	GSML3MMElements.h \
 	GSML3MMMessages.h \
@@ -67,6 +70,7 @@ noinst_HEADERS = \
 	GSMTransfer.h \
 	PowerManager.h \
 	GSMTAPDump.h \
+	GSMSMSCBL3Messages.h \
 	gsmtap.h \
 	PhysicalStatus.h
 

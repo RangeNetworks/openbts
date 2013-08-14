@@ -1,27 +1,19 @@
 /**@file Idle-mode dispatcher for dedicated control channels. */
 
 /*
-* Copyright 2008, 2009, 2011 Free Software Foundation, Inc.
+* Copyright 2008, 2009 Free Software Foundation, Inc.
 * Copyright 2011 Range Networks, Inc.
 *
-* This software is distributed under the terms of the GNU Affero Public License.
-* See the COPYING file in the main directory for details.
+* This software is distributed under multiple licenses;
+* see the COPYING file in the main directory for licensing
+* information for this specific distribuion.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
 
-	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
 
@@ -85,8 +77,6 @@ void DCCHDispatchRR(const L3RRMessage* req, LogicalChannel *DCCH)
 {
 	LOG(DEBUG) << "checking MTI"<< (L3RRMessage::MessageType)req->MTI();
 
-	// TODO SMS -- This needs to handle SACCH Measurement Reports.
-
 	assert(req);
 	L3RRMessage::MessageType MTI = (L3RRMessage::MessageType)req->MTI();
 	switch (MTI) {
@@ -94,8 +84,9 @@ void DCCHDispatchRR(const L3RRMessage* req, LogicalChannel *DCCH)
 			PagingResponseHandler(dynamic_cast<const L3PagingResponse*>(req),DCCH);
 			break;
 		case L3RRMessage::AssignmentComplete:
-			AssignmentCompleteHandler(dynamic_cast<const L3AssignmentComplete*>(req),
-										dynamic_cast<TCHFACCHLogicalChannel*>(DCCH));
+			AssignmentCompleteHandler(
+				dynamic_cast<const L3AssignmentComplete*>(req),
+				dynamic_cast<TCHFACCHLogicalChannel*>(DCCH));
 			break;
 		default:
 			LOG(NOTICE) << "unhandled RR message " << MTI << " on " << *DCCH;
@@ -123,23 +114,41 @@ void DCCHDispatchMessage(const L3Message* msg, LogicalChannel* DCCH)
 
 
 
+
 /** Example of a closed-loop, persistent-thread control function for the DCCH. */
+// (pat) DCCH is a TCHFACCHLogicalChannel or SDCCHLogicalChannel
 void Control::DCCHDispatcher(LogicalChannel *DCCH)
 {
 	while (1) {
 		try {
 			// Wait for a transaction to start.
-			LOG(DEBUG) << "waiting for " << *DCCH << " ESTABLISH";
-			DCCH->waitForPrimitive(ESTABLISH);
-			// Pull the first message and dispatch a new transaction.
-			gReports.incr("OpenBTS.GSM.RR.ChannelSiezed");
-			const L3Message *message = getMessage(DCCH);
-			LOG(DEBUG) << *DCCH << " received " << *message;
-			DCCHDispatchMessage(message,DCCH);
-			delete message;
+			LOG(DEBUG) << "waiting for " << *DCCH << " ESTABLISH or HANDOVER_ACCESS";
+			L3Frame *frame = DCCH->waitForEstablishOrHandover();
+			LOG(DEBUG) << *DCCH << " received " << *frame;
+			gResetWatchdog();
+			Primitive prim = frame->primitive();
+			delete frame;
+			LOG(DEBUG) << "received primtive " << prim;
+			switch (prim) {
+				case ESTABLISH: {
+					// Pull the first message and dispatch a new transaction.
+					gReports.incr("OpenBTS.GSM.RR.ChannelSiezed");
+					const L3Message *message = getMessage(DCCH);
+					LOG(INFO) << *DCCH << " received establishing messaage " << *message;
+					DCCHDispatchMessage(message,DCCH);
+					delete message;
+					break;
+				}
+				case HANDOVER_ACCESS: {
+					ProcessHandoverAccess(dynamic_cast<GSM::TCHFACCHLogicalChannel*>(DCCH));
+					break;
+				}
+				default: assert(0);
+			}
 		}
 
 		// Catch the various error cases.
+
 		catch (RemovedTransaction except) {
 			LOG(ERR) << "attempt to use removed transaciton " << except.transactionID();
 		}

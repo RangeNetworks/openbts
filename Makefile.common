@@ -2,7 +2,7 @@
 # Copyright 2008 Free Software Foundation, Inc.
 #
 # This software is distributed under the terms of the GNU Public License.
-# See the COPING file in the main directory for details.
+# See the COPYING file in the main directory for details.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -18,13 +18,14 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-#hack to get around symlink svn:externals in git -kurtis
-top_srcdir = $(abs_top_srcdir)
-top_builddir = $(abs_top_builddir)
+AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES) $(USB_INCLUDES) $(WITH_INCLUDES) $(OPENBTS_CPPFLAGS)
+AM_CXXFLAGS = -Wall -pthread -ldl $(OPENBTS_CXXFLAGS)
 
 COMMON_INCLUDEDIR = $(top_srcdir)/CommonLibs
 CONTROL_INCLUDEDIR = $(top_srcdir)/Control
 GSM_INCLUDEDIR = $(top_srcdir)/GSM
+GPRS_INCLUDEDIR = $(top_srcdir)/GPRS
+SGSNGGSN_INCLUDEDIR = $(top_srcdir)/SGSNGGSN
 SIP_INCLUDEDIR = $(top_srcdir)/SIP
 SMS_INCLUDEDIR = $(top_srcdir)/SMS
 TRX_INCLUDEDIR = $(top_srcdir)/TRXManager
@@ -32,24 +33,32 @@ GLOBALS_INCLUDEDIR = $(top_srcdir)/Globals
 CLI_INCLUDEDIR = $(top_srcdir)/CLI
 SQLITE_INCLUDEDIR = $(top_srcdir)/sqlite3
 SR_INCLUDEDIR = $(top_srcdir)/SR
+PEERING_INCLUDEDIR = $(top_srcdir)/Peering
 
 SVNDEV = -D'SVN_REV="$(shell svnversion -n $(top_builddir))"'
 
 STD_DEFINES_AND_INCLUDES = \
 	$(SVNDEV) \
+	$(ACTIVEFEATURES) \
 	-I$(COMMON_INCLUDEDIR) \
 	-I$(CONTROL_INCLUDEDIR) \
 	-I$(GSM_INCLUDEDIR) \
+	-I$(GPRS_INCLUDEDIR) \
+	-I$(SGSNGGSN_INCLUDEDIR) \
 	-I$(SIP_INCLUDEDIR) \
 	-I$(SMS_INCLUDEDIR) \
 	-I$(TRX_INCLUDEDIR) \
 	-I$(GLOBALS_INCLUDEDIR) \
 	-I$(CLI_INCLUDEDIR) \
 	-I$(SR_INCLUDEDIR) \
+	-I$(PEERING_INCLUDEDIR) \
 	-I$(SQLITE_INCLUDEDIR)
 
+# These macros are referenced in apps/Makefile.am, which must be changed in sync with these.
 COMMON_LA = $(top_builddir)/CommonLibs/libcommon.la
 GSM_LA = $(top_builddir)/GSM/libGSM.la
+GPRS_LA = $(top_builddir)/GPRS/libGPRS.la
+SGSNGGSN_LA = $(top_builddir)/SGSNGGSN/libSGSNGGSN.la
 SIP_LA = $(top_builddir)/SIP/libSIP.la
 SMS_LA = $(top_builddir)/SMS/libSMS.la
 TRX_LA = $(top_builddir)/TRXManager/libtrxmanager.la
@@ -57,6 +66,7 @@ CONTROL_LA = $(top_builddir)/Control/libcontrol.la
 GLOBALS_LA = $(top_builddir)/Globals/libglobals.la
 CLI_LA = $(top_builddir)/CLI/libcli.la
 SR_LA = $(top_builddir)/SR/libSR.la
+PEERING_LA = $(top_builddir)/Peering/libpeering.la
 SQLITE_LA = $(top_builddir)/sqlite3/libsqlite.la -ldl
 
 MOSTLYCLEANFILES = *~

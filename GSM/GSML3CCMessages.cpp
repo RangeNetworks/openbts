@@ -1,27 +1,19 @@
 /** @file Call Control messags, GSM 04.08 9.3.  */
 
 /*
-* Copyright 2008, 2009, 2011 Free Software Foundation, Inc.
+* Copyright 2008, 2009 Free Software Foundation, Inc.
 * Copyright 2011 Range Networks, Inc.
 *
-* This software is distributed under the terms of the GNU Affero Public License.
-* See the COPYING file in the main directory for details.
+* This software is distributed under multiple licenses;
+* see the COPYING file in the main directory for licensing
+* information for this specific distribuion.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
 
-	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
 
@@ -57,10 +49,8 @@ ostream& GSM::operator<<(ostream& os, L3CCMessage::MessageType val)
 				os << "Release Complete"; break;		  
 		case L3CCMessage::Setup: 
 				os << "Setup"; break;
-		case L3CCMessage::EmergencySetup:
-				os << "Emergency Setup"; break;
 		case L3CCMessage::CCStatus: 
-				os <<"Status"; break;
+				os << "Status"; break;
 		case L3CCMessage::CallConfirmed: 
 				os <<"Call Confirmed"; break;
 		case L3CCMessage::CallProceeding: 
@@ -92,7 +82,6 @@ L3CCMessage * GSM::L3CCFactory(L3CCMessage::MessageType MTI)
 		case L3CCMessage::Connect: return new L3Connect();
 		case L3CCMessage::Alerting: return new L3Alerting();
 		case L3CCMessage::Setup: return new L3Setup();
-		case L3CCMessage::EmergencySetup: return new L3EmergencySetup();
 		case L3CCMessage::Disconnect: return new L3Disconnect();
 		case L3CCMessage::CallProceeding: return new L3CallProceeding();
 		case L3CCMessage::Release: return new L3Release();

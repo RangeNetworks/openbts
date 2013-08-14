@@ -2,25 +2,18 @@
 /*
 * Copyright 2008, 2009 Free Software Foundation, Inc.
 * Copyright 2010 Kestrel Signal Processing, Inc.
+* Copyright 2011, 2012 Range Networks, Inc.
 *
-* This software is distributed under the terms of the GNU Affero Public License.
-* See the COPYING file in the main directory for details.
+* This software is distributed under multiple licenses;
+* see the COPYING file in the main directory for licensing
+* information for this specific distribuion.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
 
-	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
 
@@ -30,6 +23,7 @@
 
 #include <vector>
 #include "GSML3Message.h"
+#include "GSML3GPRSElements.h"
 #include <Globals.h>
 
 
@@ -55,7 +49,7 @@ class L3CellOptionsBCCH : public L3ProtocolElement {
 		mPWRC=0;
 		mDTX=2;
 		// Configuarable values.
-		mRADIO_LINK_TIMEOUT= gConfig.getNum("GSM.RADIO-LINK-TIMEOUT");
+		mRADIO_LINK_TIMEOUT= gConfig.getNum("GSM.CellOptions.RADIO-LINK-TIMEOUT");
 	}
 
 	size_t lengthV() const { return 1; }
@@ -87,7 +81,7 @@ class L3CellOptionsSACCH : public L3ProtocolElement {
 		mPWRC=0;
 		mDTX=2;
 		// Configuarable values.
-		mRADIO_LINK_TIMEOUT=gConfig.getNum("GSM.RADIO-LINK-TIMEOUT");
+		mRADIO_LINK_TIMEOUT=gConfig.getNum("GSM.CellOptions.RADIO-LINK-TIMEOUT");
 	}
 
 	size_t lengthV() const { return 1; }
@@ -144,10 +138,16 @@ class L3ControlChannelDescription : public L3ProtocolElement {
 
 	private:
 
+	// (pat) 5-27-2012: I put in 'real' paging channels and used them for GPRS,
+	// but someone still needs to modify the GSM stack to use them and test them there.
+	// Then we could change the parameters below to provide more paging channels.
+	// See class CCCHCombinedChannel.
+
 	unsigned mATT;				///< 1 -> IMSI attach/detach
 	unsigned mBS_AG_BLKS_RES;	///< access grant channel reservation
 	unsigned mCCCH_CONF;			///< channel combination for CCCH
 	unsigned mBS_PA_MFRMS;		///< paging channel configuration
+				// Note: This var is 0..7 representing BS_PA_MFRMS values 2..9.
 	unsigned mT3212;				///< periodic updating timeout
 
 	public:
@@ -159,10 +159,13 @@ class L3ControlChannelDescription : public L3ProtocolElement {
 		mBS_AG_BLKS_RES=2;			// reserve 2 CCCHs for access grant
 		mBS_PA_MFRMS=0;				// minimum PCH spacing
 		// Configurable values.
-		mATT=(unsigned)gConfig.defines("Control.LUR.AttachDetach");
+		mATT=(unsigned)gConfig.getBool("Control.LUR.AttachDetach");
 		mCCCH_CONF=gConfig.getNum("GSM.CCCH.CCCH-CONF");
 		mT3212=gConfig.getNum("GSM.Timer.T3212")/6;
 	}
+
+	// BS_PA_MFRMS is the number of 51-multiframes used for paging in the range 2..9.
+	unsigned getBS_PA_MFRMS();
 
 	size_t lengthV() const { return 3; }
 	void writeV(L3Frame& dest, size_t &wp) const;
@@ -257,8 +260,14 @@ class L3NeighborCellsDescription : public L3FrequencyList {
 
 	public:
 
-	L3NeighborCellsDescription()
-		:L3FrequencyList(gConfig.getVector("GSM.CellSelection.Neighbors"))
+	L3NeighborCellsDescription() {}
+
+	//L3NeighborCellsDescription()
+	//	:L3FrequencyList(gConfig.getVector("GSM.CellSelection.Neighbors"))
+	//{}
+
+	L3NeighborCellsDescription(const std::vector<unsigned>& neighbors)
+		:L3FrequencyList(neighbors)
 	{}
 
 	void writeV(L3Frame& dest, size_t &wp) const;
@@ -322,7 +331,7 @@ class L3RACHControlParameters : public L3ProtocolElement {
 		// Configurable values.
 		mMaxRetrans = gConfig.getNum("GSM.RACH.MaxRetrans");
 		mTxInteger = gConfig.getNum("GSM.RACH.TxInteger");
-		mAC = gConfig.getNum("GSM.RACH.AC");
+		mAC = 0x0400; //NO EMERGENCY SERVICE - kurtis
 	}
 
 	size_t lengthV() const { return 3; }
@@ -365,6 +374,7 @@ public:
 /** DedicatedModeOrTBF, GSM 04.08 10.5.2.25b */
 class L3DedicatedModeOrTBF : public L3ProtocolElement {
 
+	// (pat) This is poorly named: mDownlink must be TRUE for a TBF, even if it is an uplink tbf.
 	unsigned mDownlink;		///< Indicates the IA reset octets contain additional information.
 	unsigned mTMA;			///< This is part of a 2-message assignment.
 	unsigned mDMOrTBF;		///< Dedicated link (circuit-switched) or temporary block flow (GPRS/pakcet).
@@ -372,9 +382,9 @@ class L3DedicatedModeOrTBF : public L3ProtocolElement {
 	
 public:
 	
-	L3DedicatedModeOrTBF()
+	L3DedicatedModeOrTBF(bool forTBF, bool wDownlink)
 		:L3ProtocolElement(),
-		mDownlink(0), mTMA(0), mDMOrTBF(0)
+		mDownlink(wDownlink), mTMA(0), mDMOrTBF(forTBF)
 	{}
 
 	size_t lengthV() const { return 1; }
@@ -387,7 +397,12 @@ public:
 
 
 
-/** ChannelDescription, GSM 04.08 10.5.2.5 */
+/** ChannelDescription, GSM 04.18 10.5.2.5
+	(pat) The Packet Channel Description, GSM 04.18 10.5.2.25a, is the
+	same as the Channel Description except with mTypeAndOffset always 1,
+	and for the addition of indirect frequency hopping encoding,
+	which is irrelevant for us at the moment.
+*/
 class L3ChannelDescription : public L3ProtocolElement {
 
 
@@ -416,7 +431,8 @@ public:
 	/** Non-hopping initializer. */
 	L3ChannelDescription(TypeAndOffset wTypeAndOffset, unsigned wTN,
 			unsigned wTSC, unsigned wARFCN)
-		:mTypeAndOffset(wTypeAndOffset),mTN(wTN),
+		:L3ProtocolElement(),
+		mTypeAndOffset(wTypeAndOffset),mTN(wTN),
 		mTSC(wTSC),
 		mHFlag(0),
 		mARFCN(wARFCN),
@@ -436,8 +452,24 @@ public:
 	void parseV(const L3Frame&, size_t& , size_t) { assert(0); }
 	void text(std::ostream&) const;
 
+	TypeAndOffset typeAndOffset() const { return mTypeAndOffset; }
+	unsigned TN() const { return mTN; }
+	unsigned TSC() const{ return mTSC; }
+	unsigned ARFCN() const { return mARFCN; }
 };
 
+/** GSM 040.08 10.5.2.5a */
+class L3ChannelDescription2 : public L3ChannelDescription {
+
+	public:
+	
+	L3ChannelDescription2(TypeAndOffset wTypeAndOffset, unsigned wTN,
+		unsigned wTSC, unsigned wARFCN)
+		:L3ChannelDescription(wTypeAndOffset,wTN,wTSC,wARFCN)
+	{ }
+
+	L3ChannelDescription2() { }
+};
 
 
 
@@ -734,6 +766,10 @@ class L3MeasurementResults : public L3ProtocolElement {
 	L3MeasurementResults()
 		:L3ProtocolElement(),
 		mMEAS_VALID(false),
+		mRXLEV_FULL_SERVING_CELL(0),
+		mRXLEV_SUB_SERVING_CELL(0),
+		mRXQUAL_FULL_SERVING_CELL(0),
+		mRXQUAL_SUB_SERVING_CELL(0),
 		mNO_NCELL(0)
 	{ }
 
@@ -756,11 +792,11 @@ class L3MeasurementResults : public L3ProtocolElement {
 
 	unsigned NO_NCELL() const { return mNO_NCELL; }
 	unsigned RXLEV_NCELL(unsigned i) const { assert(i<mNO_NCELL); return mRXLEV_NCELL[i]; }
-	unsigned RXLEV_NCELL(unsigned *) const;
+	unsigned RXLEV_NCELLs(unsigned *) const;
 	unsigned BCCH_FREQ_NCELL(unsigned i) const { assert(i<mNO_NCELL); return mBCCH_FREQ_NCELL[i]; }
-	unsigned BCCH_FREQ_NCELL(unsigned *) const;
+	unsigned BCCH_FREQ_NCELLs(unsigned *) const;
 	unsigned BSIC_NCELL(unsigned i) const { assert(i<mNO_NCELL); return mBSIC_NCELL[i]; }
-	unsigned BSIC_NCELL(unsigned *) const;
+	unsigned BSIC_NCELLs(unsigned *) const;
 	//@}
 
 	/**@ Real-unit conversions. */
@@ -787,6 +823,139 @@ class L3MeasurementResults : public L3ProtocolElement {
 };
 
 
+/** GSM 04.08 10.5.2.2 */
+class L3CellDescription : public L3ProtocolElement {
+
+	protected:
+
+	unsigned mARFCN;
+	unsigned mNCC;
+	unsigned mBCC;
+
+	public:
+
+	L3CellDescription( unsigned wARFCN, unsigned wNCC, unsigned wBCC)
+		:L3ProtocolElement(),
+		mARFCN(wARFCN),
+		mNCC(wNCC),mBCC(wBCC)
+	{ }
+
+	L3CellDescription() { }
+
+	size_t lengthV() const { return 2; }
+	void writeV(L3Frame&, size_t&) const;
+	void parseV(const L3Frame&, size_t&) { assert(0); }
+	void parseV(const L3Frame&, size_t& , size_t) { assert(0); }
+	void text(std::ostream&) const;
+};
+
+
+/** GSM 04.08 10.5.2.15 */
+class L3HandoverReference : public L3ProtocolElement
+{
+	protected:
+
+	unsigned mValue;
+
+
+	public:
+
+	L3HandoverReference(unsigned wValue)
+		:L3ProtocolElement(),
+		mValue(wValue)
+	{}
+
+	L3HandoverReference() { }
+
+	size_t lengthV() const { return 1; }
+	void writeV(L3Frame &, size_t &wp ) const;
+	void parseV( const L3Frame&, size_t&, size_t) { abort(); }
+	void parseV(const L3Frame&, size_t&) { abort(); }
+	void text(std::ostream&) const;
+
+	unsigned value() const { return mValue; }
+};
+
+/** GSM 04.08 10.5.2.9 */
+class L3CipheringModeSetting : public L3ProtocolElement
+{
+	protected:
+
+	bool mCiphering;
+	int mAlgorithm;  // algorithm is A5/mAlgorithm
+
+	public:
+
+	L3CipheringModeSetting(bool wCiphering, int wAlgorithm)
+		:mCiphering(wCiphering), mAlgorithm(wAlgorithm)
+	{
+		// assert(wAlgorithm >= 1 && wAlgorithm <= 7);
+	}
+
+	size_t lengthV() const;
+	void writeV(L3Frame&, size_t& wp) const;
+	void parseV( const L3Frame&, size_t&, size_t) { abort(); }
+	void parseV(const L3Frame&, size_t&) { abort(); }
+	void text(std::ostream&) const;
+};
+
+/** GSM 04.08 10.5.2.10 */
+class L3CipheringModeResponse : public L3ProtocolElement
+{
+	protected:
+
+	bool mIncludeIMEISV;
+
+	public:
+
+	L3CipheringModeResponse(bool wIncludeIMEISV)
+		:mIncludeIMEISV(wIncludeIMEISV)
+	{ }
+
+	size_t lengthV() const;
+	void writeV(L3Frame&, size_t& wp) const;
+	void parseV( const L3Frame&, size_t&, size_t) { abort(); }
+	void parseV(const L3Frame&, size_t&) { abort(); }
+	void text(std::ostream&) const;
+};
+
+/** GSM 04.08 10.5.2.39 */
+class L3SynchronizationIndication : public L3ProtocolElement
+{
+	protected:
+
+	bool mNCI;
+	bool mROT;
+	int mSI;
+
+	public:
+
+	L3SynchronizationIndication(bool wNCI, bool wROT, int wSI = 0)
+		:L3ProtocolElement(),
+		mNCI(wNCI),
+		mROT(wROT),
+		mSI(wSI & 3)
+	{}
+
+	L3SynchronizationIndication() { }
+
+	size_t lengthV() const { return 1; }
+	void writeV(L3Frame &, size_t &wp ) const;
+	void parseV( const L3Frame&, size_t&, size_t) { abort(); }
+	void parseV(const L3Frame&, size_t&) { abort(); }
+	void text(std::ostream&) const;
+
+	unsigned NCI() const { return mNCI; }
+	unsigned ROT() const { return mROT; }
+};
+
+
+/** GSM 04.08 10.5.2.28a */
+class L3PowerCommandAndAccessType : public L3PowerCommand { };
+
+
+
+
 
 
 /** A special subclass for rest octets, just in case we need it later. */
@@ -800,18 +969,142 @@ class L3SI3RestOctets : public L3RestOctets {
 	private:
 
 	// We do not yet support the full parameter set.
+	bool mHaveSI3RestOctets;
 
 	bool mHaveSelectionParameters;
 	bool mCBQ;
-	unsigned mCELL_RESELECT_OFFSET;
-	unsigned mTEMPORARY_OFFSET;
-	unsigned mPENALTY_TIME;
+	unsigned mCELL_RESELECT_OFFSET;		// 6 bits
+	unsigned mTEMPORARY_OFFSET;			// 3 bits
+	unsigned mPENALTY_TIME;				// 5 bits
+	unsigned mRA_COLOUR;				// (pat) In GPRS_Indicator, 3 bits
+	bool mHaveGPRS;						// (pat)
 
 	public:
 
 	L3SI3RestOctets();
 
 	size_t lengthV() const;
+	void writeV(L3Frame& dest, size_t &wp) const;
+	void parseV( const L3Frame&, size_t&, size_t) { abort(); }
+	void parseV(const L3Frame&, size_t&) { abort(); }
+	void text(std::ostream& os) const;
+
+};
+
+
+#if 0
+/** GSM 04.60 12.24 */
+// (pat) Someone kindly added this before I got here.
+// This info is included in the SI13 rest octets.
+class L3GPRSCellOptions : public L3ProtocolElement {
+
+	private:
+
+	unsigned mNMO;			// Network Mode of Operation See GSM 03.60 6.3.3.1
+	unsigned mT3168;		// range 0..7
+	unsigned mT3192;		// range 0..7
+	unsigned mDRX_TIMER_MAX;
+	unsigned mACCESS_BURST_TYPE;
+	unsigned mCONTROL_ACK_TYPE;
+	unsigned mBS_VC_MAX;
+
+	public:
+
+	L3GPRSCellOptions()
+		:L3ProtocolElement(),
+		mNMO(2),	// (pat) 2 == Network Mode of Operation III, which means
+					// GPRS attached MS uses Packet Paging channel
+					// if allocated (which it wont be), otherwise CCCH.
+		mT3168(gConfig.getNum("GPRS.CellOptions.T3168Code")),
+		mT3192(gConfig.getNum("GPRS.CellOptions.T3192Code")),
+		mDRX_TIMER_MAX(gConfig.getNum("GPRS.CellOptions.DRX_TIMER_MAX")),
+		mACCESS_BURST_TYPE(0),	// (pat) 0 == use 8 bit format of Packet Channel Request Message.
+		mCONTROL_ACK_TYPE(1),	// (pat) 1 == default format for Packet Control Acknowledgement
+								// is RLC/MAC block, ie, not special.
+		mBS_VC_MAX(gConfig.getNum("GPRS.CellOptions.BS_VC_MAX"))
+	{ }
+
+	size_t lengthV() const { return 2+3+3+3+1+1+4+1+1; }
+	void writeV(L3Frame& dest, size_t &wp) const;
+	void parseV( const L3Frame&, size_t&, size_t) { abort(); }
+	void parseV(const L3Frame&, size_t&) { abort(); }
+	void text(std::ostream& os) const;
+};
+#endif
+
+
+
+#if 0
+/** GSM 04.60 12.13 */
+class L3GPRSPowerControlParameters : public L3ProtocolElement {
+
+	private:
+
+	unsigned mALPHA;	///< GSM 04.60 Table 12.9.2
+
+	public:
+
+	L3GPRSPowerControlParameters()
+		:L3ProtocolElement(),
+		mALPHA(gConfig.getNum("GPRS.PowerControl.ALPHA"))
+	{ }
+
+	size_t lengthV() const { return 4+8; }
+	void writeV(L3Frame& dest, size_t &wp) const;
+	void parseV( const L3Frame&, size_t&, size_t) { abort(); }
+	void parseV(const L3Frame&, size_t&) { abort(); }
+	void text(std::ostream& os) const;
+};
+#endif
+
+
+
+/** GSM 04.08 10.5.2.37b */
+class L3SI13RestOctets : public L3RestOctets {
+
+	private:
+
+	unsigned mRAC;				///< routing area code GSM03.03
+	bool mSPGC_CCCH_SUP;			///< indicates support of SPLIT_PG_CYCLE on CCCH
+	unsigned mPRIORITY_ACCESS_THR;
+	unsigned mNETWORK_CONTROL_ORDER;	///< network reselection behavior
+	const L3GPRSCellOptions mCellOptions;
+	const L3GPRSSI13PowerControlParameters mPowerControlParameters;
+
+	public:
+
+	L3SI13RestOctets()
+		:L3RestOctets(),
+		mRAC(gConfig.getNum("GPRS.RAC")),	// (pat) aka Routing Area Code.
+		mSPGC_CCCH_SUP(false),
+		// See GSM04.08 table 10.5.76: Value 6 means any priority packet access allowed.
+		mPRIORITY_ACCESS_THR(gConfig.getNum("GPRS.PRIORITY-ACCESS-THR")),
+		// (pat) GSM05.08 sec 10.1.4: This controls whether the MS
+		// does cell reselection or the network, and appears to apply
+		// only to GPRS mode.  Value NC2 = 2 means the network
+		// performs cell reselection, but it has a side-effect that
+		// the MS continually sends Measurement reports, and these
+		// clog up the RACH channel so badly that the MS cannot send
+		// enough uplink messages to make the SGSN happy.
+		// The reporting interval values are as follows,
+		// defined in GSM04.60 11.2.23 table 11.2.23.2
+		// NC_REPORTING_PERIOD_I - used in packet idle mode.
+		// NC_REPORTING_PERIOD_T - used in packet transfer mode.
+		// They can be in PSI5, SI2quarter (but I dont see them there),
+		// or by a PACKET MEASUREMENT ORDER msg.
+		// I am going to set this to 0 for now instead of 2.
+		// Update: Lets set it back to see if the MS keeps sending measurement reports when it is non-responsive.
+		// Update: If the MS is requested to make measurement reports it
+		// reduces the multislot capability.  Measurements described 45.008
+		mNETWORK_CONTROL_ORDER(gConfig.getNum("GPRS.NC.NetworkControlOrder")),
+		mPowerControlParameters()	// redundant explicit call
+	{ }
+
+	size_t lengthBits() const
+	{ return 1+3+4+1+1+8+1+3+2+mCellOptions.lengthBits()+mPowerControlParameters.lengthBits(); }
+	size_t lengthV() const
+	{ return (lengthBits() + 7) / 8; }
+
 	void writeV(L3Frame& dest, size_t &wp) const;
 	void parseV( const L3Frame&, size_t&, size_t) { abort(); }
 	void parseV(const L3Frame&, size_t&) { abort(); }

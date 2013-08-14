@@ -1,6 +1,5 @@
 /*
-* Copyright 2008, 2009, 2011 Free Software Foundation, Inc.
-* Copyright 2011 Range Networks, Inc.
+* Copyright 2008, 2009 Free Software Foundation, Inc.
 *
 * This software is distributed under the terms of the GNU Public License.
 * See the COPYING file in the main directory for details.
@@ -50,7 +49,8 @@ unsigned char* write_it(unsigned v, unsigned char *s) {
 }
 
 
-const float RAD1Device::LO_OFFSET = 6.0e6;
+const double RAD1Device::LO_OFFSET = 6.0e6;
+
 const double RAD1Device::masterClockRate = (double) 52.0e6;
 
 bool RAD1Device::compute_regs(double freq,
@@ -68,7 +68,9 @@ bool RAD1Device::compute_regs(double freq,
   else {
 	DIV2 = 0;
 	freq_mult = 1;
+	// This default value matches the RAD1r3.
 	CP1 = 7;
+	// This default value matches the RAD1r3.
 	CP2 = 7;
   }
 
@@ -78,8 +80,12 @@ bool RAD1Device::compute_regs(double freq,
   
   float B = floor(desired_n/16);
   float A = desired_n - 16*B;
+
   unsigned B_DIV = int(B);
   unsigned A_DIV = int(A);
+
+  //printf("B: %f, A: %f, B_DIV: %u, A_DIV: %u\n",B,A,B_DIV,A_DIV);
+
   if (B < A) return false;
   *R = (R_RSV<<22) | 
     (BSC << 20) | 
@@ -164,6 +170,8 @@ RAD1Device::RAD1Device (double _desiredSampleRate)
   actualSampleRate = masterClockRate/decimRate;
   rxGain = 0;
 
+  // This default value matches the RAD1r3.
+  PC = 0;    // bits 3,2     Core power 15mA
 #ifdef SWLOOPBACK 
   samplePeriod = 1.0e6/actualSampleRate;
   loopbackBufferSize = 0;
@@ -203,6 +211,10 @@ bool RAD1Device::make(bool wSkipRx)
   m_uRx->writeOE(0,0xffff);
   m_uRx->writeOE((POWER_UP|RX_TXN|ENABLE), 0xffff);
   m_uRx->writeIO((POWER_UP|RX_TXN),(POWER_UP|RX_TXN|ENABLE));
+
+
+  // FIXME -- This should be configurable.
+  setRxGain(47); //maxRxGain());
 
 
   }
@@ -281,8 +293,6 @@ bool RAD1Device::start()
     m_uRx->setPga(1,m_uRx->pgaMax());
     m_uRx->setMux(0x00000010);
     writeLock.unlock();
-    // FIXME -- This should be configurable.
-    setRxGain(47); //maxRxGain());
   }
 
   data = new short[currDataSize];
@@ -396,7 +406,7 @@ int RAD1Device::readSamples(short *buf, int len, bool *overrun,
 
   if (underrun) *underrun = false;
  
-  uint32_t readBuf[2000];
+  uint32_t readBuf[20000];
  
   while (1) {
     //guestimate USB read size
@@ -606,6 +616,9 @@ bool RAD1Device::updateAlignment(TIMESTAMP timestamp)
 #endif
 }
 
+bool RAD1Device::setVCTCXO(unsigned int freq_cal) {
+  m_uRx->writeAuxDac(2,freq_cal << 4);
+}
 
 #ifndef SWLOOPBACK 
 bool RAD1Device::setTxFreq(double wFreq, double wAdjFreq) {
@@ -637,6 +650,7 @@ bool RAD1Device::setRxFreq(double wFreq, double wAdjFreq) {
   m_uRx->writeAuxDac(2,freq_cal << 4);
   if (!rx_setFreq(wFreq-2*LO_OFFSET,&actFreq)) return false;
   bool retVal = m_uRx->setRxFreq(wFreq-actFreq);
+  //printf("set RX: %f, actual RX: %f\n",wFreq-actFreq,m_uRx->rxFreq());
   LOG(DEBUG) << "set RX: " << wFreq-actFreq << " actual RX: " << m_uRx->rxFreq();
 
   return retVal;

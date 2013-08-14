@@ -21,6 +21,5 @@
 include $(top_srcdir)/Makefile.common
 
 EXTRA_DIST = \
-	CodingStandard \
-	SoftwareP2.8Manual.pdf
+	CodingStandard
 

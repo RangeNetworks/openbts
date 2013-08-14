@@ -2,24 +2,14 @@
 * Copyright 2008, 2010 Free Software Foundation, Inc.
 * Copyright 2010 Kestrel Signal Processing, Inc.
 *
-* This software is distributed under the terms of the GNU Affero Public License.
-* See the COPYING file in the main directory for details.
+* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
 
-	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
 
@@ -69,13 +59,14 @@ class L3Message {
 	/**
 		Body length not including header but including rest octets.
 		In subclasses with no rest octets, this returns l2BodyLength.
+		(pat) in BYTES!!!
 	*/
 	virtual size_t fullBodyLength() const =0;
 	
 	/** Return the expected message length in bytes, including L3 header, but not including rest octets.  */
 	size_t L2Length() const { return l2BodyLength()+2; }
 
-	/** Length including header and rest octets. */
+	/** Length ((pat) in BYTES!!) including header and rest octets. */
 	size_t FullLength() const { return fullBodyLength()+2; }
 
 	/** Return number of BITS needed to hold message and header.  */
@@ -302,6 +293,20 @@ class L3ProtocolElement {
 
 
 std::ostream& operator<<(std::ostream& os, const L3ProtocolElement& elem);
+
+// Pat added:  A Non-Aligned Message Element that is not an L3ProtocolElement because
+// it is not in TLV format, and is not byte or half-byte aligned,
+// but is rather just a stream of bits, often used in the Message RestOctets.
+class GenericMessageElement {
+	public:
+	// We dont use these virtual functions except for text().
+	// They are basically here as documentation.
+	virtual size_t lengthBits() const = 0;
+	virtual void writeBits(L3Frame& dest, size_t &wp) const = 0;
+	virtual void text(std::ostream& os) const = 0;
+};
+
+std::ostream& operator<<(std::ostream& os, const GenericMessageElement& elem);
 
 
 }; // GSM

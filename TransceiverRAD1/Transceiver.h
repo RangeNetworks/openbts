@@ -1,24 +1,14 @@
 /*
 * Copyright 2008 Free Software Foundation, Inc.
 *
-* This software is distributed under the terms of the GNU Public License.
-* See the COPYING file in the main directory for details.
+* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
 
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
     This program is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
 
@@ -29,6 +19,9 @@
 	TRANSMIT_LOGGING	write every burst on the given slot to a log
 */
 
+#ifdef TIMESTAMP
+#undef TIMESTAMP
+#endif
 #include "radioInterface.h"
 #include "Interthread.h"
 #include "GSMCommon.h"
@@ -41,6 +34,7 @@
 //#define TRANSMIT_LOGGING 1
 
 #define MAXARFCN 5
+#define MAXMODULUS 102
 
 
 /** Codes for burst types of received bursts*/
@@ -56,7 +50,7 @@ class Transceiver;
 
 typedef struct ThreadStruct {
    Transceiver *trx;
-   unsigned ARFCN;
+   unsigned CN;
 } ThreadStruct;
 
 /** The Transceiver class, responsible for physical layer of basestation */
@@ -96,6 +90,7 @@ private:
   bool mLoadTest;
 
   /** Codes for channel combinations */
+  public:
   typedef enum {
     FILL,               ///< Channel is transmitted, but unused
     I,                  ///< TCH/FS
@@ -106,20 +101,19 @@ private:
     VI,                 ///< CCCH+BCCH, uplink RACH
     VII,                ///< SDCCH/8 + SACCH/8
     NONE,               ///< Channel is inactive, default
-    LOOPBACK            ///< similar go VII, used in loopback testing
+    LOOPBACK,           ///< similar go VII, used in loopback testing
+	IGPRS				///< GPRS channel, like I but static filler frames.
   } ChannelCombination;
-
+  private:
 
   /** unmodulate a modulated burst */
 #ifdef TRANSMIT_LOGGING
   void unModulateVector(signalVector wVector); 
 #endif
 
+  void setFiller(radioVector *rv, bool allocate, bool force);
   /** modulate and add a burst to the transmit queue */
-  void addRadioVector(BitVector &burst,
-		      int RSSI,
-		      GSM::Time &wTime,
-		      int ARFCN);
+  radioVector *fixRadioVector(BitVector &burst, int RSSI, GSM::Time &wTime, int CN);
 
   /** Push modulated burst into transmit FIFO corresponding to a particular timestamp */
   void pushRadioVector(GSM::Time &nowTime);
@@ -128,7 +122,7 @@ private:
   void pullRadioVector(void);
    
   /** Set modulus for specific timeslot */
-  void setModulus(int timeslot);
+  void setModulus(int carrier, int timeslot);
 
   /** send messages over the clock socket */
   void writeClockInterface(void);
@@ -143,15 +137,18 @@ private:
   double mRxFreq;                      ///< the receive frequency
   int mPower;                          ///< the transmit power in dB
   unsigned mTSC;                       ///< the midamble sequence code
-  int fillerModulus[8];                ///< modulus values of all timeslots, in frames
-  signalVector *fillerTable[102][8];   ///< table of modulated filler waveforms for all timeslots
+  int mFillerModulus[MAXARFCN][8];                ///< modulus values of all timeslots, in frames
+  signalVector *mFillerTable[MAXARFCN][MAXMODULUS][8];   ///< table of modulated filler waveforms for all timeslots
+  // Pat thinks fillerActive is left over from when the filler was only implemented on ARFCN 0.
+  //bool fillerActive[MAXARFCN][8];        ///< indicates if filler burst is to be transmitted
+  bool mHandoverActive[MAXARFCN][8];
   unsigned mMaxExpectedDelay;            ///< maximum expected time-of-arrival offset in GSM symbols
 
   unsigned int mNumARFCNs;
   bool mMultipleARFCN;
   unsigned char mOversamplingRate;
   double mFreqOffset;
-  signalVector *frequencyShifter[MAXARFCN];
+  signalVector *mFrequencyShifter[MAXARFCN];
   signalVector *decimationFilter;
   signalVector *interpolationFilter;
 
@@ -184,10 +181,10 @@ public:
   /** start the Transceiver */
   void start();
 
-  bool multiARFCN() {return mMultipleARFCN;}
+  bool multiARFCN() { return mMultipleARFCN; }
 
   /** return the expected burst type for the specified timestamp */
-  CorrType expectedCorrType(GSM::Time currTime, int ARFCN);
+  CorrType expectedCorrType(GSM::Time currTime, int CN);
 
   /** attach the radioInterface receive FIFO */
   void receiveFIFO(VectorFIFO *wFIFO) { mReceiveFIFO = wFIFO;}
@@ -195,19 +192,26 @@ public:
   /** attach the radioInterface transmit FIFO */
   void transmitFIFO(VectorFIFO *wFIFO) { mTransmitFIFO = wFIFO;}
 
-  VectorFIFO *demodFIFO(unsigned ARFCN) { return mDemodFIFO[ARFCN]; }
+  VectorFIFO *demodFIFO(unsigned CN) { return mDemodFIFO[CN]; }
 
   RadioInterface *radioInterface(void) { return mRadioInterface; }
 
   unsigned samplesPerSymbol(void) { return mSamplesPerSymbol; }
 
-  UDPSocket *dataSocket(int ARFCN) { return mDataSocket[ARFCN]; }
+  UDPSocket *dataSocket(int CN) { return mDataSocket[CN]; }
 
   signalVector *GSMPulse(void) { return gsmPulse; }
 
   unsigned maxDelay(void) { return mMaxExpectedDelay; }
 
   unsigned getTSC(void) { return mTSC; }
+
+  // This magic flag is ORed with the TN TimeSlot in vectors passed to the transceiver
+  // to indicate the radio block is a filler frame instead of a radio frame.
+  // Must be higher than any possible TN.
+  enum TransceiverFlags {
+  	SET_FILLER_FRAME = 0x10
+  };
 
 protected:
 
@@ -218,13 +222,13 @@ protected:
   void driveTransmitFIFO();
 
   /** drive handling of control messages from GSM core */
-  void driveControl(unsigned ARFCN);
+  void driveControl(unsigned CN);
 
   /**
     drive modulation and sorting of GSM bursts from GSM core
     @return true if a burst was transferred successfully
   */
-  bool driveTransmitPriorityQueue(unsigned ARFCN);
+  bool driveTransmitPriorityQueue(unsigned CN);
 
   friend void *FIFOServiceLoopAdapter(Transceiver *);
 
@@ -252,7 +256,7 @@ class Demodulator {
 
  private:
 
-  int mARFCN;
+  int mCN;
   Transceiver *mTRX;
   RadioInterface *mRadioInterface;
   VectorFIFO *mDemodFIFO;
@@ -268,7 +272,6 @@ class Demodulator {
   signalVector *gsmPulse;
   unsigned     mTSC;
   unsigned     mSamplesPerSymbol;
-
   UDPSocket    *mTRXDataSocket;
 
   unsigned     mMaxExpectedDelay;
@@ -282,14 +285,14 @@ class Demodulator {
 
  public:
 
-  Demodulator(int wARFCN,
+  Demodulator(int wCN,
 	      Transceiver *wTRX,
 	      GSM::Time wStartTime);
 
   double getEnergyThreshold() {return mEnergyThreshold;}
 
-
- //protected:
+  int          mNoiseFloorRSSI;
+//protected:
 
   void driveDemod(bool wSingleARFCN = true);
  protected:  

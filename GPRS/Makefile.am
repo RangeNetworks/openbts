@@ -20,14 +20,44 @@
 
 include $(top_srcdir)/Makefile.common
 
-# Install files in this directory
-ourdatadir = $(datadir)/OpenBTS/Asterisk
+AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES)
 
-dist_ourdata_DATA = \
-	cdr.conf \
-	extensions.conf \
-	indications.conf \
-	logger.conf \
-	modules.conf \
-	README.AsteriskConf \
-	sip.conf
+#AM_CXXFLAGS = -O0 -g
+CXXFLAGS = -g -O0
+
+noinst_LTLIBRARIES = libGPRS.la
+
+
+libGPRS_la_SOURCES = \
+	MSInfo.cpp \
+	RLCEngine.cpp \
+	TBF.cpp \
+	MAC.cpp \
+	FEC.cpp \
+	RLCEngine.cpp \
+	RLCMessages.cpp \
+	ByteVector.cpp \
+	GPRSCLI.cpp \
+	RLC.cpp \
+	MsgBase.cpp
+#BSSGMessages.cpp
+#BSSG.cpp
+
+noinst_HEADERS = \
+	ByteVector.h \
+	FEC.h \
+	GPRSExport.h \
+	GPRSInternal.h \
+	GPRSTDMA.h \
+	MAC.h \
+	MsgBase.h \
+	GPRSRLC.h \
+	RLCEngine.h \
+	RLCHdr.h \
+	RLCMessages.h \
+	RList.h \
+	ScalarTypes.h \
+	TBF.h \
+	MSInfo.h
+#	BSSG.h
+#	BSSGMessages.h

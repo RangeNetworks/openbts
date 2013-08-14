@@ -1,24 +1,16 @@
 /*
 * Copyright 2008, 2009 Free Software Foundation, Inc.
 *
-* This software is distributed under the terms of the GNU Affero Public License.
-* See the COPYING file in the main directory for details.
+* This software is distributed under multiple licenses;
+* see the COPYING file in the main directory for
+* licensing information for this specific distribuion.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
 
-	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
 
@@ -43,6 +35,7 @@ implementation, although no code is copied directly.
 #include "GSML2LAPDm.h"
 #include "GSMSAPMux.h"
 #include <Logger.h>
+#include <GSML3RRMessages.h>
 
 using namespace std;
 using namespace GSM;
@@ -72,7 +65,7 @@ void CCCHL2::writeHighSide(const GSM::L3Frame& l3)
 	assert(mDownstream);
 	assert(l3.primitive()==UNIT_DATA);
 	L2Header header(L2Length(l3.L2Length()));
-	mDownstream->writeHighSide(L2Frame(header,l3));
+	mDownstream->writeHighSide(L2Frame(header,l3,true));
 }
 
 
@@ -94,6 +87,7 @@ L2LAPDm::L2LAPDm(unsigned wC, unsigned wSAPI)
 	mIdleFrame.fillField(8*0,(mC<<1)|1,8);		// address
 	mIdleFrame.fillField(8*1,3,8);				// control
 	mIdleFrame.fillField(8*2,1,8);				// length
+	if (gConfig.getBool("GSM.Cipher.ScrambleFiller")) mIdleFrame.randomizeFiller(8*4);
 }
 
 
@@ -102,7 +96,9 @@ void L2LAPDm::writeL1(const L2Frame& frame)
 	OBJLOG(DEBUG) <<"L2LAPDm::writeL1 " << frame;
 	//assert(mDownstream);
 	if (!mDownstream) return;
-	ScopedLock lock(mLock);
+	// It is tempting not to lock this, but if we don't,
+	// the ::open operation can result in contention in L1.
+	ScopedLock lock(mL1Lock);
 	mDownstream->writeHighSide(frame);
 }
 
@@ -288,13 +284,16 @@ void L2LAPDm::open()
 	OBJLOG(DEBUG);
 	{
 		ScopedLock lock(mLock);
+		OBJLOG(DEBUG);
 		if (!mRunning) {
+			OBJLOG(DEBUG);
 			// We can't call this from the constructor,
 			// since N201 may not be defined yet.
 			mMaxIPayloadBits = 8*N201(L2Control::IFormat);
 			mRunning = true;
 			mUpstreamThread.start((void *(*)(void*))LAPDmServiceLoopAdapter,this);
 		}
+		OBJLOG(DEBUG);
 		mL3Out.clear();
 		mL1In.clear();
 		clearCounters();
@@ -302,7 +301,9 @@ void L2LAPDm::open()
 		mAckSignal.signal();
 	}
 
+	OBJLOG(DEBUG);
 	if (mSAPI==0) sendIdle();
+	OBJLOG(DEBUG);
 }
 
 
@@ -484,6 +485,9 @@ void L2LAPDm::receiveFrame(const GSM::L2Frame& frame)
 				case L2Control::UFormat: receiveUFrame(frame); break;
 			}
 			break;
+		case HANDOVER_ACCESS:
+			mL3Out.write(new L3Frame(HANDOVER_ACCESS));
+			break;                  
 		default:
 			OBJLOG(ERR) << "unhandled primitive in L1->L2 " << frame;
 			assert(0);
@@ -577,8 +581,7 @@ void L2LAPDm::receiveUFrameSABM(const L2Frame& frame)
 			}
 			// Re-establishment procedure, GSM 04.06 5.6.3.
 			// This basically resets the ack engine.
-			// We should not actually see this, as of rev 2.4.
-			OBJLOG(WARNING) << "reestablishment not really supported";
+			// The most common reason for this is failed handover.
 			sendUFrameUA(frame.PF());
 			clearCounters();
 			break;
@@ -908,8 +911,17 @@ void L2LAPDm::sendUFrameUI(const L3Frame& l3)
 	L2Control control(L2Control::UFormat,1,0x00);
 	L2Length length(l3.L2Length());
 	L2Header header(address,control,length);
-	writeL1NoAck(L2Frame(header,l3));
+	L2Frame l2f = L2Frame(header, l3);
+	// FIXME -
+	// The correct solution is to build an L2 frame in RadioResource.cpp and control the bits explicitly up there.
+	// But I don't know if the LogcialChannel class has a method for sending frames directly into L2.
+	if (l3.PD() == L3RadioResourcePD && l3.MTI() == L3RRMessage::PhysicalInformation) {
+		l2f.CR(true);
+		l2f.PF(false);
+	}
+	writeL1NoAck(l2f);
 }
+
 
 
 
@@ -993,6 +1005,25 @@ bool L2LAPDm::stuckChannel(const L2Frame& frame)
 	return mIdleCount > maxIdle();
 }
 
+
+
+void CBCHL2::writeHighSide(const GSM::L3Frame& l3)
+{
+	OBJLOG(DEBUG) <<"CBCHL2 incoming L3 frame: " << l3;
+	assert(mDownstream);
+	assert(l3.primitive()==UNIT_DATA);
+	assert(l3.size()==88*8);
+	L2Frame outFrame(DATA);
+	// Chop the L3 frame into 4 L2 frames.
+	for (unsigned i=0; i<4; i++) {
+		outFrame.fillField(0,0x02,4);
+		outFrame.fillField(4,i,4);
+		const BitVector thisSeg = l3.segment(i*22*8,22*8);
+		thisSeg.copyToSegment(outFrame,8);
+		OBJLOG(DEBUG) << "CBCHL2 outgoing L2 frame: " << outFrame;
+		mDownstream->writeHighSide(outFrame);
+	}
+}
 
 
 

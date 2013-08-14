@@ -1,0 +1,60 @@
+HDR=BSSG.h BSSGMessages.h ByteVector.h FEC.h GPRSExport.h GPRSInternal.h \
+	GPRSTDMA.h MAC.h MsgBase.h RLCEngine.h RLCHdr.h RLCMessages.h RList.h \
+	ScalarTypes.h TBF.h Transfer.h Utils.h
+#HDR= Utils.h BSSG.h BSSGMessages.h FEC.h GPRSExport.h GPRSInternal.h \
+#	GPRSTDMA.h MAC.h RLCEngine.h RLCHdr.h RLCMessages.h TBF.h Transfer.h Utils.h BaseTypes.h
+SRC= GPRSConfig.cpp TBF.cpp RLCMessages.cpp BSSG.cpp BSSGMessages.cpp ByteVector.cpp FEC.cpp MAC.cpp MsgBase.cpp \
+	RLCEngine.cpp Transfer.cpp Utils.cpp
+
+INCLUDE= -I. -I..  -I../CommonLibs -I../Control -I../GPRS -I../GSM -I../SIP -I../SMS -I../TRXManager -I../Globals -I../CLI -I../HLR -I../SR -I../sqlite3
+
+ODIR=.libs
+
+OBJ= $(SRC:%.cpp=$(ODIR)/%.o)
+
+
+all: lib
+
+test1: test1.cpp Makefile libGPRS.a
+	g++ $(INCLUDE) -o test1 test1.cpp libGPRS.a ../CommonLibs/.libs/libcommon.a
+
+test2: test1.cpp Makefile libGPRS.a
+	g++ $(INCLUDE) -o test1 test1.cpp libGPRS.a ../CommonLibs/.libs/libcommon.a ../GSM/.libs/libGSM.a
+
+lib: $(OBJ)
+	ar cru $(ODIR)/libGPRS.a $(OBJ)
+	touch libGPRS.la
+
+#.cpp.o:
+$(ODIR)/%.o: %.cpp
+	-mkdir o 2>/dev/null
+	g++ -DHAVE_CONFIG_H -I. -I. -I..  -I../CommonLibs -I../Control -I../GPRS -I../GSM -I../SIP -I../SMS -I../TRXManager -I../Globals -I../CLI -I../HLR -I../SR -I../sqlite3  -Wall -g -c -o $(ODIR)/$*.o $*.cpp
+
+
+
+
+# g++ -DHAVE_CONFIG_H -I. -I. -I..  -I../CommonLibs -I../Control -I../GPRS -I../GSM -I../SIP -I../SMS -I../TRXManager -I../Globals -I../CLI -I../HLR -I../SR -I../sqlite3  -Wall -O3 -g -O2 -MT RadioResource.lo -MD -MP -MF ".deps/RadioResource.Tpo" -c -o RadioResource.lo RadioResource.cpp; \
+		        then mv -f ".deps/RadioResource.Tpo" ".deps/RadioResource.Plo"; else rm -f ".deps/RadioResource.Tpo"; exit 1; fi
+
+$(OBJ):$(HDR)
+
+svnadd:
+	svn add $(HDR) $(SRC)
+
+clean:
+	/bin/rm $(ODIR)/*
+
+commit:
+	svn commit $(HDR) $(SRC)
+
+ping: ping.o
+	gcc -o ping ping.c
+
+pinghttp: pinghttp.c iputils.c makefile.tests
+	gcc -DSTANDALONE=1 -o pinghttp $(CFLAGS) pinghttp.c iputils.c
+
+
+tags: .ALWAYS
+	cd ..; sh PAT.ctags
+
+.ALWAYS:

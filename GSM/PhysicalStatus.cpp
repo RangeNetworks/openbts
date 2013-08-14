@@ -1,30 +1,27 @@
 /**@file Declarations for PhysicalStatus and related classes. */
 
 /*
-* Copyright 2010, 2011 Free Software Foundation, Inc.
 * Copyright 2010 Kestrel Signal Processing, Inc.
-* Copyright 2011 Range Networks, Inc.
+* Copyright 2011, 2012 Range Networks, Inc.
 *
-* This software is distributed under the terms of the GNU Affero Public License.
-* See the COPYING file in the main directory for details.
+* This software is distributed under multiple licenses;
+* see the COPYING file in the main directory for licensing
+* information for this specific distribuion.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
 
-	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
+
+/*
+ * Copyright 2010 Kestrel Signal Processing, Inc.
+ * All rights reserved.
+ *
+ */
 
 
 #include "PhysicalStatus.h"
@@ -33,6 +30,7 @@
 #include <sqlite3.h>
 #include <sqlite3util.h>
 
+#include <NeighborTable.h>
 #include <GSML3RRElements.h>
 #include <GSMLogicalChannel.h>
 
@@ -58,7 +56,9 @@ static const char* createPhysicalStatus = {
 		"TIME_ERR FLOAT DEFAULT NULL, "						// timing advance error in symbol periods
 		"TRANS_PWR INTEGER DEFAULT NULL, "					// handset tx power in dBm
 		"TIME_ADVC INTEGER DEFAULT NULL, "					// handset timing advance in symbol periods
-		"FER FLOAT DEFAULT NULL "							// uplink FER
+		"FER FLOAT DEFAULT NULL, "							// uplink FER
+		"NCELL_ARFCN INTEGER DEFAULT NULL, "				// ARFCN of strongest neighbor
+		"NCELL_RSSI INTEGER DEFAULT NULL "				// RSSI of strongest neighbor
 	")"
 };
 
@@ -74,6 +74,10 @@ int PhysicalStatus::open(const char* wPath)
 	if (!sqlite3_command(mDB, createPhysicalStatus)) {
 		LOG(EMERG) << "Cannot create TMSI table";
 		return 1;
+	}
+	// Set high-concurrency WAL mode.
+	if (!sqlite3_command(mDB,enableWAL)) {
+		LOG(EMERG) << "Cannot enable WAL mode on database at " << wPath << ", error message: " << sqlite3_errmsg(mDB);
 	}
 	return 0;
 }
@@ -115,35 +119,86 @@ bool PhysicalStatus::setPhysical(const LogicalChannel* chan,
 	assert(mDB);
 	assert(chan);
 
+	// If MEAS_VALID is true, we don't have valid measurements.
+	// Really.  See GSM 04.08 10.5.2.20.
+	if (measResults.MEAS_VALID()) return true; 
+
 	ScopedLock lock(mLock);
 
 	createEntry(chan);
 
+	int CN = -1;
+	if (measResults.NO_NCELL()>0) CN = measResults.BCCH_FREQ_NCELL(0);
+	int ARFCN = -1;
+	if (CN>=0) {
+		std::vector<unsigned> ARFCNList = gNeighborTable.ARFCNList();
+		size_t sz = ARFCNList.size();
+		if (sz!=0) {
+			if (CN<sz) ARFCN=ARFCNList[CN];
+			else { LOG(NOTICE) << "BCCH index " << CN << " does not match ARFCN list of size " << sz; }
+		} else {
+			LOG(DEBUG) << "empty measurement list";
+		}
+	}
+
 	char query[500];
-	sprintf(query,
-		"UPDATE PHYSTATUS SET "
-		"RXLEV_FULL_SERVING_CELL=%d, "
-		"RXLEV_SUB_SERVING_CELL=%d, "
-		"RXQUAL_FULL_SERVING_CELL_BER=%f, "
-		"RXQUAL_SUB_SERVING_CELL_BER=%f, "
-		"RSSI=%f, "
-		"TIME_ERR=%f, "
-		"TRANS_PWR=%u, "
-		"TIME_ADVC=%u, "
-		"FER=%f, "
-		"ACCESSED=%u, "
-		"ARFCN=%u "
-		"WHERE CN_TN_TYPE_AND_OFFSET==\"%s\"",
-		measResults.RXLEV_FULL_SERVING_CELL_dBm(),
-		measResults.RXLEV_SUB_SERVING_CELL_dBm(),
-		measResults.RXQUAL_FULL_SERVING_CELL_BER(),
-		measResults.RXQUAL_SUB_SERVING_CELL_BER(),
-		chan->RSSI(), chan->timingError(),
-		chan->actualMSPower(), chan->actualMSTiming(),
-		chan->FER(),
-		(unsigned)time(NULL),
-		chan->ARFCN(),
-		chan->descriptiveString());
+
+	if (ARFCN<0) {
+		sprintf(query,
+			"UPDATE PHYSTATUS SET "
+			"RXLEV_FULL_SERVING_CELL=%d, "
+			"RXLEV_SUB_SERVING_CELL=%d, "
+			"RXQUAL_FULL_SERVING_CELL_BER=%f, "
+			"RXQUAL_SUB_SERVING_CELL_BER=%f, "
+			"RSSI=%f, "
+			"TIME_ERR=%f, "
+			"TRANS_PWR=%u, "
+			"TIME_ADVC=%u, "
+			"FER=%f, "
+			"ACCESSED=%u, "
+			"ARFCN=%u "
+			"WHERE CN_TN_TYPE_AND_OFFSET==\"%s\"",
+			measResults.RXLEV_FULL_SERVING_CELL_dBm(),
+			measResults.RXLEV_SUB_SERVING_CELL_dBm(),
+			measResults.RXQUAL_FULL_SERVING_CELL_BER(),
+			measResults.RXQUAL_SUB_SERVING_CELL_BER(),
+			chan->RSSI(), chan->timingError(),
+			chan->actualMSPower(), chan->actualMSTiming(),
+			chan->FER(),
+			(unsigned)time(NULL),
+			chan->ARFCN(),
+			chan->descriptiveString());
+	} else {
+		sprintf(query,
+			"UPDATE PHYSTATUS SET "
+			"RXLEV_FULL_SERVING_CELL=%d, "
+			"RXLEV_SUB_SERVING_CELL=%d, "
+			"RXQUAL_FULL_SERVING_CELL_BER=%f, "
+			"RXQUAL_SUB_SERVING_CELL_BER=%f, "
+			"RSSI=%f, "
+			"TIME_ERR=%f, "
+			"TRANS_PWR=%u, "
+			"TIME_ADVC=%u, "
+			"FER=%f, "
+			"ACCESSED=%u, "
+			"ARFCN=%u ,"
+			"NCELL_ARFCN=%u, "
+			"NCELL_RSSI=%d "
+			"WHERE CN_TN_TYPE_AND_OFFSET==\"%s\"",
+			measResults.RXLEV_FULL_SERVING_CELL_dBm(),
+			measResults.RXLEV_SUB_SERVING_CELL_dBm(),
+			measResults.RXQUAL_FULL_SERVING_CELL_BER(),
+			measResults.RXQUAL_SUB_SERVING_CELL_BER(),
+			chan->RSSI(), chan->timingError(),
+			chan->actualMSPower(), chan->actualMSTiming(),
+			chan->FER(),
+			(unsigned)time(NULL),
+			chan->ARFCN(),
+			(unsigned)ARFCN,
+			measResults.RXLEV_NCELL_dBm(0),
+			chan->descriptiveString()
+			);
+	}
 
 	LOG(DEBUG) << "Query: " << query;
 

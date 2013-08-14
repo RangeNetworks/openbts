@@ -1,9 +1,11 @@
-openbts-public (2.8) UNRELEASED; urgency=low
+openbts-public (3.2) UNRELEASED; urgency=low
 
-  [ Donald C. Kirker ]
-  * Test release
+  * Public sync
 
-  [ Kurtis Heimerl ]
-  * Release of debian scripts into public
+ -- Kurtis <kheimerl@darth-maul>  Thu, 01 Aug 2013 20:37:03 -0700
 
- -- Kurtis Heimerl <kurtis.heimerl@rangenetworks.com>  Sat, 06 Jul 2013 17:19:05 -0700
+openbts-public (3.2) UNRELEASED; urgency=low
+
+    * Test
+
+ -- Donald C. Kirker <donald.kirker@rangenetworks.com> Mon, 22 Apr 2013 00:11:00 -0700

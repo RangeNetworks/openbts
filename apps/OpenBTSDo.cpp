@@ -1,5 +1,5 @@
 /*
-* Copyright 2011 Range Networks, Inc.
+* Copyright 2011, 2012 Range Networks, Inc.
 *
 * This software is distributed under the terms of the GNU Affero Public License.
 * See the COPYING file in the main directory for details.
@@ -34,7 +34,7 @@
 #include <limits.h>
 
 
-#define DEFAULT_CMD_PATH "/var/run/command"
+#define DEFAULT_CMD_PATH "/var/run/OpenBTS/command"
 
 int main(int argc, char *argv[])
 {
@@ -61,6 +61,9 @@ int main(int argc, char *argv[])
 	// locally bound address
 	struct sockaddr_un rspSockName;
 	rspSockName.sun_family = AF_UNIX;
+	char rmcmd[strlen(rspPath)+10];
+	sprintf(rmcmd,"rm -f %s",rspPath);
+	system(rmcmd);
 	strcpy(rspSockName.sun_path,rspPath);
 	if (bind(sock, (struct sockaddr *) &rspSockName, sizeof(struct sockaddr_un))) {
 		perror("binding name to datagram socket");
@@ -71,13 +74,15 @@ int main(int argc, char *argv[])
 	char *inbuf = (char*)malloc(200);
 	char *cmd = fgets(inbuf,199,stdin);
 	if (!cmd) exit(0);
+	cmd[strlen(cmd)-1] = '\0';
 
 	if (sendto(sock,cmd,strlen(cmd)+1,0,(struct sockaddr*)&cmdSockName,sizeof(cmdSockName))<0) {
 		perror("sending datagram");
 		exit(1);
 	}
 
-	const int bufsz = 1500;
+	// buffer to be sized as necessary to accomodate config data length
+	const int bufsz = 8500;
 	char resbuf[bufsz];
 	int nread = recv(sock,resbuf,bufsz-1,0);
 	if (nread<0) {
@@ -88,4 +93,8 @@ int main(int argc, char *argv[])
 	printf("%s\n",resbuf);
 
 	close(sock);
+
+	// Delete the path to limit clutter in /tmp.
+	sprintf(rmcmd,"rm -f %s",rspPath);
+	system(rmcmd);
 }

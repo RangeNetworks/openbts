@@ -24,7 +24,7 @@ DB_LOC=/etc/OpenBTS/OpenBTS.db
 DATE=$(date +'%Y-%m-%d.%H:%M:%S')
 CONFIG_BACKUP=$DB_LOC.dump-$DATE
 
-if [ -e $DB_LOC ]; then
+if [ ! -e $CONFIG_BACKUP ]; then
         sqlite3 $DB_LOC ".dump" > $CONFIG_BACKUP
 fi
 

@@ -20,7 +20,7 @@
 
 include $(top_srcdir)/Makefile.common
 
-DESTDIR = 
+DESTDIR := 
 
 AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES) $(USB_INCLUDES) $(WITH_INCLUDES)
 AM_CXXFLAGS = -DOMNITHREAD_POSIX=1 -lusb-1.0 -ldl -lpthread
@@ -40,6 +40,7 @@ libtransceiver_la_SOURCES = \
 	sigProcLib.cpp \
 	Transceiver.cpp \
 	RAD1Device.cpp \
+	FactoryCalibration.cpp \
 	DummyLoad.cpp
 
 
@@ -49,6 +50,7 @@ noinst_PROGRAMS = \
 	sigProcLibTest \
 	RAD1Cmd \
 	RAD1SN \
+	RAD1RxRawPowerSweep \
 	RAD1RxRawPower
 
 noinst_HEADERS = \
@@ -69,6 +71,7 @@ noinst_HEADERS = \
 	sigProcLib.h \
 	Transceiver.h \
 	RAD1Device.h \
+	FactoryCalibration.h \
 	DummyLoad.h
 
 RAD1ping_SOURCES = RAD1ping.cpp
@@ -78,6 +81,11 @@ RAD1ping_LDADD = \
 
 RAD1RxRawPower_SOURCES = RAD1RxRawPower.cpp
 RAD1RxRawPower_LDADD = \
+        libtransceiver.la \
+        $(COMMON_LA) $(SQLITE_LA)
+
+RAD1RxRawPowerSweep_SOURCES = RAD1RxRawPowerSweep.cpp
+RAD1RxRawPowerSweep_LDADD = \
         libtransceiver.la \
         $(COMMON_LA) $(SQLITE_LA)
 
@@ -108,15 +116,15 @@ sigProcLibTest_LDADD = \
 
 MOSTLYCLEANFILES +=
 
-install: transceiver
-	@mkdir -p "$(DESTDIR)/OpenBTS/"
-	install transceiver "$(DESTDIR)/OpenBTS/"
-	install ezusb.ihx "$(DESTDIR)/OpenBTS/"
-	install fpga.rbf "$(DESTDIR)/OpenBTS/"
-
 #radioInterface.cpp
 #ComplexTest.cpp
 #sigProcLibTest.cpp
 #sweepGenerator.cpp
 #testRadio.cpp
+
+install: transceiver
+	@mkdir -p "$(DESTDIR)/OpenBTS/"
+	install transceiver "$(DESTDIR)/OpenBTS/"
+	install ezusb.ihx "$(DESTDIR)/OpenBTS/"
+	install fpga.rbf "$(DESTDIR)/OpenBTS/"
 

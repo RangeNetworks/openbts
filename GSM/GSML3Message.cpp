@@ -1,25 +1,14 @@
 /*
 * Copyright 2008, 2009, 2010 Free Software Foundation, Inc.
 *
-* This software is distributed under the terms of the GNU Affero Public License.
-* See the COPYING file in the main directory for details.
+* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
 
-	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 */
 
 
@@ -52,6 +41,7 @@ void L3Message::parse(const L3Frame& source)
 void L3Message::write(L3Frame& dest) const
 {
 	size_t l3len = bitsNeeded();
+	//printf("bitsneeded=%d\n",l3len);
 	if (dest.size()!=l3len) dest.resize(l3len);
 	size_t wp = 0;
 	// write the standard L3 header
@@ -129,10 +119,6 @@ ostream& GSM::operator<<(ostream& os, const L3Message& msg)
 	msg.text(os);
 	return os;
 }
-
-
-
-
 
 
 
@@ -255,6 +241,12 @@ void L3ProtocolElement::skipExtendedOctets( const L3Frame& source, size_t &rp )
 ostream& GSM::operator<<(ostream& os, const L3ProtocolElement& elem)
 {
 	elem.text(os);
+	return os;
+}
+
+ostream& GSM::operator<<(ostream& os, const GenericMessageElement& msg)
+{
+	msg.text(os);
 	return os;
 }
 

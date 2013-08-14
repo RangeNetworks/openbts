@@ -38,8 +38,11 @@ libcontrol_la_SOURCES = \
 	MobilityManagement.cpp \
 	RadioResource.cpp \
 	DCCHDispatch.cpp \
+	SMSCB.cpp \
 	RRLPServer.cpp
 
+
+# TODO - move CollectMSInfo.cpp and RRLPQueryController.cpp to RRLP directory.
 
 noinst_HEADERS = \
 	ControlCommon.h \

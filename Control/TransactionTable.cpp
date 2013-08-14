@@ -29,6 +29,8 @@
 #include <GSML3MMMessages.h>
 #include <GSMConfig.h>
 
+#include <Peering.h>
+
 #include <sqlite3.h>
 #include <sqlite3util.h>
 
@@ -100,8 +102,7 @@ TransactionEntry::TransactionEntry(
 	const L3CMServiceType& wService,
 	const L3CallingPartyBCDNumber& wCalling,
 	GSM::CallState wState,
-	const char *wMessage,
-	bool wFake)
+	const char *wMessage)
 	:mID(gTransactionTable.newID()),
 	mSubscriber(wSubscriber),mService(wService),
 	mL3TI(gTMSITable.nextL3TI(wSubscriber.digits())),
@@ -111,9 +112,8 @@ TransactionEntry::TransactionEntry(
 	mNumSQLTries(gConfig.getNum("Control.NumSQLTries")),
 	mChannel(wChannel),
 	mTerminationRequested(false),
-	mRemoved(false),
-	mFake(wFake)
-	 
+	mHandoverOtherBSTransactionID(0),
+	mRemoved(false)
 {
 	if (wMessage) mMessage.assign(wMessage); //strncpy(mMessage,wMessage,160);
 	else mMessage.assign(""); //mMessage[0]='\0';
@@ -137,33 +137,10 @@ TransactionEntry::TransactionEntry(
 	mNumSQLTries(gConfig.getNum("Control.NumSQLTries")),
 	mChannel(wChannel),
 	mTerminationRequested(false),
-	mRemoved(false),
-	mFake(false)
+	mHandoverOtherBSTransactionID(0),
+	mRemoved(false)
 {
 	assert(mSubscriber.type()==GSM::IMSIType);
-	mMessage.assign(""); //mMessage[0]='\0';
-	initTimers();
-}
-
-
-// Form for SOS transactions.
-TransactionEntry::TransactionEntry(
-	const char* proxy,
-	const L3MobileIdentity& wSubscriber,
-	GSM::LogicalChannel* wChannel,
-	const L3CMServiceType& wService,
-	unsigned wL3TI)
-	:mID(gTransactionTable.newID()),
-	mSubscriber(wSubscriber),mService(wService),
-	mL3TI(wL3TI),
-	mSIP(proxy,mSubscriber.digits()),
-	mGSMState(GSM::MOCInitiated),
-	mNumSQLTries(2*gConfig.getNum("Control.NumSQLTries")),
-	mChannel(wChannel),
-	mTerminationRequested(false),
-	mRemoved(false),
-	mFake(false)
-{
 	mMessage.assign(""); //mMessage[0]='\0';
 	initTimers();
 }
@@ -185,8 +162,8 @@ TransactionEntry::TransactionEntry(
 	mNumSQLTries(gConfig.getNum("Control.NumSQLTries")),
 	mChannel(wChannel),
 	mTerminationRequested(false),
-	mRemoved(false),
-	mFake(false)
+	mHandoverOtherBSTransactionID(0),
+	mRemoved(false)
 {
 	assert(mSubscriber.type()==GSM::IMSIType);
 	if (wMessage!=NULL) mMessage.assign(wMessage); //strncpy(mMessage,wMessage,160);
@@ -208,12 +185,141 @@ TransactionEntry::TransactionEntry(
 	mNumSQLTries(gConfig.getNum("Control.NumSQLTries")),
 	mChannel(wChannel),
 	mTerminationRequested(false),
-	mRemoved(false),
-	mFake(false)
+	mHandoverOtherBSTransactionID(0),
+	mRemoved(false)
 {
 	assert(mSubscriber.type()==GSM::IMSIType);
 	mMessage[0]='\0';
 	initTimers();
+}
+
+
+
+// Form for inbound handovers.
+TransactionEntry::TransactionEntry(const struct sockaddr_in* peer,
+	unsigned wHandoverReference,
+	SimpleKeyValue &params,
+	const char *proxy,
+	GSM::LogicalChannel *wChannel,
+	unsigned wHandoverOtherBSTransactionID)
+	:mID(gTransactionTable.newID()),
+	mService(GSM::L3CMServiceType::HandoverCall),
+	mSIP(proxy),
+	mGSMState(GSM::HandoverInbound),
+	mInboundReference(wHandoverReference),
+	mNumSQLTries(gConfig.getNum("Control.NumSQLTries")),
+	mChannel(wChannel),
+	mTerminationRequested(false),
+	mHandoverOtherBSTransactionID(wHandoverOtherBSTransactionID),
+	mRemoved(false)
+{
+	// This is used for inbound handovers.
+	// We are "BS2" in the handover ladder diagram.
+	// The message string was formed by the handoverString method.
+
+	// Save the peer address.
+	bcopy(peer,&mInboundPeer,sizeof(mInboundPeer));
+
+	// Break into space-delimited tokens, stuff into a SimpleKeyValue and then unpack it.
+	//SimpleKeyValue params;
+	//params.addItems(args);
+
+	const char* IMSI = params.get("IMSI");
+	if (IMSI) mSubscriber = GSM::L3MobileIdentity(IMSI);
+
+	const char* called = params.get("called");
+	if (called) {
+		mCalled = GSM::L3CallingPartyBCDNumber(called);
+		mService = GSM::L3CMServiceType::MobileOriginatedCall;
+	}
+
+	const char* calling = params.get("calling");
+	if (calling) {
+		mCalling = GSM::L3CallingPartyBCDNumber(calling);
+		mService = GSM::L3CMServiceType::MobileTerminatedCall;
+	}
+
+	const char* ref = params.get("ref");
+	if (ref) mInboundReference = strtol(ref,NULL,10);
+
+	const char* L3TI = params.get("L3TI");
+	if (L3TI) mL3TI = strtol(L3TI,NULL,10);
+
+	// Set the SIP state.
+	mSIP.state(SIP::HandoverInbound);
+
+	const char* codec = params.get("codec");
+	if (codec) mCodec = atoi(codec);
+
+	const char* remoteUsername = params.get("remoteUsername");
+	if (remoteUsername) mRemoteUsername = strdup(remoteUsername);
+
+	const char* remoteDomain = params.get("remoteDomain");
+	if (remoteDomain) mRemoteDomain = strdup(remoteDomain);
+
+	const char* SIPUsername = params.get("SIPUsername");
+	if (SIPUsername) mSIPUsername = strdup(SIPUsername);
+
+	const char* SIPDisplayname = params.get("SIPDisplayname");
+	if (SIPDisplayname) mSIPDisplayname = strdup(SIPDisplayname);
+
+	const char* FromTag = params.get("FromTag");
+	if (FromTag) mFromTag = strdup(FromTag);
+
+	const char* FromUsername = params.get("FromUsername");
+	if (FromUsername) mFromUsername = strdup(FromUsername);
+
+	const char* FromIP = params.get("FromIP");
+	if (FromIP) mFromIP = strdup(FromIP);
+
+	const char* ToTag = params.get("ToTag");
+	if (ToTag) mToTag = strdup(ToTag);
+
+	const char* ToUsername = params.get("ToUsername");
+	if (ToUsername) mToUsername = strdup(ToUsername);
+
+	const char* ToIP = params.get("ToIP");
+	if (ToIP) mToIP = strdup(ToIP);
+
+	const char* CSeq = params.get("CSeq");
+	if (CSeq) mCSeq = atoi(CSeq);
+
+	const char * CallID = params.get("CallID");
+	if (CallID) mCallID = CallID;
+	mSIP.callID(CallID);
+
+	const char * CallIP = params.get("CallIP");
+	if (CallIP) mCallIP = CallIP;
+
+	const char * RTPState = params.get("RTPState");
+	if (RTPState) mRTPState = RTPState;
+
+	const char * SessionID = params.get("SessionID");
+	if (SessionID) mSessionID = SessionID;
+
+	const char * SessionVersion = params.get("SessionVersion");
+	if (SessionVersion) mSessionVersion = SessionVersion;
+
+	const char * RTPRemPort = params.get("RTPRemPort");
+	if (RTPRemPort) mRTPRemPort = atoi(RTPRemPort);
+
+	const char * RTPRemIP = params.get("RTPRemIP");
+	if (RTPRemIP) mRTPRemIP = RTPRemIP;
+
+	const char * RmtIP = params.get("RmtIP");
+	if (RmtIP) mRmtIP = RmtIP;
+
+	const char * RmtPort = params.get("RmtPort");
+	if (RmtPort) mRmtPort = atoi(RmtPort);
+
+	const char * SRIMSI = params.get("SRIMSI");
+	if (SRIMSI) mSRIMSI = SRIMSI;
+
+	const char * SRCALLID = params.get("SRCALLID");
+	if (SRCALLID) mSRCALLID = SRCALLID;
+
+	initTimers();
+
 }
 
 
@@ -222,6 +328,8 @@ TransactionEntry::~TransactionEntry()
 	// This should go out of scope before the object is actually destroyed.
 	ScopedLock lock(mLock);
 
+	// Remove any FIFO from the gPeerInterface.
+	gPeerInterface.removeFIFO(mID);
 	// Remove the associated SIP message FIFO.
 	gSIPInterface.removeCall(mSIP.callID());
 
@@ -332,6 +440,8 @@ bool TransactionEntry::dead() const
 	if (age < 30*1000) return false;
 	// Failed?
 	if (lSIPState==SIP::Fail) return true;
+	// Bad handover?
+	if (lSIPState==SIP::HandoverInbound) return true;
 	// SIP Null state?
 	if (lSIPState==SIP::NullState) return true;
 	// SIP stuck in proceeding?
@@ -411,9 +521,7 @@ void TransactionEntry::messageType(const char *wContentType)
 void TransactionEntry::runQuery(const char* query) const
 {
 	// Caller should hold mLock and should have already checked mRemoved..
-	for (unsigned i=0; i<mNumSQLTries; i++) {
-		if (sqlite3_command(gTransactionTable.DB(),query)) return;
-	}
+	if (sqlite3_command(gTransactionTable.DB(),query,mNumSQLTries)) return;
 	LOG(ALERT) << "transaction table access failed after " << mNumSQLTries << "attempts. query:" << query << " error: " << sqlite3_errmsg(gTransactionTable.DB());
 }
 
@@ -597,16 +705,6 @@ SIP::SIPState TransactionEntry::MOCSendACK()
 	echoSIPState(state);
 	return state;
 }
-
-SIP::SIPState TransactionEntry::SOSSendINVITE(short rtpPort, unsigned codec)
-{
-	if (mRemoved) throw RemovedTransaction(mID);
-	ScopedLock lock(mLock);
-	SIP::SIPState state = mSIP.SOSSendINVITE(rtpPort,codec,channel());
-	echoSIPState(state);
-	return state;
-}
-
 
 SIP::SIPState TransactionEntry::MTCSendTrying()
 {
@@ -865,6 +963,120 @@ bool TransactionEntry::terminationRequested()
 	return retVal;
 }
 
+string TransactionEntry::handoverString() const
+{
+	// This string is a set of key-value pairs.
+	// It needs to carry all of the information of the GSM Abis Handover Request message,
+	// as well as all of the information of the SIP REFER message.
+	// We call this as "BS1" in the handover ladder diagram.
+	// It is decoded at the other end by a TransactionEnty constructor.
+
+	if (mRemoved) throw RemovedTransaction(mID);
+	ScopedLock lock(mLock);
+	ostringstream os;
+	os << mID;
+	os << " IMSI=" << mSubscriber.digits();
+	if (mGSMState==GSM::HandoverInbound) os << " inbound-ref=" << mInboundReference;
+	if (mGSMState==GSM::HandoverOutbound) os << " outbound-ref=" << mOutboundReference.value();
+	os << " L3TI=" << mL3TI;
+	if (mCalled.digits()[0]) os << " called=" << mCalled.digits();
+	if (mCalling.digits()[0]) os << " calling=" << mCalling.digits();
+
+	osip_message_t *ok = mSIP.LastResponse();
+	if (!ok) ok = mSIP.INVITE();
+	osip_cseq_t *cseq = osip_message_get_cseq(ok);
+
+	char *cseqStr;
+	osip_cseq_to_str(cseq, &cseqStr);
+	os << " CSeq=" << cseqStr;
+	// FIXME - this should be extracted from a= attribute of sdp message
+	os << " codec=" << SIP::RTPGSM610;
+
+	os << " CallID=" << osip_call_id_get_number(ok->call_id);
+	if (osip_call_id_get_host(ok->call_id)) {
+		os << " CallIP=" << osip_call_id_get_host(ok->call_id);
+	} else {
+		os << " CallIP=";
+	}
+
+	const char *fromLabel = " From";
+	const char *toLabel = " To";
+	// FIXME? - is there a better way to detect moc vs mtc?
+	if (!mSIP.LastResponse()) {
+		fromLabel = " To";
+		toLabel = " From";
+	}
+	osip_from_t *from = osip_message_get_from(ok);
+	char *fromStr;
+	osip_from_to_str(from, &fromStr);
+	char *fromTag = index(fromStr, ';');
+	// FIXME? - is there a better way to get the tag?
+	os << " " << fromLabel << "Tag=" << fromTag+5;
+	os << " " << fromLabel << "Username=" << osip_uri_get_username(ok->from->url);
+	os << " " << fromLabel << "IP=" << osip_uri_get_host(ok->from->url);
+	osip_to_t *to = osip_message_get_to(ok);
+	char *toStr;
+	osip_to_to_str(to, &toStr);
+	char *toTag = index(toStr, ';');
+	// FIXME? - is there a better way to get the tag?
+	os << " " << toLabel << "Tag=" << toTag+5;
+	os << " " << toLabel << "Username=" << osip_uri_get_username(ok->to->url);
+	os << " " << toLabel << "IP=" << osip_uri_get_host(ok->to->url);
+
+	// FIXME? - is there a better way to extract this info?
+	osip_body_t * osipBodyT;
+	osip_message_get_body (ok, 0, &osipBodyT);
+	char *osipBodyTStr;
+	size_t osipBodyTStrLth;
+	osip_body_to_str (osipBodyT, &osipBodyTStr, &osipBodyTStrLth);
+	char *SessionIDStr = index(osipBodyTStr, ' ')+1;
+	char *SessionVersionStr = index(SessionIDStr, ' ')+1;
+	long SessionID = strtol(SessionIDStr, NULL, 10);
+	long SessionVersion = strtol(SessionVersionStr, NULL, 10)+1;
+	os << " SessionID=" << SessionID;
+	os << " SessionVersion=" << SessionVersion;
+
+	// getting the remote port from the m= line of the OK
+	char d_ip_addr[20];
+	char d_port[10];
+	SIP::get_rtp_params(ok, d_port, d_ip_addr);
+	os << " RTPRemIP=" << d_ip_addr;
+	os << " RTPRemPort=" << d_port;
+
+	// proxy
+	os << " Proxy=" << mSIP.proxyIP() << ":" << mSIP.proxyPort();
+
+	// remote ip and port
+	osip_contact_t * con = (osip_contact_t*)osip_list_get(&ok->contacts, 0);
+	os << " RmtIP=" << osip_uri_get_host(con->url);
+	os << " RmtPort=" << osip_uri_get_port(con->url);
+
+	os << " RTPState=" <<
+		mSIP.RTPSession()->rtp.snd_time_offset << "," <<
+		mSIP.RTPSession()->rtp.snd_ts_offset << "," <<
+		mSIP.RTPSession()->rtp.snd_rand_offset << "," <<
+		mSIP.RTPSession()->rtp.snd_last_ts << "," <<
+		mSIP.RTPSession()->rtp.rcv_time_offset << "," <<
+		mSIP.RTPSession()->rtp.rcv_ts_offset << "," <<
+		mSIP.RTPSession()->rtp.rcv_query_ts_offset << "," <<
+		mSIP.RTPSession()->rtp.rcv_last_ts << "," <<
+		mSIP.RTPSession()->rtp.rcv_last_app_ts << "," <<
+		mSIP.RTPSession()->rtp.rcv_last_ret_ts << "," <<
+		mSIP.RTPSession()->rtp.hwrcv_extseq << "," <<
+		mSIP.RTPSession()->rtp.hwrcv_seq_at_last_SR << "," <<
+		mSIP.RTPSession()->rtp.hwrcv_since_last_SR << "," <<
+		mSIP.RTPSession()->rtp.last_rcv_SR_ts << "," <<
+		mSIP.RTPSession()->rtp.last_rcv_SR_time.tv_sec << "," << mSIP.RTPSession()->rtp.last_rcv_SR_time.tv_usec << "," << 
+		mSIP.RTPSession()->rtp.snd_seq << "," <<
+		mSIP.RTPSession()->rtp.last_rtcp_report_snt_r << "," <<
+		mSIP.RTPSession()->rtp.last_rtcp_report_snt_s << "," <<
+		mSIP.RTPSession()->rtp.rtcp_report_snt_interval << "," <<
+		mSIP.RTPSession()->rtp.last_rtcp_packet_count << "," <<
+		mSIP.RTPSession()->rtp.sent_payload_bytes;
+
+	return os.str();
+}
+
 void TransactionTable::init(const char* path)
 {
 	// This assumes the main application uses sdevrandom.
@@ -881,10 +1093,50 @@ void TransactionTable::init(const char* path)
 	if (!sqlite3_command(mDB,createTransactionTable)) {
 		LOG(ALERT) << "Cannot create Transaction Table";
 	}
+	// Set high-concurrency WAL mode.
+	if (!sqlite3_command(mDB,enableWAL)) {
+		LOG(ALERT) << "Cannot enable WAL mode on database at " << path << ", error message: " << sqlite3_errmsg(mDB);
+	}
 	// Clear any previous entires.
 	if (!sqlite3_command(gTransactionTable.DB(),"DELETE FROM TRANSACTION_TABLE"))
 		LOG(WARNING) << "cannot clear previous transaction table";
 }
+
+
+
+void TransactionEntry::setOutboundHandover(
+	const GSM::L3HandoverReference& reference,
+	const GSM::L3CellDescription& cell,
+	const GSM::L3ChannelDescription2& chan,
+	const GSM::L3PowerCommandAndAccessType& pwrCmd,
+	const GSM::L3SynchronizationIndication& synch
+		)
+{
+	if (mRemoved) throw RemovedTransaction(mID);
+	ScopedLock lock(mLock);
+	mOutboundReference = reference;
+	mOutboundCell = cell;
+	mOutboundChannel = chan;
+	mOutboundPowerCmd = pwrCmd;
+	mOutboundSynch = synch;
+	GSMState(GSM::HandoverOutbound);
+	return;
+}
+
+
+void TransactionEntry::setInboundHandover(float RSSI, float timingError, double timestamp)
+{
+	if (mRemoved) throw RemovedTransaction(mID);
+	ScopedLock lock(mLock);
+	mChannel->setPhy(RSSI,timingError,timestamp);
+	mInboundRSSI = RSSI;
+	mInboundTimingError = timingError;
+}
+
+	
+
+
+
 
 TransactionTable::~TransactionTable()
 {
@@ -962,10 +1214,7 @@ bool TransactionTable::removePaging(unsigned key)
 	if (itr==mTable.end()) return false;
 	if (itr->second->removed()) return true;
 	if (itr->second->GSMState()!=GSM::Paging) return false;
-	//no one to respond to if we're fake
-	if (!itr->second->fake()){
-		itr->second->MODSendERROR(NULL, 480, "Temporarily Unavailable", true);
-	}
+	itr->second->MODSendERROR(NULL, 480, "Temporarily Unavailable", true);
 	itr->second->remove();
 	return true;
 }
@@ -1095,7 +1344,6 @@ bool TransactionTable::isBusy(const L3MobileIdentity& mobileID)
 		if (itr->second->subscriber() != mobileID) continue;
 		GSM::L3CMServiceType service = itr->second->service();
 		bool speech =
-			service==GSM::L3CMServiceType::EmergencyCall ||
 			service==GSM::L3CMServiceType::MobileOriginatedCall ||
 			service==GSM::L3CMServiceType::MobileTerminatedCall;
 		if (!speech) continue;
@@ -1155,6 +1403,7 @@ TransactionEntry* TransactionTable::find(const L3MobileIdentity& mobileID, unsig
 	ScopedLock lock(mLock);
 	for (TransactionMap::iterator itr = mTable.begin(); itr!=mTable.end(); ++itr) {
 		if (itr->second->deadOrRemoved()) continue;
+		if (itr->second->HandoverOtherBSTransactionID() != transactionID) continue;
 		if (itr->second->subscriber() != mobileID) continue;
 		return itr->second;
 	}
@@ -1246,7 +1495,6 @@ TransactionEntry* TransactionTable::findLongestCall()
 	for (TransactionMap::iterator itr = mTable.begin(); itr!=mTable.end(); ++itr) {
 		if (itr->second->deadOrRemoved()) continue;
 		if (!(itr->second->channel())) continue;
-		if (itr->second->service() == GSM::L3CMServiceType::EmergencyCall) continue;
 		if (itr->second->GSMState() != GSM::Active) continue;
 		long runTime = itr->second->stateAge();
 		if (runTime > longTime) {
@@ -1274,6 +1522,47 @@ bool TransactionTable::RTPAvailable(short rtpPort)
 	return avail;
 }
 
+TransactionEntry* TransactionTable::inboundHandover(unsigned ref)
+{
+	// Yes, it's linear time.
+	// Even in a 6-ARFCN system, it should rarely be more than a dozen entries.
+
+	ScopedLock lock(mLock);
+
+	// Since clearDeadEntries is also linear, do that here, too.
+	clearDeadEntries();
+
+	// Brute force search.
+	for (TransactionMap::iterator itr = mTable.begin(); itr!=mTable.end(); ++itr) {
+		if (itr->second->deadOrRemoved()) continue;
+		if (itr->second->GSMState() != GSM::HandoverInbound) continue;
+		if (itr->second->inboundReference() == ref) {
+			return itr->second;
+		}
+	}
+	return NULL;
+}
+
+TransactionEntry* TransactionTable::inboundHandover(const GSM::LogicalChannel* chan)
+{
+	// Yes, it's linear time.
+	// Even in a 6-ARFCN system, it should rarely be more than a dozen entries.
+
+	ScopedLock lock(mLock);
+
+	// Since clearDeadEntries is also linear, do that here, too.
+	clearDeadEntries();
+
+	// Brute force search.
+	for (TransactionMap::iterator itr = mTable.begin(); itr!=mTable.end(); ++itr) {
+		if (itr->second->deadOrRemoved()) continue;
+		if (itr->second->GSMState() != GSM::HandoverInbound) continue;
+		if (itr->second->channel() == chan) return itr->second;
+	}
+	return NULL;
+}
+
+
 bool TransactionTable::duplicateMessage(const GSM::L3MobileIdentity& mobileID, const std::string& wMessage)
 {
 
@@ -1291,5 +1580,32 @@ bool TransactionTable::duplicateMessage(const GSM::L3MobileIdentity& mobileID, c
 	return false;
 
 }
+
+
+
+#if 0
+bool TransactionTable::outboundReferenceUsed(unsigned ref)
+{
+	// Called is expected to hold mLock.
+	for (TransactionMap::iterator itr = mTable.begin(); itr!=mTable.end(); ++itr) {
+		if (itr->second->deadOrRemoved()) continue;
+		if (itr->second->GSMState() != GSM::HandoverOutbound) continue;
+		if (itr->second->handoverReference() == ref) return true;
+	}
+	return false;
+}
+
+
+unsigned TransactionTable::generateHandoverReference(TransactionEntry *transaction)
+{
+	ScopedLock lock(mLock);
+	clearDeadEntries();
+	unsigned ref = random() % 256;
+	while (outboundReferenceUsed(ref)) { ref = (ref+1) % 256; }
+	transaction->handoverReference(ref);
+	return ref;
+}
+#endif
+
 
 // vim: ts=4 sw=4

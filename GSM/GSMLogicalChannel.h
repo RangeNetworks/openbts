@@ -4,24 +4,16 @@
 * Copyright 2008, 2009, 2010 Free Software Foundation, Inc.
 * Copyright 2010 Kestrel Signal Processing, Inc.
 *
-* This software is distributed under the terms of the GNU Affero Public License.
-* See the COPYING file in the main directory for details.
+* This software is distributed under multiple licenses;
+* see the COPYING file in the main directory for licensing
+* information for this specific distribuion.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
 
-	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
 
@@ -61,6 +53,7 @@ typedef InterthreadQueue<Control::TransactionEntry> TransactionFIFO;
 class SACCHLogicalChannel;
 class L3Message;
 class L3RRMessage;
+class L3SMSCBMessage;
 
 
 /**
@@ -70,6 +63,8 @@ class L3RRMessage;
 	The concept of the logical channel and the channel types are defined in GSM 04.03.
 	This is virtual class; specific channel types are subclasses.
 */
+// (pat) It would be nice to break this into two classes: one that has the base functionality
+// that GPRS will not use, and one with all the RR specific channel stuff.
 class LogicalChannel {
 	
 protected:	
@@ -118,11 +113,16 @@ public:
 	/**@name Pass-throughs. */
 	//@{
 
+	// Pat 5-27-2012: Let the LogicalChannel know the next scheduled write time.
+	GSM::Time getNextWriteTime() { return mL1->encoder()->getNextWriteTime(); }
+
 	/** Set L1 physical parameters from a RACH or pre-exsting channel. */
-	virtual void setPhy(float wRSSI, float wTimingError);
+	virtual void setPhy(float wRSSI, float wTimingError, double wTimestamp);
 
 	/* Set L1 physical parameters from an existing logical channel. */
 	virtual void setPhy(const LogicalChannel&);
+
+	virtual const L3MeasurementResults& measurementResults() const;
 
 	/**@name L3 interfaces */
 	//@{
@@ -146,6 +146,48 @@ public:
 	*/
 	virtual void send(const L3Frame& frame, unsigned SAPI=0)
 	{
+		// (pat) Note that writeHighSide is overloaded per class hierarchy, and is also used
+		// for entirely unrelated classes, which are distinguishable (by humans,
+		// not by the compiler, which considers them unrelated functions)
+		// by arguments of L3Frame or L2Frame.
+		//
+		// For traffic channels:
+		// This function calls virtual L2DL::writeHighSide(L3Frame) which I think maps
+		// to L2LAPDm::writeHighSide() which interprets the primitive, and then
+		// sends traffic data through sendUFrameUI(L3Frame) which creates an L2Frame
+		// and sends it through several irrelevant functions to L2LAPDm::writeL1
+		// which calls (SAPMux)mDownstream->SAPMux::writeHighSide(L2Frame),
+		// which does nothing but call mL1->writeHighSide(L2Frame), which is a pass-through
+		// except that the SapMux uses mDownStream which is copied from mL1, so there is a
+		// chance to redirect it.  But wouldn't that be an error?
+		// Anyway, L1Encoder::writeHighSide is usually overridden.
+		// For TCH, it goes to XCCHL1Encoder::writeHighSide() which processes
+		// the L2Frame primitive, then sends traffic data to TCHFACCHL1Encoder::sendFrame(),
+		// which just enqueues the frame - it does not block.
+		// A thread runs GSM::TCHFACCHL1EncoderRoutine() which
+		// calls TCHFACCHL1Encoder::dispatch() which is synchronized with the gBTS clock,
+		// unsynchronized with the queue, because it must send data no matter what.
+		// Eventually it encodes the data and
+		// calls (ARFCNManager*)mDownStream->writeHighSideTx(), which writes to the socket.
+		//
+		// For CCCH channels:
+		// CCCHLogicalChannel::send(L3RRMessage) wraps the message in an L3Frame
+		// and enqueues the message on CCCHLogicalChannel::mQ.
+		// CCCHLogicalChannel::serviceLoop() pulls it out and sends it to
+		// LogicalChannel::send(L3Frame) [this function], which is virtual, but I dont think it
+		// is over-ridden, so message goes to L2DL::writeHighSide(L3Frame) which
+		// is over-ridden to CCCHL2::writeHighSide(L3Frame) which creates an L2Frame
+		// and calls (SAPMux)mDownstream->writeHighSide(L2Frame), which just
+		// calls (L1FEC)mDownStream->writeHighSide(L2Frame), which
+		// (because CCCHL1FEC is nearly empty) just
+		// calls (L1Encoder)mEncoder->writeHighSide(L2Frame), which maps
+		// to CCCHL1Encoder which maps to XCCHL1Encoder::writeHighSide(L2Frame),
+		// which processes the L2Frame primitive, and sends traffic data to
+		// XCCHL1Encoder::sendFrame(L2Frame), which encodes the frame and then calls
+		// XCCHL1Encoder::transmit(implicit mI arg with encoded burst) that
+		// finally blocks until L1Encoder::mPrevWriteTime occurs, then sets the
+		// burst time to L1Encoder::mNextWriteTime and
+		// calls (ARFCNManager*)mDownStream->writeHighSideTx() which writes to the socket.
 		assert(mL2[SAPI]);
 		LOG(DEBUG) << "SAP"<< SAPI << " " << frame;
 		mL2[SAPI]->writeHighSide(frame);
@@ -180,6 +222,9 @@ public:
 	*/
 	void waitForPrimitive(GSM::Primitive primitive);
 
+	/** Block until a HANDOVER_ACCESS or ESTABLISH arrives. */
+	L3Frame* waitForEstablishOrHandover();
+
 	/**
 		Block on a channel until a given primitive arrives.
 		Any payload is discarded.  Block indefinitely, no timeout.
@@ -197,18 +242,20 @@ public:
 	//@{
 
 	/** Write a received radio burst into the "low" side of the channel. */
-	virtual void writeLowSide(const RxBurst& burst) { assert(mL1); mL1->writeLowSide(burst); }
+	virtual void writeLowSide(const RxBurst& burst) { assert(mL1); mL1->writeLowSideRx(burst); }
 
 	/** Return true if the channel is safely abandoned (closed or orphaned). */
-	bool recyclable() const { assert(mL1); return mL1->recyclable(); }
+	virtual bool recyclable() const { assert(mL1); return mL1->recyclable(); }
 
 	/** Return true if the channel is active. */
-	bool active() const { assert(mL1); return mL1->active(); }
+	virtual bool active() const { assert(mL1); return mL1->active(); }
 
 	/** The TDMA parameters for the transmit side. */
+	// (pat) This lovely function is unused.  Use L1Encoder::mapping()
 	const TDMAMapping& txMapping() const { assert(mL1); return mL1->txMapping(); }
 
 	/** The TDMAParameters for the receive side. */
+	// (pat) This lovely function is unused.  Use L1Decoder::mapping()
 	const TDMAMapping& rcvMapping() const { assert(mL1); return mL1->rcvMapping(); }
 
 	/** GSM 04.08 10.5.2.5 type and offset code. */
@@ -229,10 +276,14 @@ public:
 	virtual float RSSI() const;
 	/** Uplink timing error. */
 	virtual float timingError() const;
+	/** System timestamp of RSSI and TA */
+	virtual double timestamp() const;
 	/** Actual MS uplink power. */
 	virtual int actualMSPower() const;
 	/** Actual MS uplink timing advance. */
 	virtual int actualMSTiming() const;
+	/** Control whether to accept a handover. */
+	void handoverPending(bool flag) { assert(mL1); mL1->handoverPending(flag); }
 	//@}
 
 	//@} // L1
@@ -277,6 +328,10 @@ public:
 	*/
 	virtual void connect();
 
+	public:
+	bool inUseByGPRS() { return mL1->inUseByGPRS(); }
+
+	bool decryptUplink_maybe(string wIMSI, int wA5Alg) { return mL1->decoder()->decrypt_maybe(wIMSI, wA5Alg); }
 };
 
 
@@ -357,13 +412,15 @@ class SACCHLogicalChannel : public LogicalChannel {
 	/** MeasurementResults from the MS. They are caught in serviceLoop, accessed
 	 for recording along with GPS and other data in MobilityManagement.cpp */
 	L3MeasurementResults mMeasurementResults;
+	const LogicalChannel *mHost;
 
 	public:
 
 	SACCHLogicalChannel(
 		unsigned wCN,
 		unsigned wTN,
-		const MappingPair& wMapping);
+		const MappingPair& wMapping,
+		const LogicalChannel* wHost);
 
 	ChannelType type() const { return SACCHType; }
 
@@ -375,16 +432,26 @@ class SACCHLogicalChannel : public LogicalChannel {
 	//@{
 	float RSSI() const { return mSACCHL1->RSSI(); }
 	float timingError() const { return mSACCHL1->timingError(); }
+	double timestamp() const { return mSACCHL1->timestamp(); }
 	int actualMSPower() const { return mSACCHL1->actualMSPower(); }
 	int actualMSTiming() const { return mSACCHL1->actualMSTiming(); }
-	void setPhy(float RSSI, float timingError) { mSACCHL1->setPhy(RSSI,timingError); }
+	void setPhy(float RSSI, float timingError, double wTimestamp)
+		{ mSACCHL1->setPhy(RSSI,timingError,wTimestamp); }
 	void setPhy(const SACCHLogicalChannel& other) { mSACCHL1->setPhy(*other.mSACCHL1); }
+	void RSSIBumpDown(int dB) { assert(mL1); mSACCHL1->RSSIBumpDown(dB); }
+
 	//@}
 
 	/**@name Channel and neighbour cells stats as reported from MS */
 	//@{
 	const L3MeasurementResults& measurementResults() const { return mMeasurementResults; }
 	//@}
+
+	/** Get active state from the host DCCH. */
+	bool active() const { assert(mHost); return mHost->active(); }
+
+	/** Get recyclable state from the host DCCH. */
+	bool recyclable() const { assert(mHost); return mHost->recyclable(); }
 
 	protected:
 
@@ -400,9 +467,6 @@ class SACCHLogicalChannel : public LogicalChannel {
 void *SACCHLogicalChannelServiceLoopAdapter(SACCHLogicalChannel*);
 
 
-
-
-
 /**
 	Common control channel.
 	The "uplink" component of the CCCH is the RACH.
@@ -410,10 +474,14 @@ void *SACCHLogicalChannelServiceLoopAdapter(SACCHLogicalChannel*);
 	bi-directional control channel. Common control channels are physically
 	sub-divided into the common control channel (CCCH), the packet common control
 	channel (PCCCH), and the Compact packet common control channel (CPCCCH)."
+	(pat) To implement DRX and paging I added the CCCHCombinedChannel to which CCCH messages
+	should now be sent, and this class is now just a private attachment point whose primary
+	purpose is to house the serviceloop for a single CCCH.
 */
 class CCCHLogicalChannel : public NDCCHLogicalChannel {
 
 	protected:
+	friend class GSMConfig;
 
 	/*
 		Because the CCCH is written by multiple threads,
@@ -423,7 +491,14 @@ class CCCHLogicalChannel : public NDCCHLogicalChannel {
 
 	Thread mServiceThread;	///< a thread for the service loop
 	L3FrameFIFO mQ;			///< because the CCCH is written by multiple threads
+#if ENABLE_PAGING_CHANNELS
+	L3FrameFIFO mPagingQ[sMax_BS_PA_MFRMS];	///< A queue for each paging channel on this timeslot.
+#endif
 	bool mRunning;			///< a flag to indication that the service loop is running
+	bool mWaitingToSend;	// If this is set, there is another CCCH message
+							// waiting in the encoder serviceloop.
+							// This variable is not mutex locked and could
+							// be incorrect, but it is not critical.
 
 	public:
 
@@ -432,7 +507,11 @@ class CCCHLogicalChannel : public NDCCHLogicalChannel {
 	void open();
 
 	void send(const L3RRMessage& msg)
-		{ mQ.write(new L3Frame((const L3Message&)msg,UNIT_DATA)); }
+		{
+			// DEBUG:
+			//LOG(WARNING) << "CCCHLogicalChannel2::write q";
+			mQ.write(new L3Frame((const L3Message&)msg,UNIT_DATA));
+		}
 
 	void send(const L3Message&) { assert(0); }
 
@@ -441,6 +520,27 @@ class CCCHLogicalChannel : public NDCCHLogicalChannel {
 
 	/** Return the number of messages waiting for transmission. */
 	unsigned load() const { return mQ.size(); }
+
+	// (pat) GPRS needs to know exactly when the CCCH message will be sent downstream,
+	// because it needs to allocate an upstream radio block after that time,
+	// and preferably as quickly as possible after that time.
+	// For now, I'm going to punt on this and return the worst case.
+	// TODO: This is the wrong way to do this.
+	// First, this calculation should not be here; it will be hard for anyone maintaining
+	// the code and making changes that would affect this calculation to find it here.
+	// Second, it depends on what kind of C0T0 beacon we have.
+	// We should wait until it is time to send the message, then create it.
+	// To do this, either the CCCHLogicalChannel::serviceLoop should be rewritten,
+	// or we should hook XCCHL1Encoder::sendFrame(L2Frame) to modify the message
+	// if it is a packet message.  Or more drastically, make the CCCHLogicalChannel::mQ
+	// queue hold internal messages not L3Frames, for example, for RACH a struct
+	// with the arrival time, RACH message, signal strength and timing advance,
+	// and delay generating the RRMessage until it is ready to send.
+	// 
+	// But for now, just punt and send a frame time far enough in the future that it
+	// is guaranteed to work:
+	// Note: Time wraps at gHyperFrame.
+	Time getNextMsgSendTime();
 
 	ChannelType type() const { return CCCHType; }
 
@@ -490,6 +590,33 @@ class TCHFACCHLogicalChannel : public LogicalChannel {
 		{ assert(mTCHL1); return mTCHL1->radioFailure(); }
 };
 
+
+
+/**
+	Cell broadcast control channel (CBCH).
+	See GSM 04.12 3.3.1.
+*/
+class CBCHLogicalChannel : public NDCCHLogicalChannel {
+
+	protected:
+
+	/*
+		The CBCH should be written be a single thread.
+		The input interface is *not* multi-thread safe.
+	*/
+
+	public:
+
+	CBCHLogicalChannel(const CompleteMapping& wMapping);
+
+	void send(const L3SMSCBMessage& msg);
+
+	void send(const L3Message&) { assert(0); }
+
+	ChannelType type() const { return CBCHType; }
+
+
+};
 
 
 

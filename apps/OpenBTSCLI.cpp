@@ -1,5 +1,5 @@
 /*
-* Copyright 2011 Range Networks, Inc.
+* Copyright 2011, 2012 Range Networks, Inc.
 *
 * This software is distributed under the terms of the GNU Affero Public License.
 * See the COPYING file in the main directory for details.
@@ -8,8 +8,8 @@
 * See the LEGAL file in the main directory for details.
 
 	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
+	it under the terms of the GNU General Public License as published by
+	the Free Software Foundation, either version 2 of the License, or
 	(at your option) any later version.
 
 	This program is distributed in the hope that it will be useful,
@@ -22,6 +22,9 @@
 
 */
 
+
+// KEEP THIS FILE CLEAN FOR GPL PUBLIC RELEASE.
+
 #include <config.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -31,6 +34,9 @@
 #include <stdlib.h>
 #include <limits.h>
 #include <time.h>
+
+#define HAVE_LIBREADLINE
+
 
 #ifdef HAVE_LIBREADLINE
 #  include <readline/readline.h>
@@ -44,6 +50,13 @@
 
 int main(int argc, char *argv[])
 {
+
+	printf("OpenBTS Commnd Line Interface (CLI) utility\n");
+	printf("Copyright 2012, 2013 Range Networks, Inc.\n");
+	printf("Licensed under GPLv2.\n");
+#ifdef HAVE_LIBREADLINE
+	printf("Includes libreadline, GPLv2.\n");
+#endif
 	const char* cmdPath = DEFAULT_CMD_PATH;
 	if (argc!=1) {
 		cmdPath = argv[1];
@@ -73,8 +86,8 @@ int main(int argc, char *argv[])
 	// locally bound address
 	struct sockaddr_un rspSockName;
 	rspSockName.sun_family = AF_UNIX;
-	char rmcmd[strlen(rspPath)+5];
-	sprintf(rmcmd,"rm %s",rspPath);
+	char rmcmd[strlen(rspPath)+10];
+	sprintf(rmcmd,"rm -f %s",rspPath);
 	system(rmcmd);
 	strcpy(rspSockName.sun_path,rspPath);
 	if (bind(sock, (struct sockaddr *) &rspSockName, sizeof(struct sockaddr_un))) {
@@ -106,12 +119,10 @@ int main(int argc, char *argv[])
 			read_history(history_name);
 		}
 	}
-
-	printf("readline installed\n");
 #endif
 
 
-	printf("Remote Interface Ready.\nType:\n \"help\" to see commands,\n \"version\" for version information,\n \"notices\" for licensing information.\n\"quit\" to exit console interface\n");
+	printf("Remote Interface Ready.\nType:\n \"help\" to see commands,\n \"version\" for version information,\n \"notices\" for licensing information.\n \"quit\" to exit console interface\n");
 
 
 	while (1) {
@@ -135,13 +146,19 @@ int main(int argc, char *argv[])
 			printf("closing remote console\n");
 			break;
 		}
+		// shell escape?
+		if (cmd[0]=='!') {
+			system(cmd+1);
+			continue;
+		}
+		// use the socket
 		if (sendto(sock,cmd,strlen(cmd)+1,0,(struct sockaddr*)&cmdSockName,sizeof(cmdSockName))<0) {
 			perror("sending datagram");
 			printf("Is the remote application running?\n");
 			continue;
 		}
 		free(cmd);
-		const int bufsz = 10000;
+		const int bufsz = 100000;
 		char resbuf[bufsz];
 		int nread = recv(sock,resbuf,bufsz-1,0);
 		if (nread<0) {
@@ -166,4 +183,8 @@ int main(int argc, char *argv[])
 
 
 	close(sock);
+
+	// Delete the path to limit clutter in /tmp.
+	sprintf(rmcmd,"rm -f %s",rspPath);
+	system(rmcmd);
 }

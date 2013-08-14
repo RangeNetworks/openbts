@@ -1,29 +1,22 @@
 /*
 * Copyright 2008 Free Software Foundation, Inc.
-* Copyright 2011 Range Networks, Inc.
+* Copyright 2011, 2013 Range Networks, Inc.
 *
-* This software is distributed under the terms of the GNU Affero Public License.
-* See the COPYING file in the main directory for details.
+* This software is distributed under multiple licenses;
+* see the COPYING file in the main directory for licensing
+* information for this specific distribuion.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
 
-	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
 
 
+#include <Globals.h>
 #include "GSMCommon.h"
 
 using namespace GSM;
@@ -47,6 +40,9 @@ const char* GSM::CallStateString(GSM::CallState state)
 		case ReleaseRequest: return "release-request";
 		case SMSDelivering: return "SMS-delivery";
 		case SMSSubmitting: return "SMS-submission";
+		case HandoverInbound: return "HANDOVER Inbound";
+		case HandoverProgress: return "HANDOVER Progress";
+		case HandoverOutbound: return "HANDOVER Outbound";
 		case BusyReject: return "Busy Reject";
 		default: return NULL;
 	}
@@ -56,7 +52,7 @@ ostream& GSM::operator<<(ostream& os, GSM::CallState state)
 {
 	const char* str = GSM::CallStateString(state);
 	if (str) os << str;
-	else os << "?" << state << "?";
+	else os << "?" << ((int)state) << "?";
 	return os;
 }
 
@@ -131,17 +127,17 @@ unsigned GSM::uplinkFreqKHz(GSMBand band, unsigned ARFCN)
 {
 	switch (band) {
 		case GSM850:
-			assert((ARFCN<252)&&(ARFCN>129));
+			assert((ARFCN>=128)&&(ARFCN<=251));
 			return 824200+200*(ARFCN-128);
 		case EGSM900:
 			if (ARFCN<=124) return 890000+200*ARFCN;
-			assert((ARFCN>974)&&(ARFCN<1024));
+			assert((ARFCN>=975)&&(ARFCN<=1023));
 			return 890000+200*(ARFCN-1024);
 		case DCS1800:
-			assert((ARFCN>511)&&(ARFCN<886));
+			assert((ARFCN>=512)&&(ARFCN<=885));
 			return 1710200+200*(ARFCN-512);
 		case PCS1900:
-			assert((ARFCN>511)&&(ARFCN<811));
+			assert((ARFCN>=512)&&(ARFCN<=810));
 			return 1850200+200*(ARFCN-512);
 		default:
 			assert(0);
@@ -241,6 +237,19 @@ int32_t Clock::FN() const
 	return currentFN;
 }
 
+double Clock::systime(const GSM::Time& when) const
+{
+	ScopedLock lock(mLock);
+	const double slotMicroseconds = (48.0 / 13e6) * 156.25;
+	const double frameMicroseconds = slotMicroseconds * 8.0;
+	int32_t elapsedFrames = when.FN() - mBaseFN;
+	if (elapsedFrames<0) elapsedFrames += gHyperframe;
+	double elapsedUSec = elapsedFrames * frameMicroseconds + when.TN() * slotMicroseconds;
+	double baseSeconds = mBaseTime.sec() + mBaseTime.usec()*1e-6;
+	double st = baseSeconds + 1e-6*elapsedUSec;
+	return st;
+}
+
 
 void Clock::wait(const Time& when) const
 {
@@ -320,7 +329,13 @@ ostream& GSM::operator<<(ostream& os, TypeAndOffset tao)
 		case SDCCH_8_5: os << "SDCCH/8-5"; break;
 		case SDCCH_8_6: os << "SDCCH/8-6"; break;
 		case SDCCH_8_7: os << "SDCCH/8-7"; break;
-		case TDMA_BEACON: os << "(beacon)"; break;
+		case TDMA_BEACON: os << "BCH"; break;
+		case TDMA_BEACON_BCCH: os << "BCCH"; break;
+		case TDMA_BEACON_CCCH: os << "CCCH"; break;
+		case TDMA_PDCH: os << "PDCH"; break;
+		case TDMA_PACCH: os << "PACCH"; break;
+		case TDMA_PTCCH: os << "PTCCH"; break;
+		case TDMA_PDIDLE: os << "PDIDLE"; break;
 		default: os << "?" << (int)tao << "?";
 	}
 	return os;
@@ -343,8 +358,14 @@ ostream& GSM::operator<<(ostream& os, ChannelType val)
 		case AnyTCHType: os << "any TCH"; break;
 		case LoopbackFullType: os << "Loopback Full"; break;
 		case LoopbackHalfType: os << "Loopback Half"; break;
+		case PDTCHCS1Type: os << "PDTCHCS1"; break;
+		case PDTCHCS2Type: os << "PDTCHCS2"; break;
+		case PDTCHCS3Type: os << "PDTCHCS3"; break;
+		case PDTCHCS4Type: os << "PDTCHCS4"; break;
+		case PSingleBlock1PhaseType: os << "GPRS_SingleBlock1Phase"; break;
+		case PSingleBlock2PhaseType: os << "GPRS_SingleBlock2Phase"; break;
 		case AnyDCCHType: os << "any DCCH"; break;
-		default: os << "?" << (int)val << "?";
+		default: os << "?" << (int)val << "?"; break;
 	}
 	return os;
 }

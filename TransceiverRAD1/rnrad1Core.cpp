@@ -1,28 +1,3 @@
-/*
-* Copyright 2011 Free Software Foundation, Inc.
-*
-*
-* This software is distributed under the terms of the GNU Affero Public License.
-* See the COPYING file in the main directory for details.
-*
-* This use of this software may be subject to additional restrictions.
-* See the LEGAL file in the main directory for details.
-
-	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-*/
-
 #include "rnrad1Core.h"
 
 #ifdef HAVE_CONFIG_H
@@ -74,7 +49,7 @@ int usbMsg (struct libusb_device_handle *udh,
   if (ret < 0) {
     // we get EPIPE if the firmware stalls the endpoint.
     if (ret != LIBUSB_ERROR_PIPE) {
-      LOG(ERR) << "libusb_control_transfer failed: " << _get_usb_error_str(ret);
+      LOG(ALERT) << "libusb_control_transfer failed: " << _get_usb_error_str(ret);
     }
   }
 
@@ -261,7 +236,7 @@ bool rad1LoadFirmware (libusb_device_handle *udh, const char *filename,
   int i;
 
   while (!feof(f)){
-    fgets(s, sizeof (s), f); /* we should not use more than 263 bytes normally */
+	char *shut_up_gcc = fgets(s, sizeof (s), f); /* we should not use more than 263 bytes normally */
     if(s[0]!=':'){
       LOG(ERR) "File " << filename << " has invalid line: " << s;
       goto fail;
@@ -368,7 +343,7 @@ bool rad1LoadFpga (libusb_device_handle *udh, const char *filename,
   ok &= (usbMsg(udh, VRQ_FPGA_SET_RX_RESET , 0, 0, 0, 0)!=0);
 
   if (!ok)
-    LOG(ERR) << "Failed to reset TX/RX path";
+    LOG(NOTICE) << "Failed to reset TX/RX path";
 
   // Manually reset all regs except master control to zero.
   // FIXME may want to remove this when we rework FPGA reset strategy.

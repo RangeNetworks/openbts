@@ -98,9 +98,10 @@ RRLPServer::RRLPServer(L3MobileIdentity wMobileID, LogicalChannel *wDCCH)
 	DCCH = wDCCH;
 	// name of subscriber
 	name = string("IMSI") + mobileID.digits();
+	// don't continue if IMSI has a RRLP support flag and it's false
 	//if IMEI tagging enabled, check if this IMEI (which is updated elsewhere) has RRLP disabled
 	//otherwise just go on
-	if (gConfig.defines("Control.LUR.QueryIMEI")){
+	if (gConfig.getBool("Control.LUR.QueryIMEI")){
 		//check supported bit
 		string supported= gSubscriberRegistry.imsiGet(name, "RRLPSupported");
 		if(supported.empty() || supported == "0"){
@@ -192,6 +193,7 @@ bool RRLPServer::transact()
 		// bounce off mobile
 		if (apdus.size() == 0) {
 			LOG(INFO) << "missing apdu for mobile";
+			LOG(ERR) << "MS did not respond gracefully to RRLP message.";
 			return false;
 		}
 		string apdu = apdus[0];
@@ -199,6 +201,7 @@ bool RRLPServer::transact()
 		BitVector bv(apdu.size()*4);
 		if (!bv.unhex(apdu.c_str())) {
 			LOG(INFO) << "BitVector::unhex problem";
+			LOG(ERR) << "MS did not respond gracefully to RRLP message.";
 			return false;
 		}
 
@@ -206,13 +209,15 @@ bool RRLPServer::transact()
 		// Receive an L3 frame with a timeout.  Timeout loc req response time max + 2 seconds.
 		L3Frame* resp = DCCH->recv(130000);
 		if (!resp) {
+			LOG(INFO) << "timed out";
+			LOG(ERR) << "MS did not respond gracefully to RRLP message.";
 			return false;
 		}
 		LOG(INFO) << "RRLPQuery returned " << *resp;
 		if (resp->primitive() != DATA) {
 			LOG(INFO) << "didn't receive data";
 			switch (resp->primitive()) {
-				case ESTABLISH: LOG(INFO) << "channel establihsment"; break;
+				case ESTABLISH: LOG(INFO) << "channel establishment"; break;
 				case RELEASE: LOG(INFO) << "normal channel release"; break;
 				case DATA: LOG(INFO) << "multiframe data transfer"; break;
 				case UNIT_DATA: LOG(INFO) << "datagram-type data transfer"; break;
@@ -221,6 +226,7 @@ bool RRLPServer::transact()
 				default: LOG(INFO) << "unrecognized primitive response"; break;
 			}
 			delete resp;
+			LOG(ERR) << "MS did not respond gracefully to RRLP message.";
 			return false;
 		}
 		const unsigned PD_RR = 6;
@@ -228,17 +234,20 @@ bool RRLPServer::transact()
 		if (resp->PD() != PD_RR) {
 			LOG(INFO) << "didn't receive an RR message";
 			delete resp;
+			LOG(ERR) << "MS did not respond gracefully to RRLP message.";
 			return false;
 		}
 		const unsigned MTI_RR_STATUS = 18;
 		if (resp->MTI() == MTI_RR_STATUS) {
+			ostringstream os2;
 			int cause = resp->peekField(16, 8);
 			delete resp;
 			switch (cause) {
 				case 97:
 					LOG(INFO) << "MS says: message not implemented";
 					//Rejection code only useful if we're gathering IMEIs
-					if (gConfig.defines("Control.LUR.QueryIMEI")){
+					if (gConfig.getBool("Control.LUR.QueryIMEI")){
+						// flag unsupported in SR so we don't waste time on it again
 						// flag unsupported in SR so we don't waste time on it again
 						if (gSubscriberRegistry.imsiSet(name, "RRLPSupported", "0")) {
 							LOG(INFO) << "SR update problem";

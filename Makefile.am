@@ -20,7 +20,7 @@
 
 include $(top_srcdir)/Makefile.common
 
-DESTDIR = 
+DESTDIR := 
 
 AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES) $(USB_INCLUDES) $(WITH_INCLUDES)
 AM_CXXFLAGS = -Wall -pthread -ldl
@@ -30,7 +30,6 @@ AM_CXXFLAGS = -Wall -pthread -ldl
 # Order must be preserved
 _SUBDIRS = \
 	config \
-	AsteriskConfig \
 	sqlite3 \
 	CommonLibs \
 	Globals \
@@ -41,9 +40,12 @@ _SUBDIRS = \
 	SMS \
 	TRXManager \
 	Control \
+	Peering \
+	GPRS \
+	SGSNGGSN \
 	apps \
-	doc \
-	tools
+	doc
+
 
 #if UHD or USRP1 defined, build Transceiver52M as well
 if UHD
@@ -62,7 +64,6 @@ endif
 endif
 
 EXTRA_DIST = \
-	autogen.sh \
 	INSTALLATION \
 	LEGAL \
 	COPYING \

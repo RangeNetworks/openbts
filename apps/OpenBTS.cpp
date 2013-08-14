@@ -1,35 +1,33 @@
 /*
 * Copyright 2008, 2009, 2010 Free Software Foundation, Inc.
 * Copyright 2010 Kestrel Signal Processing, Inc.
-* Copyright 2011,2012 Range Networks, Inc.
+* Copyright 2011, 2012 Range Networks, Inc.
 *
-* This software is distributed under the terms of the GNU Affero Public License.
-* See the COPYING file in the main directory for details.
+* This software is distributed under multiple licenses;
+* see the COPYING file in the main directory for licensing
+* information for this specific distribuion.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
 
-	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
 
 #include <iostream>
 #include <fstream>
+#include <vector>
+#include <string>
 
 #include <Configuration.h>
+std::vector<std::string> configurationCrossCheck(const std::string& key);
+static const char *cOpenBTSConfigEnv = "OpenBTSConfigFile";
 // Load configuration from a file.
-ConfigurationTable gConfig("/etc/OpenBTS/OpenBTS.db");
+ConfigurationTable gConfig(getenv(cOpenBTSConfigEnv)?getenv(cOpenBTSConfigEnv):"/etc/OpenBTS/OpenBTS.db","OpenBTS", getConfigurationKeys());
+#include <Logger.h>
+Log dummy("openbts",gConfig.getStr("Log.Level").c_str(),LOG_LOCAL7);
 
 // Set up the performance reporter.
 #include <Reporting.h>
@@ -48,12 +46,13 @@ ReportingTable gReports(gConfig.getStr("Control.Reporting.StatsTable").c_str());
 #include <SIPInterface.h>
 #include <Globals.h>
 
-#include <Logger.h>
 #include <CLI.h>
 #include <PowerManager.h>
 #include <Configuration.h>
 #include <PhysicalStatus.h>
 #include <SubscriberRegistry.h>
+#include "NeighborTable.h"
+#include <Peering.h>
 
 #include <sys/wait.h>
 
@@ -62,9 +61,16 @@ ReportingTable gReports(gConfig.getStr("Control.Reporting.StatsTable").c_str());
 #include <string.h>
 #include <signal.h>
 
+// (pat) mcheck.h is for mtrace, which permits memory leak detection.
+// Set env MALLOC_TRACE=logfilename
+// Call mtrace() in the program.
+// post-process the logfilename with mtrace (a perl script.)
+// #include <mcheck.h>
+
 using namespace std;
 using namespace GSM;
 
+int gBtsXg = 0;		// Enable gprs
 
 const char* gDateTime = __DATE__ " " __TIME__;
 
@@ -88,11 +94,23 @@ SIP::SIPInterface gSIPInterface;
 // So don't create this until AFTER loading the config file.
 GSMConfig gBTS;
 
+// Note to all from pat:
+// It is inadvisable to statically initialize any non-trivial entity here because
+// the underlying dependencies may not yet have undergone their static initialization.
+// For example, if any of these throw an alarm, the system will crash because
+// the Logger may not have been initialized yet.
+
 // Our interface to the software-defined radio.
 TransceiverManager gTRX(gConfig.getNum("GSM.Radio.ARFCNs"), gConfig.getStr("TRX.IP").c_str(), gConfig.getNum("TRX.Port"));
 
-// Subscriber registry
+// Subscriber registry and http authentication
 SubscriberRegistry gSubscriberRegistry;
+
+/** The global peering interface. */
+Peering::PeerInterface gPeerInterface;
+
+/** The global neighbor table. */
+Peering::NeighborTable gNeighborTable;
 
 
 /** Define a function to call any time the configuration database changes. */
@@ -101,6 +119,7 @@ void purgeConfig(void*,int,char const*, char const*, sqlite3_int64)
 	LOG(INFO) << "purging configuration cache";
 	gConfig.purge();
 	gBTS.regenerateBeacon();
+	gResetWatchdog();
 }
 
 
@@ -116,14 +135,14 @@ void startTransceiver()
 
 	// Start the transceiver binary, if the path is defined.
 	// If the path is not defined, the transceiver must be started by some other process.
-    char TRXnumARFCN[16];
-    sprintf(TRXnumARFCN,"%1d", static_cast<int>(gConfig.getNum("GSM.Radio.ARFCNs")));
+	char TRXnumARFCN[4];
+	sprintf(TRXnumARFCN,"%1d",(int)gConfig.getNum("GSM.Radio.ARFCNs"));
 	LOG(NOTICE) << "starting transceiver " << transceiverPath << " " << TRXnumARFCN;
 	gTransceiverPid = vfork();
 	LOG_ASSERT(gTransceiverPid>=0);
 	if (gTransceiverPid==0) {
 		// Pid==0 means this is the process that starts the transceiver.
-		execlp(transceiverPath,transceiverPath,TRXnumARFCN,NULL);
+		execlp(transceiverPath,transceiverPath,TRXnumARFCN,(void*)NULL);
 		LOG(EMERG) << "cannot find " << transceiverPath;
 		_exit(1);
 	} else {
@@ -142,8 +161,6 @@ void createStats()
 	// count of OpenBTS start events
 	gReports.create("OpenBTS.Starts");
 
-	// count of exit events driven from the CLI
-	gReports.create("OpenBTS.Exit.Normal.CLI");
 	// count of watchdog restarts
 	gReports.create("OpenBTS.Exit.Error.Watchdog");
 	// count of aborts due to problems with CLI socket
@@ -218,8 +235,6 @@ void createStats()
 	//gReports.create("OpenBTS.GSM.MM.TMSI.Unknown");
 	// count of CM Service requests for MOC
 	gReports.create("OpenBTS.GSM.MM.CMServiceRequest.MOC");
-	// count of CM Service requests for emergency calls
-	gReports.create("OpenBTS.GSM.MM.CMServiceRequest.SOS");
 	// count of CM Service requests for MOSMS
 	gReports.create("OpenBTS.GSM.MM.CMServiceRequest.MOSMS");
 	// count of CM Service requests for services we don't support
@@ -244,6 +259,8 @@ void createStats()
 	gReports.create("OpenBTS.GSM.CC.MOD.Disconnect");
 	// total number of minutes of carried calls
 	gReports.create("OpenBTS.GSM.CC.CallMinutes");
+	// count of dropped calls
+	gReports.create("OpenBTS.GSM.CC.DroppedCalls");
 
 	// count of CS (non-GPRS) channel assignments
 	gReports.create("OpenBTS.GSM.RR.ChannelAssignment");
@@ -270,6 +287,14 @@ void createStats()
 	//gReports.create("OpenBTS.TRX.Command.Failed");
 	//gReports.create("OpenBTS.TRX.FailedStart");
 	//gReports.create("OpenBTS.TRX.LostLink");
+
+	// GPRS
+	// number of RACH bursts processed for GPRS
+	gReports.create("GPRS.RACH");
+	// number of TBFs assigned
+	gReports.create("GPRS.TBF");
+	// number of MSInfo records generated
+	gReports.create("GPRS.MSInfo");
 }
 
 
@@ -277,21 +302,57 @@ void createStats()
 
 int main(int argc, char *argv[])
 {
+	// mtrace();	// Enable memory leak detection.  Unfortunately, huge amounts of code have been started in the constructors above.
 	// TODO: Properly parse and handle any arguments
 	if (argc > 1) {
-		for (int argi = 0; argi < argc; argi++) {
+		for (int argi = 1; argi < argc; argi++) {		// Skip argv[0] which is the program name.
 			if (!strcmp(argv[argi], "--version") ||
 			    !strcmp(argv[argi], "-v")) {
 				cout << gVersionString << endl;
+				continue;
 			}
+			if (!strcmp(argv[argi], "--gensql")) {
+				cout << gConfig.getDefaultSQL(string(argv[0]), gVersionString) << endl;
+				continue;
+			}
+			if (!strcmp(argv[argi], "--gentex")) {
+				cout << gConfig.getTeX(string(argv[0]), gVersionString) << endl;
+				continue;
+			}
+
+			// (pat) Adding support for specified sql file.
+			// Unfortunately, the Config table was inited quite some time ago,
+			// so stick this arg in the environment, whence the ConfigurationTable can find it, and then reboot.
+			if (!strcmp(argv[argi],"--config")) {
+				if (++argi == argc) {
+					LOG(ALERT) <<"Missing argument to -sql option";
+					exit(2);
+				}
+				setenv(cOpenBTSConfigEnv,argv[argi],1);
+				execl(argv[0],"OpenBTS",NULL);
+				LOG(ALERT) <<"execl failed?  Exiting...";
+				exit(0);
+			}
+			if (!strcmp(argv[argi],"--help")) {
+				printf("OpenBTS [--version --gensql --genex] [--config file.db]\n");
+				printf("OpenBTS exiting...\n");
+				exit(0);
+			}
+
+			printf("OpenBTS: unrecognized argument: %s\nexiting...\n",argv[argi]);
 		}
 
 		return 0;
 	}
 
 	createStats();
- 
+
+	gConfig.setCrossCheckHook(&configurationCrossCheck);
+
 	gReports.incr("OpenBTS.Starts");
+
+	gNeighborTable.NeighborTableInit(
+		gConfig.getStr("Peering.NeighborTable.Path").c_str());
 
 	int sock = socket(AF_UNIX,SOCK_DGRAM,0);
 	if (sock<0) {
@@ -306,8 +367,7 @@ int main(int argc, char *argv[])
 	srandom(time(NULL));
 
 	gConfig.setUpdateHook(purgeConfig);
-	gLogInit("openbts",gConfig.getStr("Log.Level").c_str());
-	LOG(ALERT) << "OpenBTS starting, ver " << VERSION << " build date " << __DATE__;
+	LOG(ALERT) << "OpenBTS (re)starting, ver " << VERSION << " build date " << __DATE__;
 
 	COUT("\n\n" << gOpenBTSWelcome << "\n");
 	gTMSITable.open(gConfig.getStr("Control.Reporting.TMSITable").c_str());
@@ -323,7 +383,7 @@ int main(int argc, char *argv[])
 	// Start the transceiver interface.
 	LOG(INFO) << "checking transceiver";
 	//gTRX.ARFCN(0)->powerOn();
-	//sleep(gConfig.getNum("TRX.Timeout.Start",2));
+	//sleep(gConfig.getNum("TRX.Timeout.Start"));
 	bool haveTRX = gTRX.ARFCN(0)->powerOn(false);
 
 	Thread transceiverThread;
@@ -339,6 +399,34 @@ int main(int argc, char *argv[])
 	// Start the SIP interface.
 	gSIPInterface.start();
 
+	// Start the peer interface
+	gPeerInterface.start();
+
+	// Sync factory calibration as defaults from radio EEPROM
+	signed sdrsn = gTRX.ARFCN(0)->getFactoryCalibration("sdrsn");
+	if (sdrsn != 0 && sdrsn != 65535) {
+		signed val;
+
+		val = gTRX.ARFCN(0)->getFactoryCalibration("band");
+		if (gConfig.isValidValue("GSM.Radio.Band", val)) {
+			gConfig.mSchema["GSM.Radio.Band"].updateDefaultValue(val);
+		}
+
+		val = gTRX.ARFCN(0)->getFactoryCalibration("freq");
+		if (gConfig.isValidValue("TRX.RadioFrequencyOffset", val)) {
+			gConfig.mSchema["TRX.RadioFrequencyOffset"].updateDefaultValue(val);
+		}
+
+		val = gTRX.ARFCN(0)->getFactoryCalibration("rxgain");
+		if (gConfig.isValidValue("GSM.Radio.RxGain", val)) {
+			gConfig.mSchema["GSM.Radio.RxGain"].updateDefaultValue(val);
+		}
+
+		val = gTRX.ARFCN(0)->getFactoryCalibration("txgain");
+		if (gConfig.isValidValue("TRX.TxAttenOffset", val)) {
+			gConfig.mSchema["TRX.TxAttenOffset"].updateDefaultValue(val);
+		}
+	}
 
 	//
 	// Configure the radio.
@@ -428,11 +516,24 @@ int main(int argc, char *argv[])
 		SDCCHLogicalChannel(0,0,gSDCCH_4_3),
 	};
 	Thread C0T0SDCCHControlThread[4];
+	// Subchannel 2 used for CBCH if SMSCB enabled.
+	bool SMSCB = (gConfig.getStr("Control.SMSCB.Table").length() != 0);
+	CBCHLogicalChannel CBCH(gSDCCH_4_2);
+	Thread CBCHControlThread;
 	for (int i=0; i<4; i++) {
+		if (SMSCB && (i==2)) continue;
 		C0T0SDCCH[i].downstream(C0radio);
 		C0T0SDCCHControlThread[i].start((void*(*)(void*))Control::DCCHDispatcher,&C0T0SDCCH[i]);
 		C0T0SDCCH[i].open();
 		gBTS.addSDCCH(&C0T0SDCCH[i]);
+	}
+	// Install CBCH if used.
+	if (SMSCB) {
+		LOG(INFO) << "creating CBCH for SMSCB";
+		CBCH.downstream(C0radio);
+		CBCH.open();
+		gBTS.addCBCH(&CBCH);
+		CBCHControlThread.start((void*(*)(void*))Control::SMSCBSender,NULL);
 	}
 
 
@@ -443,7 +544,19 @@ int main(int argc, char *argv[])
 	// Count configured slots.
 	unsigned sCount = 1;
 
-	if (gConfig.defines("GSM.Channels.C1sFirst")) {
+
+	if (!gConfig.defines("GSM.Channels.NumC1s")) {
+		int numChan = numARFCNs*7;
+		LOG(CRIT) << "GSM.Channels.NumC1s not defined. Defaulting to " << numChan << ".";
+		gConfig.set("GSM.Channels.NumC1s",numChan);
+	}
+	if (!gConfig.defines("GSM.Channels.NumC7s")) {
+		int numChan = numARFCNs-1;
+		LOG(CRIT) << "GSM.Channels.NumC7s not defined. Defaulting to " << numChan << ".";
+		gConfig.set("GSM.Channels.NumC7s",numChan);
+	}
+
+	if (gConfig.getBool("GSM.Channels.C1sFirst")) {
 		// Create C-I slots.
 		for (int i=0; i<gConfig.getNum("GSM.Channels.NumC1s"); i++) {
 			gBTS.createCombinationI(gTRX,sCount/8,sCount%8);
@@ -457,7 +570,7 @@ int main(int argc, char *argv[])
 		sCount++;
 	}
 
-	if (!gConfig.defines("GSM.Channels.C1sFirst")) {
+	if (!gConfig.getBool("GSM.Channels.C1sFirst")) {
 		// Create C-I slots.
 		for (int i=0; i<gConfig.getNum("GSM.Channels.NumC1s"); i++) {
 			gBTS.createCombinationI(gTRX,sCount/8,sCount%8);
@@ -465,14 +578,17 @@ int main(int argc, char *argv[])
 		}
 	}
 
+	if (sCount<(numARFCNs*8)) {
+		LOG(CRIT) << "Only " << sCount << " timeslots configured in an " << numARFCNs << "-ARFCN system.";
+	}
 
-	// Set up idle filling on C0 as needed.
+	// Set up idle filling on C0 as needed for unconfigured slots..
 	while (sCount<8) {
 		gBTS.createCombination0(gTRX,sCount);
 		sCount++;
 	}
 
-	/*
+	/* (pat) See GSM 05.02 6.5.2 and 3.3.2.3
 		Note: The number of different paging subchannels on       
 		the CCCH is:                                        
                                                            
@@ -499,23 +615,24 @@ int main(int argc, char *argv[])
 	gBTS.start();
 
 
-	cout << "\nsystem ready\n";
-	cout << "\nuse the OpenBTSCLI utility to access CLI\n";
-	LOG(INFO) << "system ready";
-
 	struct sockaddr_un cmdSockName;
 	cmdSockName.sun_family = AF_UNIX;
 	const char* sockpath = gConfig.getStr("CLI.SocketPath").c_str();
 	char rmcmd[strlen(sockpath)+5];
-	sprintf(rmcmd,"rm %s",sockpath);
+	sprintf(rmcmd,"rm -f %s",sockpath);
 	system(rmcmd);
 	strcpy(cmdSockName.sun_path,sockpath);
+	LOG(INFO) "binding CLI datagram socket at " << sockpath;
 	if (bind(sock, (struct sockaddr *) &cmdSockName, sizeof(struct sockaddr_un))) {
 		perror("binding name to cmd datagram socket");
 		LOG(ALERT) << "cannot bind socket for CLI at " << sockpath;
 		gReports.incr("OpenBTS.Exit.CLI.Socket");
 		exit(1);
 	}
+
+	COUT("\nsystem ready\n");
+	COUT("\nuse the OpenBTSCLI utility to access CLI\n");
+	LOG(INFO) << "system ready";
 
 	while (1) {
 		char cmdbuf[1000];
@@ -536,7 +653,6 @@ int main(int argc, char *argv[])
 		}
 		// res<0 means to exit the application
 		if (res<0) break;
-		gReports.incr("OpenBTS.Exit.Normal.CLI");
 	}
 
 	} // try
@@ -549,6 +665,155 @@ int main(int argc, char *argv[])
 	//if (gTransceiverPid) kill(gTransceiverPid, SIGKILL);
 	close(sock);
 
+}
+
+
+/** Return warning strings about a potential conflicting value */
+vector<string> configurationCrossCheck(const string& key) {
+	vector<string> warnings;
+	ostringstream warning;
+
+	// GSM.Timer.T3113 should equal SIP.Timer.B
+	if (key.compare("GSM.Timer.T3113") == 0 || key.compare("SIP.Timer.B") == 0) {
+		string gsm = gConfig.getStr("GSM.Timer.T3113");
+		string sip = gConfig.getStr("SIP.Timer.B");
+		if (gsm.compare(sip) != 0) {
+			warning << "GSM.Timer.T3113 (" << gsm << ") and SIP.Timer.B (" << sip << ") should usually have the same value";
+			warnings.push_back(warning.str());
+			warning.str(std::string());
+		}
+
+	// Control.VEA depends on GSM.CellSelection.NECI
+	} else if (key.compare("Control.VEA") == 0 || key.compare("GSM.CellSelection.NECI") == 0) {
+		if (gConfig.getBool("Control.VEA") && gConfig.getStr("GSM.CellSelection.NECI").compare("1") != 0) {
+			warning << "Control.VEA is enabled but will not be functional until GSM.CellSelection.NECI is set to \"1\"";
+			warnings.push_back(warning.str());
+			warning.str(std::string());
+		}
+
+	// GSM.Timer.T3212 should be a factor of six and shorter than SIP.RegistrationPeriod
+	} else if (key.compare("GSM.Timer.T3212") == 0 || key.compare("SIP.RegistrationPeriod") == 0) {
+		int gsm = gConfig.getNum("GSM.Timer.T3212");
+		int sip = gConfig.getNum("SIP.RegistrationPeriod");
+		if (key.compare("GSM.Timer.T3212") == 0 && gsm % 6) {
+			warning << "GSM.Timer.T3212 should be a factor of 6";
+			warnings.push_back(warning.str());
+			warning.str(std::string());
+		}
+		if (gsm >= sip) {
+			warning << "GSM.Timer.T3212 (" << gsm << ") should be shorter than SIP.RegistrationPeriod (" << sip << ")";
+			warnings.push_back(warning.str());
+			warning.str(std::string());
+		}
+
+	// GPRS.ChannelCodingControl.RSSI should normally be 10db more than GSM.Radio.RSSITarget
+	} else if (key.compare("GPRS.ChannelCodingControl.RSSI") == 0 || key.compare("GSM.Radio.RSSITarget") == 0) {
+		int gprs = gConfig.getNum("GPRS.ChannelCodingControl.RSSI");
+		int gsm = gConfig.getNum("GSM.Radio.RSSITarget");
+		if ((gprs - gsm) != 10) {
+			warning << "GPRS.ChannelCodingControl.RSSI (" << gprs << ") should normally be 10db higher than GSM.Radio.RSSITarget (" << gsm << ")";
+			warnings.push_back(warning.str());
+			warning.str(std::string());
+		}
+
+	// TODO : This NEEDS to be an error not a warning. OpenBTS will fail to start because of an assert if an invalid value is used.
+	// GSM.Radio.C0 needs to be inside the valid range of ARFCNs for GSM.Radio.Band
+	} else if (key.compare("GSM.Radio.C0") == 0 || key.compare("GSM.Radio.Band") == 0) {
+		int c0 = gConfig.getNum("GSM.Radio.C0");
+		string band = gConfig.getStr("GSM.Radio.Band");
+		string range;
+		if (band.compare("850") == 0 && (c0 < 128 || 251 < c0)) {
+			range = "128-251";
+		} else if (band.compare("900") == 0 && (c0 < 1 || 124 < c0)) {
+			range = "1-124";
+		} else if (band.compare("1800") == 0 && (c0 < 512 || 885 < c0)) {
+			range = "512-885";
+		} else if (band.compare("1900") == 0 && (c0 < 512 || 810 < c0)) {
+			range = "512-810";
+		}
+		if (range.length()) {
+			warning << "GSM.Radio.C0 (" << c0 << ") falls outside the valid range of ARFCNs " << range << " for GSM.Radio.Band (" << band << ")";
+			warnings.push_back(warning.str());
+			warning.str(std::string());
+		}
+
+	// SGSN.Timer.ImplicitDetach should be at least 240 seconds greater than SGSN.Timer.RAUpdate"
+	} else if (key.compare("SGSN.Timer.ImplicitDetach") == 0 || key.compare("SGSN.Timer.RAUpdate") == 0) {
+		int detach = gConfig.getNum("SGSN.Timer.ImplicitDetach");
+		int update = gConfig.getNum("SGSN.Timer.RAUpdate");
+		if ((detach - update) < 240) {
+			warning << "SGSN.Timer.ImplicitDetach (" << detach << ") should be at least 240 seconds greater than SGSN.Timer.RAUpdate (" << update << ")";
+			warnings.push_back(warning.str());
+			warning.str(std::string());
+		}
+
+	// Control.LUR.WhiteList depends on Control.WhiteListing.Message, Control.LUR.WhiteListing.RejectCause and Control.WhiteListing.ShortCode
+	} else if (key.compare("Control.LUR.WhiteList") == 0 || key.compare("Control.WhiteListing.Message") == 0 ||
+				key.compare("Control.LUR.WhiteListing.RejectCause") == 0 || key.compare("Control.WhiteListing.ShortCode") == 0) {
+		if (gConfig.getBool("Control.LUR.WhiteList")) {
+			if (!gConfig.getStr("Control.WhiteListing.Message").length()) {
+				warning << "Control.LUR.WhiteList is enabled but will not be functional until Control.WhiteListing.Message is set";
+				warnings.push_back(warning.str());
+				warning.str(std::string());
+			} else if (!gConfig.getStr("Control.LUR.WhiteListing.RejectCause").length()) {
+				warning << "Control.LUR.WhiteList is enabled but will not be functional until Control.WhiteListing.RejectCause is set";
+				warnings.push_back(warning.str());
+				warning.str(std::string());
+			} else if (!gConfig.getStr("Control.WhiteListing.ShortCode").length()) {
+				warning << "Control.LUR.WhiteList is enabled but will not be functional until Control.WhiteListing.ShortCode is set";
+				warnings.push_back(warning.str());
+				warning.str(std::string());
+			}
+		}
+
+	// GSM.CellSelection.NCCsPermitted needs to contain our own GSM.Identity.BSIC.NCC
+	} else if (key.compare("GSM.CellSelection.NCCsPermitted") == 0 || key.compare("GSM.Identity.BSIC.NCC") == 0) {
+		int ourNCCMask = gConfig.getNum("GSM.CellSelection.NCCsPermitted");
+		int NCCMaskBit = 1 << gConfig.getNum("GSM.Identity.BSIC.NCC");
+		if ((NCCMaskBit & ourNCCMask) == 0) {
+			warning << "GSM.CellSelection.NCCsPermitted is not set to a mask which contains the local network color code defined in GSM.Identity.BSIC.NCC. ";
+			warning << "Set GSM.CellSelection.NCCsPermitted to " << NCCMaskBit;
+			warnings.push_back(warning.str());
+			warning.str(std::string());
+		}
+
+	// Control.LUR.FailedRegistration.Message depends on Control.LUR.FailedRegistration.ShortCode
+	} else if (key.compare("Control.LUR.FailedRegistration.Message") == 0 || key.compare("Control.LUR.FailedRegistration.ShortCode") == 0) {
+		if (gConfig.getStr("Control.LUR.FailedRegistration.Message").length() && !gConfig.getStr("Control.LUR.FailedRegistration.ShortCode").length()) {
+			warning << "Control.LUR.FailedRegistration.Message is enabled but will not be functional until Control.LUR.FailedRegistration.ShortCode is set";
+			warnings.push_back(warning.str());
+			warning.str(std::string());
+		}
+
+	// Control.LUR.NormalRegistration.Message depends on Control.LUR.NormalRegistration.ShortCode
+	} else if (key.compare("Control.LUR.NormalRegistration.Message") == 0 || key.compare("Control.LUR.NormalRegistration.ShortCode") == 0) {
+		if (gConfig.getStr("Control.LUR.NormalRegistration.Message").length() && !gConfig.getStr("Control.LUR.NormalRegistration.ShortCode").length()) {
+			warning << "Control.LUR.NormalRegistration.Message is enabled but will not be functional until Control.LUR.NormalRegistration.ShortCode is set";
+			warnings.push_back(warning.str());
+			warning.str(std::string());
+		}
+
+	// Control.LUR.OpenRegistration depends on Control.LUR.OpenRegistration.ShortCode
+	} else if (key.compare("Control.LUR.OpenRegistration") == 0 || key.compare("Control.LUR.OpenRegistration.ShortCode") == 0) {
+		if (gConfig.getStr("Control.LUR.OpenRegistration").length() && !gConfig.getStr("Control.LUR.OpenRegistration.ShortCode").length()) {
+			warning << "Control.LUR.OpenRegistration is enabled but will not be functional until Control.LUR.OpenRegistration.ShortCode is set";
+			warnings.push_back(warning.str());
+			warning.str(std::string());
+		}
+
+	// TODO : SIP.SMSC is actually broken with the verification bits, no way to set value as null
+	// SIP.SMSC should normally be NULL if SMS.MIMIEType is "text/plain" and "smsc" if SMS.MIMEType is "application/vnd.3gpp".
+	} else if (key.compare("SMS.MIMEType") == 0 || key.compare("SIP.SMSC") == 0) {
+		string sms = gConfig.getStr("SMS.MIMEType");
+		string sip = gConfig.getStr("SIP.SMSC");
+		if (sms.compare("application/vnd.3gpp.sms") == 0 && sip.compare("smsc") != 0) {
+			warning << "SMS.MIMEType is set to \"application/vnc.3gpp.sms\", SIP.SMSC should usually be set to \"smsc\"";
+			warnings.push_back(warning.str());
+			warning.str(std::string());
+		}
+	}
+
+	return warnings;
 }
 
 // vim: ts=4 sw=4

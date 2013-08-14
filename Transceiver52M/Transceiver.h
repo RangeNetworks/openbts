@@ -86,14 +86,9 @@ private:
     V,                  ///< FCCH+SCH+CCCH+BCCH+SDCCH/4+SACCH/4, uplink RACH+SDCCH/4
     VI,                 ///< CCCH+BCCH, uplink RACH
     VII,                ///< SDCCH/8 + SACCH/8
-    VIII,               ///< TCH/F + FACCH/F + SACCH/M
-    IX,                 ///< TCH/F + SACCH/M
-    X,                  ///< TCH/FD + SACCH/MD
-    XI,                 ///< PBCCH+PCCCH+PDTCH+PACCH+PTCCH
-    XII,                ///< PCCCH+PDTCH+PACCH+PTCCH
-    XIII,               ///< PDTCH+PACCH+PTCCH
     NONE,               ///< Channel is inactive, default
-    LOOPBACK            ///< similar go VII, used in loopback testing
+    LOOPBACK,            ///< similar go VII, used in loopback testing
+	IGPRS				///< GPRS channel, like I but static filler frames.
   } ChannelCombination;
 
 
@@ -102,10 +97,10 @@ private:
   void unModulateVector(signalVector wVector); 
 #endif
 
+  void setFiller(radioVector *rv, bool allocate, bool force);
+
   /** modulate and add a burst to the transmit queue */
-  void addRadioVector(BitVector &burst,
-		      int RSSI,
-		      GSM::Time &wTime);
+  radioVector *fixRadioVector(BitVector &burst, int RSSI, GSM::Time &wTime);
 
   /** Push modulated burst into transmit FIFO corresponding to a particular timestamp */
   void pushRadioVector(GSM::Time &nowTime);
@@ -174,6 +169,13 @@ public:
 
   /** attach the radioInterface transmit FIFO */
   void transmitFIFO(VectorFIFO *wFIFO) { mTransmitFIFO = wFIFO;}
+
+  // This magic flag is ORed with the TN TimeSlot in vectors passed to the transceiver
+  // to indicate the radio block is a filler frame instead of a radio frame.
+  // Must be higher than any possible TN.
+  enum TransceiverFlags {
+  	SET_FILLER_FRAME = 0x10
+  };
 
 protected:
 

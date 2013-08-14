@@ -86,10 +86,10 @@ bool DummyLoad::stop()
 
 
 // NOTE: Assumes sequential reads
-int DummyLoad::readSamples(short *buf, int len, bool* /*overrun*/, 
+int DummyLoad::readSamples(short *buf, int len, bool *overrun, 
 			    TIMESTAMP timestamp,
 			    bool *wUnderrun,
-			    unsigned* /*RSSI*/) 
+			    unsigned *RSSI) 
 {
   updateTime();
   underrunLock.lock();

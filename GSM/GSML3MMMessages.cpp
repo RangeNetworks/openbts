@@ -6,24 +6,16 @@
 * Copyright 2008-2010 Free Software Foundation, Inc.
 * Copyright 2010 Kestrel Signal Processing, Inc.
 *
-* This software is distributed under the terms of the GNU Affero Public License.
-* See the COPYING file in the main directory for details.
+* This software is distributed under multiple licenses;
+* see the COPYING file in the main directory for licensing
+* information for this specific distribuion.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
 
-	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
 
@@ -124,7 +116,8 @@ void L3MMMessage::text(ostream& os) const
 void L3LocationUpdatingRequest::parseBody( const  L3Frame &src, size_t &rp )
 {
 		// skip updating type
-		rp += 4;
+		// (pat) Save this for debugging purposes.
+		mUpdateType = src.readField(rp,4);
 		// skip ciphering ket sequence number
 		rp += 4;
 		mLAI.parseV(src,rp);
@@ -136,7 +129,8 @@ void L3LocationUpdatingRequest::parseBody( const  L3Frame &src, size_t &rp )
 void L3LocationUpdatingRequest::text(ostream& os) const
 {
 	L3MMMessage::text(os);
-	os << "LAI=("<<mLAI<<")";
+	os << "UpdateType=("<<mUpdateType<<")";
+	os << " LAI=("<<mLAI<<")";
 	os << " MobileIdentity=("<<mMobileIdentity<<")";
 	os << " classmark=(" << mClassmark << ")";
 }

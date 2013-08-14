@@ -1,25 +1,19 @@
 /**@file Common-use GSM declarations, most from the GSM 04.xx and 05.xx series. */
 /*
-* Copyright 2008-2011 Free Software Foundation, Inc.
+* Copyright 2008, 2009, 2010 Free Software Foundation, Inc.
+* Copyright 2010 Kestrel Signal Processing, Inc.
+* Copyright 2011 Range Networks, Inc.
 *
-* This software is distributed under the terms of the GNU Affero Public License.
-* See the COPYING file in the main directory for details.
+* This software is distributed under multiple licenses;
+* see the COPYING file in the main directory for licensing
+* information for this specific distribuion.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
 
-	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
 
@@ -28,6 +22,7 @@
 #ifndef GSMCOMMON_H
 #define GSMCOMMON_H
 
+#include "Defines.h"
 #include <stdlib.h>
 #include <sys/time.h>
 #include <ostream>
@@ -36,8 +31,6 @@
 #include <Threads.h>
 #include <Timeval.h>
 #include <BitVector.h>
-
-
 
 
 namespace GSM {
@@ -82,7 +75,6 @@ std::ostream& operator<<(std::ostream& os, CallState state);
 
 
 /** A base class for GSM exceptions. */
-
 class GSMError {};
 
 /** Duration ofa GSM frame, in microseconds. */
@@ -221,6 +213,7 @@ enum ChannelType {
 	CCCHType,		///< common control, a combination of several sub-types
 	RACHType,		///< random access
 	SACCHType,		///< slow associated control (acutally dedicated, but...)
+	CBCHType,		///< cell broadcast channel
 	//@}
 	///@name Dedicated control channels (DCCHs).
 	//@{
@@ -232,6 +225,19 @@ enum ChannelType {
 	TCHFType,		///< full-rate traffic
 	TCHHType,		///< half-rate traffic
 	AnyTCHType,		///< any TCH type
+	//@{
+	//@name Packet channels for GPRS.
+	PDTCHCS1Type,
+	PDTCHCS2Type,
+	PDTCHCS3Type,
+	PDTCHCS4Type,
+	//@}
+	//@{
+	//@name Packet CHANNEL REQUEST responses
+	// These are used only as return value from decodeChannelNeeded(), and do not correspond
+	// to any logical channels.
+	PSingleBlock1PhaseType,
+	PSingleBlock2PhaseType,
 	//@}
 	///@name Special internal channel types.
 	//@{
@@ -239,6 +245,7 @@ enum ChannelType {
 	LoopbackHalfType,		///< loopback testing
 	AnyDCCHType,			///< any dedicated control channel
 	UndefinedCHType,		///< undefined
+	//@}
 	//@}
 };
 
@@ -274,7 +281,12 @@ enum TypeAndOffset {
 	/// Some extra ones for our internal use.
 	TDMA_BEACON_BCCH=253,
 	TDMA_BEACON_CCCH=252,
-	TDMA_BEACON=255
+	TDMA_BEACON=255,
+	//TDMA_PDTCHF,	// packet data traffic logical channel, full speed.
+	TDMA_PDCH,		// packet data channel, inclusive
+	TDMA_PACCH,		// packet control channel, shared with data but distinguished in MAC header.
+	TDMA_PTCCH,		// packet data timing advance logical channel
+	TDMA_PDIDLE		// Handles the packet channel idle frames.
 };
 
 std::ostream& operator<<(std::ostream& os, TypeAndOffset);
@@ -297,7 +309,7 @@ enum L3PD {
 	L3PDSS2PD=0x04,
 	L3MobilityManagementPD=0x05,
 	L3RadioResourcePD=0x06,
-	L3MobilityManagementGPRSPD=0x08,
+	L3GPRSMobilityManagementPD=0x08,
 	L3SMSPD=0x09,
 	L3GPRSSessionManagementPD=0x0a,
 	L3NonCallSSPD=0x0b,
@@ -328,6 +340,7 @@ extern const unsigned RACHWaitSParam[];
 /**@name Modulus operations for frame numbers. */
 //@{
 /** The GSM hyperframe is largest time period in the GSM system, GSM 05.02 4.3.3. */
+// It is 2715648
 const uint32_t gHyperframe = 2048UL * 26UL * 51UL;
 
 /** Get a clock difference, within the modulus, v1-v2. */
@@ -547,6 +560,9 @@ class Clock {
 
 	/** Block until the clock passes a given time. */
 	void wait(const Time&) const;
+
+	/** Return the system time associated with a given timestamp. */
+	double systime(const Time&) const;
 };
 
 

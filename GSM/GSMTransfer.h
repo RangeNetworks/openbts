@@ -1,24 +1,14 @@
 /*
 * Copyright 2008 Free Software Foundation, Inc.
 *
-* This software is distributed under the terms of the GNU Affero Public License.
-* See the COPYING file in the main directory for details.
+* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
 
-	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
 
@@ -27,6 +17,7 @@
 #ifndef GSMTRANSFER_H
 #define GSMTRANSFER_H
 
+#include "Defines.h"
 #include "Interthread.h"
 #include "BitVector.h"
 #include "GSMCommon.h"
@@ -68,7 +59,8 @@ enum Primitive {
 	DATA,			///< multiframe data transfer
 	UNIT_DATA,		///< datagram-type data transfer
 	ERROR,			///< channel error
-	HARDRELEASE		///< forced release after an assignment
+	HARDRELEASE,		///< forced release after an assignment
+	HANDOVER_ACCESS		///< received inbound handover access burst
 };
 
 
@@ -106,6 +98,7 @@ class TxBurst : public BitVector {
 
 	/**@name Basic accessors. */
 	//@{
+	// Since mTime is volatile, we can't return a reference.
 	Time time() const { return mTime; }
 	void time(const Time& wTime) { mTime = wTime; }
 	//@}
@@ -169,6 +162,7 @@ class RxBurst : public SoftVector {
 	{ }
 
 
+	// Since mTime is volatile, we can't return a reference.
 	Time time() const { return mTime; }
 
 	void time(const Time& wTime) { mTime = wTime; }
@@ -286,7 +280,7 @@ class L2Control {
 
 	/** Initialize a U or S frame. */
 	L2Control(ControlFormat wFormat=UFormat, unsigned wPF=0, unsigned bits=0)
-		:mFormat(wFormat),mPF(wPF),mSBits(bits),mUBits(bits)
+		:mFormat(wFormat),mNR(0),mNS(0),mPF(wPF),mSBits(bits),mUBits(bits)
 	{
 		assert(mFormat!=IFormat);
 		assert(mPF<2);
@@ -472,6 +466,9 @@ class L2Frame : public BitVector {
 
 	public:
 
+	void randomizeFiller(unsigned start);
+	void randomizeFiller(const L2Header& header);
+
 	/** Fill the frame with the GSM idle pattern, GSM 04.06 2.2. */
 	void idleFill();
 
@@ -498,7 +495,7 @@ class L2Frame : public BitVector {
 		The L3Frame must fit in the L2Frame.
 		The primitive is DATA.
 	*/
-	L2Frame(const L2Header&, const BitVector&);
+	L2Frame(const L2Header&, const BitVector&, bool noran=false);
 
 	/**
 		Make an L2Frame from a header with no payload.
@@ -534,7 +531,10 @@ class L2Frame : public BitVector {
 	/** Set/clear the PF bit. */
 	void PF(bool wPF) { mStart[8+3]=wPF; }
 
-	/** Look into the header and get the length of the payload. */
+	/**
+		Look into the header and get the length of the payload.
+		Assumes A or B header, or B4 header with L2 pseudo length in L3.
+	*/
 	unsigned L() const { return peekField(8*2,6); }
 
 	/** Get the "more data" bit (M). */
@@ -551,6 +551,9 @@ class L2Frame : public BitVector {
 
 	/** Return the CR bit, GSM 04.06 3.3.2.  Assumes A or B header. */
 	bool CR() const { return mStart[6] & 0x01; }
+	
+	/** Set/clear the CR bit. */
+	void CR(bool wCR) { mStart[6]=wCR; }
 
 	/** Return truw if this a DCCH idle frame. */
 	bool DCCHIdle() const
@@ -567,11 +570,14 @@ class L2Frame : public BitVector {
 
 };
 
+
+/** Return a reference to the standard LAPDm downlink idle frame. */
+const L2Frame& L2IdleFrame();
+
 std::ostream& operator<<(std::ostream& os, const L2Frame& msg);
 
 
 typedef InterthreadQueueWithWait<L2Frame> L2FrameFIFO;
-
 
 
 /**
@@ -602,7 +608,7 @@ class L3Frame : public BitVector {
 	L3Frame(const L3Frame& f1, const L3Frame& f2)
 		:BitVector(f1,f2),mPrimitive(DATA),
 		mL2Length(f1.mL2Length + f2.mL2Length)
-	{}
+	{ }
 
 	/** Build from an L2Frame. */
 	L3Frame(const L2Frame& source)
@@ -625,7 +631,7 @@ class L3Frame : public BitVector {
 	/** Message Type Indicator, GSM 04.08 10.4.  */
 	unsigned MTI() const { return peekField(8,8); }
 
-	/** TI value, GSM 04.07 11.2.3.1.3.  */
+	/** TI (transaction Identifier) value, GSM 04.07 11.2.3.1.3.  */
 	unsigned TI() const { return peekField(0,4); }
 
 	/** Return the associated primitive. */
@@ -646,13 +652,18 @@ class L3Frame : public BitVector {
 
 
 
+
 std::ostream& operator<<(std::ostream& os, const L3Frame&);
 
 typedef InterthreadQueue<L3Frame> L3FrameFIFO;
 
 
 
-/** A vocoder frame for use in GSM/SIP contexts. */
+/**
+	A vocoder frame for use in GSM/SIP contexts.
+	This is based on RFC-3551 Section 4.5.8.1.
+	Note the 4-bit pad at the start of the frame, filled with b1101 (0xd).
+*/
 class VocoderFrame : public BitVector {
 
 	public:
@@ -666,7 +677,10 @@ class VocoderFrame : public BitVector {
 		:BitVector(264)
 	{ unpack(src); }
 
+	/** Non-const form returns an alias. */
 	BitVector payload() { return tail(4); }
+
+	/** Const form returns a copy. */
 	const BitVector payload() const { return tail(4); }
 
 };

@@ -1,26 +1,18 @@
 /**@file SIP Call Control -- SIP IETF RFC-3261, RTP IETF RFC-3550. */
 /*
-* Copyright 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+* Copyright 2008, 2009, 2010 Free Software Foundation, Inc.
 * Copyright 2011, 2012 Range Networks, Inc.
 *
-* This software is distributed under the terms of the GNU Affero Public License.
-* See the COPYING file in the main directory for details.
+* This software is distributed under multiple licenses;
+* see the COPYING file in the main directory for licensing
+* information for this specific distribuion.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
 
-	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
 
@@ -106,6 +98,9 @@ const char* SIP::SIPStateString(SIPState s)
 		case Canceled: return "Canceled";
 		case Cleared: return "Cleared";
 		case MessageSubmit: return "SMS-Submit";
+		case HandoverInbound: return "HandoverInbound";
+		case HandoverInboundReferred: return "HandoverInboundReferred";
+		case HandoverOutbound: return "HandoverOutbound";
 		default: return NULL;
 	}
 }
@@ -214,7 +209,7 @@ void SIPEngine::saveResponse(osip_message_t *response)
 
 
 
-void SIPEngine::saveBYE(const osip_message_t *BYE, bool /*mine*/)
+void SIPEngine::saveBYE(const osip_message_t *BYE, bool mine)
 {
 	// Instead of cloning, why not just keep the old one?
 	// Because that doesn't work in all calling contexts.
@@ -223,7 +218,7 @@ void SIPEngine::saveBYE(const osip_message_t *BYE, bool /*mine*/)
 	osip_message_clone(BYE,&mBYE);
 }
 
-void SIPEngine::saveCANCEL(const osip_message_t *CANCEL, bool /*mine*/)
+void SIPEngine::saveCANCEL(const osip_message_t *CANCEL, bool mine)
 {
 	// Instead of cloning, why not just keep the old one?
 	// Because that doesn't work in all calling contexts.
@@ -232,7 +227,7 @@ void SIPEngine::saveCANCEL(const osip_message_t *CANCEL, bool /*mine*/)
 	osip_message_clone(CANCEL,&mCANCEL);
 }
 
-void SIPEngine::saveERROR(const osip_message_t *ERROR, bool /*mine*/)
+void SIPEngine::saveERROR(const osip_message_t *ERROR, bool mine)
 {
 	// Instead of cloning, why not just keep the old one?
 	// Because that doesn't work in all calling contexts.
@@ -275,27 +270,43 @@ void SIPEngine::user( const char * wCallID, const char * IMSI, const char *origI
 	mRemoteDomain = string(origHost);
 }
 
+string randy401(osip_message_t *msg)
+{
+	if (msg->status_code != 401) return "";
+	osip_www_authenticate_t *auth = (osip_www_authenticate_t*)osip_list_get(&msg->www_authenticates, 0);
+	if (auth == NULL) return "";
+	char *rand = osip_www_authenticate_get_nonce(auth);
+	string rands = rand ? string(rand) : "";
+	if (rands.length()!=32) {
+		LOG(WARNING) << "SIP RAND wrong length: " << rands;
+		return "";
+	}
+	return rands;
+}
 
-void SIPEngine::writePrivateHeaders(osip_message_t *msg, const GSM::LogicalChannel* chan)
+
+void SIPEngine::writePrivateHeaders(osip_message_t *msg, const GSM::LogicalChannel *chan)
 {
 	// P-PHY-Info
 	// This is a non-standard private header in OpenBTS.
-	// TA=<timing advance> TE=<TA error> UpRSSI=<uplink RSSI> TxPwr=<MS tx power> DnRSSIdBm=<downlink RSSI>
-	// Get the values
-#if 0
+	// TA=<timing advance> TE=<TA error> UpRSSI=<uplink RSSI> TxPwr=<MS tx power>
+	// DnRSSIdBm=<downlink RSSI> time=<system time of measurements>
+	// Get the values.
 	if (chan) {
-		char phy_info[200];
-		sprintf(phy_info,"OpenBTS; TA=%d TE=%f UpRSSI=%f TxPwr=%d DnRSSIdBm=%d",
+		LOG(DEBUG);
+		char phy_info[400];
+		sprintf(phy_info,"OpenBTS; TA=%d TE=%f UpRSSI=%f TxPwr=%d DnRSSIdBm=%d time=%9.3lf",
 			chan->actualMSTiming(), chan->timingError(),
 			chan->RSSI(), chan->actualMSPower(),
-			chan->measurementResults().RXLEV_FULL_SERVING_CELL_dBm());
+			chan->measurementResults().RXLEV_FULL_SERVING_CELL_dBm(),
+			chan->timestamp());
+		LOG(DEBUG) << "PHY-info: " << phy_info;
 		osip_message_set_header(msg,"P-PHY-Info",phy_info);
 	}
-#endif
 
 	// P-Access-Network-Info
 	// See 3GPP 24.229 7.2.
-	char cgi_3gpp[50];
+	char cgi_3gpp[256];
 	sprintf(cgi_3gpp,"3GPP-GERAN; cgi-3gpp=%s%s%04x%04x",
 		gConfig.getStr("GSM.Identity.MCC").c_str(),gConfig.getStr("GSM.Identity.MNC").c_str(),
 		(unsigned)gConfig.getNum("GSM.Identity.LAC"),(unsigned)gConfig.getNum("GSM.Identity.CI"));
@@ -303,18 +314,25 @@ void SIPEngine::writePrivateHeaders(osip_message_t *msg, const GSM::LogicalChann
  
 	// P-Preferred-Identity
 	// See RFC-3325.
-	char pref_id[50];
+	char pref_id[350];
 	sprintf(pref_id,"<sip:%s@%s>",
 		mSIPUsername.c_str(),
 		gConfig.getStr("SIP.Proxy.Speech").c_str());
 	osip_message_set_header(msg,"P-Preferred-Identity",pref_id);
+	// Check for illegal hostname length. 253 bytes for domain name + 6 bytes for port and colon.
+	// This isn't "pretty", but it should be fast, and gives us a ballpark. Their hostname will
+	// fail elsewhere if it is longer than 253 bytes (since this assumes a 5 byte port string).
+	if (gConfig.getStr("SIP.Proxy.Speech").length() > 259) {
+		LOG(ALERT) << "Configured SIP.Proxy.Speech hostname is great than 253 bytes!";
+	}
 
 	// FIXME -- Use the subscriber registry to look up the E.164
 	// and make a second P-Preferred-Identity header.
 
 }
 
-bool SIPEngine::Register( Method wMethod )
+
+bool SIPEngine::Register( Method wMethod , const GSM::LogicalChannel* chan, string *RAND, const char *IMSI, const char *SRES)
 {
 	LOG(INFO) << "user " << mSIPUsername << " state " << mState << " " << wMethod << " callID " << mCallID;
 
@@ -334,18 +352,20 @@ bool SIPEngine::Register( Method wMethod )
 			60*gConfig.getNum("SIP.RegistrationPeriod"),
 			mSIPPort, mSIPIP.c_str(), 
 			mProxyIP.c_str(), mMyTag.c_str(), 
-			mViaBranch.c_str(), mCallID.c_str(), mCSeq
+			mViaBranch.c_str(), mCallID.c_str(), mCSeq,
+			RAND, IMSI, SRES
 		); 
 	} else if (wMethod == SIPUnregister ) {
 		reg = sip_register( mSIPUsername.c_str(), 
 			0,
 			mSIPPort, mSIPIP.c_str(), 
 			mProxyIP.c_str(), mMyTag.c_str(), 
-			mViaBranch.c_str(), mCallID.c_str(), mCSeq
+			mViaBranch.c_str(), mCallID.c_str(), mCSeq,
+			NULL, NULL, NULL
 		);
 	} else { assert(0); }
 
-	//writePrivateHeaders(reg,chan);
+	writePrivateHeaders(reg,chan);
 	gReports.incr("OpenBTS.SIP.REGISTER.Out");
  
 	LOG(DEBUG) << "writing registration " << reg;
@@ -358,7 +378,7 @@ bool SIPEngine::Register( Method wMethod )
 		try {
 			// SIPInterface::read will throw SIPTIimeout if it times out.
 			// It should not return NULL.
-			msg = gSIPInterface.read(mCallID, gConfig.getNum("SIP.Timer.E"));
+			msg = gSIPInterface.read(mCallID, gConfig.getNum("SIP.Timer.E"),NULL);
 		} catch (SIPTimeout) {
 			// send again
 			LOG(NOTICE) << "SIP REGISTER packet to " << mProxyIP << ":" << mProxyPort << " timeout; resending"; 
@@ -376,8 +396,18 @@ bool SIPEngine::Register( Method wMethod )
 			break;
 		}
 		if (status==401) {
-			LOG(INFO) << "REGISTER fail -- unauthorized";
-			break;
+			string wRAND = randy401(msg);
+			// if rand is included on 401 unauthorized, then the challenge-response game is afoot
+			if (wRAND.length() != 0 && RAND != NULL) {
+				LOG(INFO) << "REGISTER challenge RAND=" << wRAND;
+				*RAND = wRAND;
+				osip_message_free(msg);
+				osip_message_free(reg);
+				return false;
+			} else {
+				LOG(INFO) << "REGISTER fail -- unauthorized";
+				break;
+			}
 		}
 		if (status==404) {
 			LOG(INFO) << "REGISTER fail -- not found";
@@ -403,90 +433,54 @@ bool SIPEngine::Register( Method wMethod )
 }
 
 
-
-const char* geoprivTemplate = 
-"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
- "<presence xmlns=\"urn:ietf:params:xml:ns:pidf\"\n"
-    "xmlns:gp=\"urn:ietf:params:xml:ns:pidf:geopriv10\"\n"
-    "xmlns:gml=\"urn:opengis:specification:gml:schema-xsd:feature:v3.0\"\n"
-    "entity=\"pres:%s@%s\">\n"
-  "<tuple id=\"1\">\n"
-   "<status>\n"
-    "<gp:geopriv>\n"
-     "<gp:location-info>\n"
-      "<gml:location>\n"
-       "<gml:Point gml:id=\"point1\" srsName=\"epsg:4326\">\n"
-        "<gml:coordinates>%s</gml:coordinates>\n"
-       "</gml:Point>\n"
-      "</gml:location>\n"
-     "</gp:location-info>\n"
-     "<gp:usage-rules>\n"
-      "<gp:retransmission-allowed>no</gp:retransmission-allowed>\n"
-     "</gp:usage-rules>\n"
-    "</gp:geopriv>\n"
-   "</status>\n"
-  "</tuple>\n"
- "</presence>\n";
-
-SIPState SIPEngine::SOSSendINVITE(short wRtp_port, unsigned  wCodec, const GSM::LogicalChannel *chan)
+float geodecode1(const char **p, int *err, bool colonExpected)
 {
-	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
-	// Before start, need to add mCallID
-	gSIPInterface.addCall(mCallID);
-	gReports.incr("OpenBTS.SIP.INVITE-SOS.Out");
-	
-	// Set Invite params. 
-	// new CSEQ and codec 
-	char tmp[50];
-	make_branch(tmp);
-	mViaBranch = tmp;
-	mCodec = wCodec;
-	mCSeq++;
-
-	mRemoteDomain = gConfig.getStr("Control.Emergency.Destination.Host");
-	mRemoteUsername = gConfig.getStr("Control.Emergency.Destination.User");
-
-	mRTPPort= wRtp_port;
-	
-	LOG(DEBUG) << "To: " << mRemoteUsername << "@" << mRemoteDomain;
-	LOG(DEBUG) << "From: " << mSIPUsername << "@" << mSIPIP;
-
-	osip_message_t *invite;
-	if (gConfig.defines("Control.Emergency.RFC5031")) {
-		invite = sip_invite5031(
-			mRTPPort, mSIPUsername.c_str(), 
-			mSIPPort, mSIPIP.c_str(), mProxyIP.c_str(),
-			mMyTag.c_str(), mViaBranch.c_str(), mCallID.c_str(), mCSeq, mCodec); 
-	} else {
-		invite = sip_invite(
-			mRemoteUsername.c_str(), mRTPPort, mSIPUsername.c_str(), 
-			mSIPPort, mSIPIP.c_str(), mProxyIP.c_str(), 
-			mMyTag.c_str(), mViaBranch.c_str(), mCallID.c_str(), mCSeq, mCodec); 
+	float n = 0;
+	const char *q = *p;
+	while (**p >= '0' && **p <= '9') {
+		n = n * 10 + **p - '0';
+		(*p)++;
 	}
-
-	writePrivateHeaders(invite,chan);
-
-	// Add RFC-4119 geolocation XML to content area, if available.
-	if (gConfig.defines("Control.Emergency.Geolocation")) {
-		char xml[strlen(geoprivTemplate) + 100];
-		sprintf(xml,geoprivTemplate,
-			mSIPUsername.c_str(), gConfig.getStr("Control.Emergency.GatewaySwitch").c_str(),
-			gConfig.getStr("Control.Emergency.Geolocation").c_str());
-		osip_message_set_content_type(invite, strdup("application/pidf+xml"));
-		char tmp[20];
-        sprintf(tmp,"%u", static_cast<unsigned>(strlen(xml)));
-		osip_message_set_content_length(invite, strdup(tmp));
-		osip_message_set_body(invite,xml,strlen(xml));
+	if (q == *p) *err = 1;
+	if (colonExpected) {
+		if (**p == ':') {
+			(*p)++;
+		} else {
+			*err = 1;
+		}
 	}
-	
-	// Send Invite to Asterisk.
-	gSIPInterface.write(&mProxyAddr,invite);
-	saveINVITE(invite,true);
-	osip_message_free(invite);
-	mState = Starting;
-	return mState;
+	return n;
 }
 
+
+float geodecode(const char **p, int *err)
+{
+	float n = 0;
+	float m = 1;
+	while (**p == ' ') {
+		(*p)++;
+	}
+	if (**p == '-') {
+		m = -1;
+		(*p)++;
+	}
+	n = geodecode1(p, err, true);
+	n += geodecode1(p, err, true)/60.0;
+	n += geodecode1(p, err, false)/3600.0;
+	if (**p == ' ' || **p == 0) return n * m;
+	switch (**p) {
+		case 'N':
+		case 'E':
+			(*p)++;
+			return n * m;
+		case 'S':
+		case 'W':
+			(*p)++;
+			return n * m * -1.0;
+	}
+	*err = 1;
+	return 0;
+}
 
 SIPState SIPEngine::MOCSendINVITE( const char * wCalledUsername, 
 	const char * wCalledDomain , short wRtp_port, unsigned  wCodec,
@@ -519,20 +513,21 @@ SIPState SIPEngine::MOCSendINVITE( const char * wCalledUsername,
 		mMyTag.c_str(), mViaBranch.c_str(), mCallID.c_str(), mCSeq, mCodec); 
 
 	writePrivateHeaders(invite,chan);
-	
+
 	// Send Invite.
 	gSIPInterface.write(&mProxyAddr,invite);
 	saveINVITE(invite,true);
 	osip_message_free(invite);
 	mState = Starting;
 	return mState;
-}
+};
 
 
 SIPState SIPEngine::MOCResendINVITE()
 {
 	assert(mINVITE);
 	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
+	LOG(NOTICE) << "SIP INVITE packet to " << mProxyIP << ":" << mProxyPort << " timedout; resending"; 
 	gSIPInterface.write(&mProxyAddr,mINVITE);
 	return mState;
 }
@@ -681,7 +676,6 @@ SIPState  SIPEngine::MOCCheckForOK(Mutex *lock)
 	return mState;
 }
 
-
 SIPState SIPEngine::MOCSendACK()
 {
 	assert(mLastResponse);
@@ -730,17 +724,19 @@ SIPState SIPEngine::MODSendERROR(osip_message_t * cause, int code, const char * 
 {
 	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
 	if (NULL == cause){
-		assert(mINVITE);
+		if (!mINVITE){
+			LOG(WARNING)  << "Sending ERROR without invite, probably a CLI generated message";
+			return mState;
+		}
 		cause = mINVITE;
 	}
 	
-	/* 480 is unavail */
-	osip_message_t * unavail = sip_error(cause, mSIPIP.c_str(),
-					     mSIPUsername.c_str(), mSIPPort, 
-					     code, reason);
-	gSIPInterface.write(&mProxyAddr,unavail);
-	saveERROR(unavail, true);
-	osip_message_free(unavail);
+	osip_message_t * error = sip_error(cause, mSIPIP.c_str(),
+					   mSIPUsername.c_str(), mSIPPort, 
+					   code, reason);
+	gSIPInterface.write(&mProxyAddr,error);
+	saveERROR(error, true);
+	osip_message_free(error);
 	if (cancel){
 		mState = MODCanceling;
 	}
@@ -760,7 +756,6 @@ SIPState SIPEngine::MODSendCANCEL()
 	mState = MODCanceling;
 	return mState;
 }
-	
 
 SIPState SIPEngine::MODResendBYE()
 {
@@ -774,7 +769,7 @@ SIPState SIPEngine::MODResendBYE()
 SIPState SIPEngine::MODResendCANCEL()
 {
 	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
-	assert(mState==MODCanceling);
+	if (mState!=MODCanceling) LOG(ERR) << "incorrect state for this method";
 	assert(mCANCEL);
 	gSIPInterface.write(&mProxyAddr,mCANCEL);
 	return mState;
@@ -893,7 +888,7 @@ SIPState SIPEngine::MODWaitForCANCELOK(Mutex *lock)
 
 static bool containsResponse(vector<unsigned> *validResponses, unsigned code)
 {
-    for (size_t i = 0; i < validResponses->size(); i++) {
+	for (int i = 0; i < validResponses->size(); i++) {
 		if (validResponses->at(i) == code)
 			return true;
 	}
@@ -999,7 +994,7 @@ SIPState SIPEngine::MTDCheckBYE()
 	// If no messages, there is no change in state.
 	if (fifoSize==0) return mState;	
 		
-	osip_message_t * msg = gSIPInterface.read(mCallID);
+	osip_message_t * msg = gSIPInterface.read(mCallID,0,NULL);
 	
 
 	if (msg->sip_method) {
@@ -1011,7 +1006,7 @@ SIPState SIPEngine::MTDCheckBYE()
 		}
 		//repeated ACK, send OK
 		//pretty sure this never happens, but someone else left a fixme before... -kurtis
-		if (strcmp(msg->sip_method,"ACK")==0) { 	
+		if (strcmp(msg->sip_method,"ACK")==0) {
 			LOG(DEBUG) << "Not responding to repeated ACK. FIXME";
 		}
 	}
@@ -1109,13 +1104,12 @@ SIPState SIPEngine::MTCCheckForACK(Mutex *lock)
 	// wait for ack,set this to timeout of 
 	// of call channel.  If want a longer timeout 
 	// period, need to split into 2 handle situation 
-	// like MOC where this fxn if called multiple times. 
+	// like MOC where this fxn is called multiple times. 
 	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
 	//if (mState==Fail) return mState;
 	//osip_message_t * ack = NULL;
 	osip_message_t * ack;
 
-	// FIXME -- This is supposed to retransmit BYE on timer I.
 	try {
 		ack = gSIPInterface.read(mCallID, gConfig.getNum("SIP.Timer.H"), lock);
 	}
@@ -1181,8 +1175,7 @@ SIPState SIPEngine::MTCCheckForCancel()
 	osip_message_t * msg;
 
 	try {
-		//block for very small amount of time
-		msg = gSIPInterface.read(mCallID,1);
+		msg = gSIPInterface.read(mCallID,0,NULL);
 	}
 	catch (SIPTimeout& e) {
 		gReports.incr("OpenBTS.SIP.ReadTimeout");
@@ -1393,7 +1386,7 @@ SIPState SIPEngine::MOSMSSendMESSAGE(const char * wCalledUsername,
 		mSIPPort, mSIPIP.c_str(), mProxyIP.c_str(), 
 		mMyTag.c_str(), mViaBranch.c_str(), mCallID.c_str(), mCSeq,
 		messageText, contentType); 
-
+	
 	writePrivateHeaders(message,chan);
 
 	// Send Invite to the SIP proxy.
@@ -1464,6 +1457,7 @@ SIPState SIPEngine::MOSMSWaitForSubmit(Mutex *lock)
 	return mState;
 
 }
+
 
 
 SIPState SIPEngine::MTSMSSendOK(const GSM::LogicalChannel *chan)
@@ -1562,5 +1556,139 @@ bool SIPEngine::sameINVITE(osip_message_t * msg){
 
 	return n1==n2;
 }
+
+
+SIPState SIPEngine::inboundHandoverCheckForOK(Mutex *lock)
+{
+	return MOCCheckForOK(lock);
+}
+
+
+
+SIPState SIPEngine::inboundHandoverSendACK()
+{
+	return MOCSendACK();
+}
+
+SIPState SIPEngine::inboundHandoverSendINVITE(TransactionEntry *transaction, unsigned wRTPPort)
+{
+	// We are "BS2" in the handover ladder diagram.
+
+	LOG(INFO) << "user " << mSIPUsername << " state " << mState;
+	// Before start, need to add mCallID
+	mCallID = transaction->CallID();
+	gSIPInterface.addCall(mCallID);
+
+	// Set Invite params. 
+	// New from tag + via branch
+	// new CSEQ and codec 
+	char tmp[100];
+	make_tag(tmp);
+	make_branch(tmp);
+	mViaBranch = tmp;
+	mCodec = transaction->Codec();
+	mCSeq = transaction->CSeq();
+	mCSeq++;
+
+	mRemoteDomain = transaction->ToIP();
+	mRemoteUsername = transaction->ToUsername();
+	mRTPPort = wRTPPort;
+	mRTPRemPort = transaction->RTPRemPort();
+	mRTPRemIP = transaction->RTPRemIP();
+	mSIPUsername = transaction->FromUsername();
+	string SIPDisplayname = transaction->FromUsername();
+	mFromTag = transaction->FromTag();
+
+	if(mSession == NULL) {
+		mSession = rtp_session_new(RTP_SESSION_SENDRECV);
+		// do what we need to from InitRTP() without a message
+		bool rfc2833 = gConfig.defines("SIP.DTMF.RFC2833");
+		if (rfc2833) {
+			RtpProfile* profile = rtp_session_get_send_profile(mSession);
+			int index = gConfig.getNum("SIP.DTMF.RFC2833.PayloadType");
+			rtp_profile_set_payload(profile,index,&payload_type_telephone_event);
+			// Do we really need this next line?
+			rtp_session_set_send_profile(mSession,profile);
+		}
+		rtp_session_set_blocking_mode(mSession, TRUE);
+		rtp_session_set_scheduling_mode(mSession, TRUE);
+		rtp_session_set_connected_mode(mSession, TRUE);
+		rtp_session_set_symmetric_rtp(mSession, TRUE);
+		// Hardcode RTP session type to GSM full rate (GSM 06.10).
+		// FIXME -- Make this work for multiple vocoder types.
+		rtp_session_set_payload_type(mSession, 3); 
+		rtp_session_set_local_addr(mSession, "0.0.0.0", mRTPPort );
+		rtp_session_set_remote_addr(mSession, mRTPRemIP.c_str(), mRTPRemPort);
+		// Check for event support.
+		int code = rtp_session_telephone_events_supported(mSession);
+		if (code == -1) {
+			if (rfc2833) { LOG(ALERT) << "RTP session does not support selected DTMF method RFC-2833"; }
+			else { LOG(WARNING) << "RTP session does not support telephone events"; }
+		}
+	}
+
+	// unpack RTP state and shove it into the session structure
+	char *items = strdup(transaction->RTPState().c_str());
+	char *thisItem;
+	vector<long> RTPState;
+	while ((thisItem=strsep(&items,","))!=NULL) {
+		RTPState.push_back(strtol(thisItem,NULL,10));
+	}
+	free(items);
+	assert(RTPState.size() == 22);
+	/* Out of desperation, when the RTP refused to work, I transferred from BS1 to BS2 just about
+	 * all the state in this struct.  Well, it turns out NONE of it is necessary.  Something else
+	 * entirely was the problem.  (Or, technically, state in a different struct.)  Anyway, I'm
+	 * leaving the transferring, and just not copying in anything here.  So if any of it appears
+	 * to be important some day, it will be easy to experiment.  You're welcome.
+	mSession->rtp.snd_time_offset = RTPState[0];
+	mSession->rtp.snd_ts_offset = RTPState[1];
+	mSession->rtp.snd_rand_offset = RTPState[2];
+	mSession->rtp.snd_last_ts = RTPState[3];
+	mSession->rtp.rcv_time_offset = RTPState[4];
+	mSession->rtp.rcv_ts_offset = RTPState[5];
+	mSession->rtp.rcv_query_ts_offset = RTPState[6];
+	mSession->rtp.rcv_last_ts = RTPState[7];
+	mSession->rtp.rcv_last_app_ts = RTPState[8];
+	mSession->rtp.rcv_last_ret_ts = RTPState[9];
+	mSession->rtp.hwrcv_extseq = RTPState[10];
+	mSession->rtp.hwrcv_seq_at_last_SR = RTPState[11];
+	mSession->rtp.hwrcv_since_last_SR = RTPState[12];
+	mSession->rtp.last_rcv_SR_ts = RTPState[13];
+	mSession->rtp.last_rcv_SR_time.tv_sec = RTPState[14]; mSession->rtp.last_rcv_SR_time.tv_usec = RTPState[15];
+	mSession->rtp.snd_seq = RTPState[16];
+	mSession->rtp.last_rtcp_report_snt_r = RTPState[17];
+	mSession->rtp.last_rtcp_report_snt_s = RTPState[18];
+	mSession->rtp.rtcp_report_snt_interval = RTPState[19];
+	mSession->rtp.last_rtcp_packet_count = RTPState[20];
+	mSession->rtp.sent_payload_bytes = RTPState[21];
+	*/
+
+	osip_message_t * invite = sip_reinvite(
+		mRemoteUsername.c_str(), mRemoteDomain.c_str(),
+		SIPDisplayname.c_str(), mSIPUsername.c_str(),
+		transaction->FromTag().c_str(), transaction->FromUsername().c_str(), transaction->FromIP().c_str(),
+		transaction->ToTag().c_str(), transaction->ToUsername().c_str(), transaction->ToIP().c_str(),
+		mViaBranch.c_str(), mCallID.c_str(), transaction->CallIP().c_str(),
+		mCSeq, mCodec, mRTPPort,
+		transaction->SessionID().c_str(), transaction->SessionVersion().c_str());
+
+	// Send Invite to remote party.
+	struct sockaddr_in rmt;
+	if (!resolveAddress(&rmt, transaction->RmtIP().c_str(), transaction->RmtPort())) {
+		LOG(ALERT) << "unable to resolve IP address of remote party to send INVITE";
+		mState = Fail;
+		gReports.incr("OpenBTS.SIP.Failed");
+		gReports.incr("OpenBTS.SIP.LostProxy");
+		return mState;
+	}
+	gSIPInterface.write(&rmt, invite);
+	saveINVITE(invite, true);
+	osip_message_free(invite);
+	// FIXME - is this the right state?
+	mState = Starting;
+	return mState;
+}
+
 
 // vim: ts=4 sw=4

@@ -3,24 +3,16 @@
 * Copyright 2010 Kestrel Signal Processing, Inc.
 * Copyright 2011 Range Networks, Inc.
 *
-* This software is distributed under the terms of the GNU Affero Public License.
-* See the COPYING file in the main directory for details.
+* This software is distributed under multiple licenses;
+* see the COPYING file in the main directory for licensing
+* information for this specific distribuion.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
 
-	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
 
@@ -39,6 +31,15 @@
 
 #include <Sockets.h>
 #include <Globals.h>
+
+
+namespace Control {
+class TransactionEntry;
+}
+
+namespace GSM {
+class GSMLogicalChannel;
+}
 
 
 namespace SIP {
@@ -63,7 +64,10 @@ enum SIPState  {
 	Canceled,
 	Cleared,
 	Fail,
-	MessageSubmit
+	MessageSubmit,
+	HandoverInbound,
+	HandoverInboundReferred,
+	HandoverOutbound
 };
 
 
@@ -89,6 +93,8 @@ private:
 	std::string mViaBranch;
 	std::string mSIPUsername;	///< our SIP username
 	unsigned  mCSeq;
+	std::string mAsteriskIP;
+	std::string mFromTag;
 	/**@name Pre-formed headers. These point into mINVITE. */
 	//@{
 	osip_from_t* mMyToFromHeader;	///< To/From header for us
@@ -119,6 +125,8 @@ private:
 	/**@name RTP state and parameters. */
 	//@{
 	short mRTPPort;
+	short mRTPRemPort;
+	string mRTPRemIP;
 	unsigned mCodec;
 	RtpSession * mSession;		///< RTP media session
 	unsigned int mTxTime;		///< RTP transmission timestamp in 8 kHz samples
@@ -126,7 +134,7 @@ private:
 	//@}
 
 	SIPState mState;			///< current SIP call state
-	bool mInstigator;               ///< true if this side initiated the call
+	bool mInstigator;		///< true if this side initiated the call
 
 	/**@name RFC-2833 DTMF state. */
 	//@{
@@ -134,6 +142,7 @@ private:
 	unsigned mDTMFDuration;		///< duration of DTMF event so far
 	unsigned mDTMFStartTime;	///< start time of the DTMF key event
 	//@}
+
 
 public:
 
@@ -147,6 +156,7 @@ public:
 	~SIPEngine();
 
 	const std::string& callID() const { return mCallID; } 
+	void callID(const std::string wCallID) { mCallID = wCallID; }
 
 	const std::string& proxyIP() const { return mProxyIP; }
 	unsigned proxyPort() const { return mProxyPort; }
@@ -154,16 +164,37 @@ public:
 	/** Return the current SIP call state. */
 	SIPState state() const { return mState; }
 
+	/** Return the from tag. */
+	std::string FromTag() const { return mFromTag; }
+
+	/** Return the INVITE. */
+	osip_message_t * INVITE() const { return mINVITE; }
+
+	/** Return the last response. */
+	osip_message_t * LastResponse() const { return mLastResponse; }
+
+	/** Return To/From header for us */
+	osip_from_t * MyToFromHeader() const { return mMyToFromHeader; }
+
+	/** Return To/From header for the remote party */
+	osip_from_t * RemoteToFromHeader() const { return mRemoteToFromHeader; }
+
+	/** Return RTP session */
+	RtpSession * RTPSession() const { return mSession; }
+
+	/** Force the state externally. */
+	void state(SIPState wState) { mState=wState; }
+
 	/** Return the RTP Port being used. */
 	short RTPPort() const { return mRTPPort; }
 
-	/** Return if the call has successfully finished */
+	/** Return if the call has finished, successful for not. */
 	bool finished() const { return (mState==Cleared || mState==Canceled || mState==Fail); }
 
 	/** Return if the communication was started by us (true) or not (false) */
 	/* requires an mINVITE be established */
 	bool instigator() const { return mInstigator; }
-	
+
 	/** Set the user to IMSI<IMSI> and generate a call ID; for mobile-originated transactions. */
 	void user( const char * IMSI );
 
@@ -178,7 +209,13 @@ public:
 		Can throw SIPTimeout().
 		@return True on success.
 	*/
-	bool Register(Method wMethod=SIPRegister);	
+	bool Register(Method wMethod=SIPRegister, const GSM::LogicalChannel* chan = NULL, string *RAND = NULL, const char *IMSI = NULL, const char *SRES = NULL);	
+
+	// (pat) The UMTS code is still using the old function prototype without the chan arg.
+	// It would be better to add new arguments to the end of the list.
+	bool Register(Method wMethod, string *wRAND, const char *wIMSI=0, const char *wSRES=0) {
+		return Register(wMethod , NULL, wRAND, wIMSI, wSRES);
+	}
 
 	/**
 		Send sip unregister and look at return msg.
@@ -190,20 +227,9 @@ public:
 	//@}
 
 	
-	/**@name Messages associated with Emegency call (SOS) procedure. */
-	//@{
-
-	/**
-		Send an invite message.
-		@param rtpPort UDP port to use for speech (will use this and next port)
-		@param codec Code for codec to be used.
-		@return New SIP call state.
-	*/
-	SIPState SOSSendINVITE(short rtpPort, unsigned codec, const GSM::LogicalChannel *chan = NULL);
-
 	//SIPState SOSResendINVITE();
 
-	//SIPState SOSWaitForOK();
+	//SIPState SOSCheckForOK();
 
 	//SIPState SOSSendACK();
 
@@ -273,11 +299,9 @@ public:
 	/**@name Messages associated with MTSMS procedure. */
 	//@{
 
-	SIPState MTCSendOK();
+	SIPState MTCSendOK(const GSM::LogicalChannel *chan = NULL);
 
 	//@}
-
-
 
 	/**@name Messages for MOD procedure. */
 	//@{
@@ -302,7 +326,6 @@ public:
 	SIPState MODWaitFor487(Mutex *lock=NULL);
 
 	SIPState MODWaitForResponse(vector<unsigned> *validResponses, Mutex *lock=NULL);
-
 	//@}
 
 
@@ -313,6 +336,13 @@ public:
 	SIPState MTDSendBYEOK();
 
 	SIPState MTDSendCANCELOK();
+	//@}
+
+	/**@name Messages for Handover procedure. */
+	//@{
+	SIPState inboundHandoverSendINVITE(Control::TransactionEntry*, unsigned int);
+	SIPState inboundHandoverCheckForOK(Mutex *lock);
+	SIPState inboundHandoverSendACK();
 	//@}
 
 
@@ -381,7 +411,6 @@ public:
 		Generate a standard set of private headers on initiating messages.
 	*/
 	void writePrivateHeaders(osip_message_t *msg, const GSM::LogicalChannel *chan);
-
 };
 
 

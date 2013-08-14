@@ -1,25 +1,18 @@
 /*
 * Copyright 2008-2010 Free Software Foundation, Inc.
 * Copyright 2010 Kestrel Signal Processing, Inc.
+* Copyright 2012 Range Networks, Inc.
 *
-* This software is distributed under the terms of the GNU Affero Public License.
-* See the COPYING file in the main directory for details.
+* This software is distributed under multiple licenses;
+* see the COPYING file in the main directory for licensing
+* information for this specific distribuion.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
 
-	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
 
@@ -27,16 +20,21 @@
 
 #include "GSML1FEC.h"
 #include "GSMCommon.h"
+#include "GSMTransfer.cpp"
 #include "GSMSAPMux.h"
 #include "GSMConfig.h"
 #include "GSMTDMA.h"
 #include "GSMTAPDump.h"
 #include <ControlCommon.h>
+#include <RadioResource.h>
 #include <Globals.h>
 #include <TRXManager.h>
 #include <Logger.h>
 #include <assert.h>
 #include <math.h>
+#include <time.h>
+
+#include "../GPRS/GPRSExport.h"
 
 #undef WARNING
 
@@ -126,7 +124,9 @@ static const int powerCommand1900[32] =
 
 const int* pickTable()
 {
-	switch (gBTS.band()) {
+	unsigned band = gBTS.band();
+
+	switch (band) {
 		case GSM850:
 		case EGSM900:
 			return powerCommandLowBand;
@@ -183,16 +183,18 @@ unsigned encodePower(int power)
 
 L1Encoder::L1Encoder(unsigned wCN, unsigned wTN, const TDMAMapping& wMapping, L1FEC *wParent)
 	:mDownstream(NULL),
-	mCN(wCN),mTN(wTN),
 	mMapping(wMapping),
-	mTSC(gBTS.BCC()),				// Note that TSC is hardcoded to the BCC.
+	mCN(wCN),mTN(wTN),
+	mTSC(gBTS.BCC()),			// Note that TSC (Training Sequence Code) is hardcoded to the BCC.
 	mParent(wParent),
 	mTotalBursts(0),
 	mPrevWriteTime(gBTS.time().FN(),wTN),
 	mNextWriteTime(gBTS.time().FN(),wTN),
-	mRunning(false),mActive(false)
+	mRunning(false),mActive(false),
+	mEncrypted(ENCRYPT_NO),
+	mEncryptionAlgorithm(0)
 {
-	assert(mCN<gConfig.getNum("GSM.Radio.ARFCNs"));
+	assert((int)mCN<gConfig.getNum("GSM.Radio.ARFCNs"));
 	assert(mMapping.allowedSlot(mTN));
 	assert(mMapping.downlink());
 	mNextWriteTime.rollForward(mMapping.frameMapping(0),mMapping.repeatLength());
@@ -225,19 +227,27 @@ TypeAndOffset L1Encoder::typeAndOffset() const
 
 void L1Encoder::open()
 {
-	OBJLOG(DEBUG) << "L1Encoder";
+	OBJLOG(INFO) << "L1Encoder";
+	handoverPending(false);
 	ScopedLock lock(mLock);
 	if (!mRunning) start();
 	mTotalBursts=0;
 	mActive = true;
 	resync();
+	mPrevWriteTime = gBTS.time();
+	// Turning off encryption when the channel closes would be a nightmare
+	// (catching all the ways, and performing the handshake under less than
+	// ideal conditions), so we leave encryption on to the bitter end,
+	// then clear the encryption flag here, when the channel gets reused.
+	mEncrypted = ENCRYPT_NO;
+	mEncryptionAlgorithm = 0;
 }
 
 
 void L1Encoder::close()
 {
 	// Don't return until the channel is fully closed.
-	OBJLOG(DEBUG) << "L1Encodere";
+	OBJLOG(INFO) << "L1Encoder";
 	ScopedLock lock(mLock);
 	mActive = false;
 	sendIdleFill();
@@ -301,7 +311,7 @@ void L1Encoder::sendIdleFill()
 	if (mCN!=0) return;
 	for (unsigned i=0; i<mMapping.numFrames(); i++) {
 		mFillerBurst.time(mNextWriteTime);
-		mDownstream->writeHighSide(mFillerBurst);
+		mDownstream->writeHighSideTx(mFillerBurst,"idle");
 		rollForward();
 	}
 }
@@ -312,6 +322,42 @@ unsigned L1Encoder::ARFCN() const
 	return mDownstream->ARFCN();
 }
 
+int unhex(const char c)
+{
+	if (c >= '0' && c <= '9') return c - '0';
+	if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+	if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+	assert(0);
+}
+
+
+// Given IMSI, copy Kc.  Return true iff there *is* a Kc.
+bool imsi2kc(string wIMSI, unsigned char *wKc)
+{
+	string kc = gTMSITable.getKc(wIMSI.c_str());
+	if (kc.length() == 0) return false;
+	while (kc.length() < 16) {
+		kc = '0' + kc;
+	}
+	assert(kc.length() == 16);
+	unsigned char *dst = wKc;
+	for (size_t p = 0; p < kc.length(); p += 2) {
+		*dst++ = (unhex(kc[p]) << 4) | (unhex(kc[p+1]));
+	}
+	return true;
+}
+
+
+// Turn on encryption phase-in, which is watching for bad frames and
+// retrying them with encryption.
+// Return false and leave encryption off if there's no Kc.
+bool L1Decoder::decrypt_maybe(string wIMSI, int wA5Alg)
+{
+	if (!imsi2kc(wIMSI, mKc)) return false;
+	mEncrypted = ENCRYPT_MAYBE;
+	mEncryptionAlgorithm = wA5Alg;
+	return true;
+}
 
 
 unsigned L1Decoder::ARFCN() const
@@ -329,6 +375,7 @@ TypeAndOffset L1Decoder::typeAndOffset() const
 
 void L1Decoder::open()
 {
+	handoverPending(false);
 	ScopedLock lock(mLock);
 	if (!mRunning) start();
 	mFER=0.0F;
@@ -336,6 +383,12 @@ void L1Decoder::open()
 	mT3109.reset();
 	mT3101.set();
 	mActive = true;
+	// Turning off encryption when the channel closes would be a nightmare
+	// (catching all the ways, and performing the handshake under less than
+	// ideal conditions), so we leave encryption on to the bitter end,
+	// then clear the encryption flag here, when the channel gets reused.
+	mEncrypted = ENCRYPT_NO;
+	mEncryptionAlgorithm = 0;
 }
 
 
@@ -386,7 +439,7 @@ void L1Decoder::countGoodFrame()
 	static const float a = 1.0F / ((float)mFERMemory);
 	static const float b = 1.0F - a;
 	mFER *= b;
-	OBJLOG(DEBUG) <<"L1Decoder FER=" << mFER;
+	OBJLOG(INFO) <<"L1Decoder FER=" << mFER;
 }
 
 
@@ -395,12 +448,36 @@ void L1Decoder::countBadFrame()
 	static const float a = 1.0F / ((float)mFERMemory);
 	static const float b = 1.0F - a;
 	mFER = b*mFER + a;
-	OBJLOG(DEBUG) <<"L1Decoder FER=" << mFER;
+	OBJLOG(INFO) <<"L1Decoder FER=" << mFER;
 }
 
 
 
 
+void L1Encoder::handoverPending(bool flag)
+{
+	if (flag) {
+		bool ok = mDownstream->setHandover(mTN);
+		if (!ok) LOG(ALERT) << "handover setup failed";
+	} else {
+		bool ok = mDownstream->clearHandover(mTN);
+		if (!ok) LOG(ALERT) << "handover clear failed";
+	}
+}
+
+
+void L1FEC::handoverPending(bool flag)
+{
+	assert(mEncoder);
+	assert(mDecoder);
+	mEncoder->handoverPending(flag);
+	mDecoder->handoverPending(flag);
+}
+
+
+// (pat) This can only be called during initialization, because installDecoder aborts
+// if it is called twice on the same channel.
+// This routine is used for traffic channels.
 void L1FEC::downstream(ARFCNManager* radio)
 {
 	if (mEncoder) mEncoder->downstream(radio);
@@ -443,7 +520,7 @@ void RACHL1Decoder::serviceLoop()
 		RxBurst *rx = mQ.read();
 		// Yes, if we wait long enough that read will timeout.
 		if (rx==NULL) continue;
-		writeLowSide(*rx);
+		writeLowSideRx(*rx);
 		delete rx;
 	}
 }
@@ -465,7 +542,12 @@ void RACHL1Decoder::start()
 
 
 
-void RACHL1Decoder::writeLowSide(const RxBurst& burst)
+// (pat) Note that GPRS has an option to use a PRACH burst identical to RACH bursts.
+// (pat) This routine is fed immediately from the radio in TRXManager;
+// wDemuxTable points to this routine.
+// The RACH is enqueued, and a separate thread runs AccessGrantResponder on the RACH,
+// although I'm not sure why.
+void RACHL1Decoder::writeLowSideRx(const RxBurst& burst)
 {
 	// The L1 FEC for the RACH is defined in GSM 05.03 4.6.
 
@@ -522,44 +604,132 @@ void RACHL1Decoder::writeLowSide(const RxBurst& burst)
 
 
 
-
 XCCHL1Decoder::XCCHL1Decoder(
 		unsigned wCN,
 		unsigned wTN,
 		const TDMAMapping& wMapping,
 		L1FEC *wParent)
-	:L1Decoder(wCN,wTN,wMapping,wParent),
-	mBlockCoder(0x10004820009ULL, 40, 224),
-	mC(456), mU(228),
-	mP(mU.segment(184,40)),mDP(mU.head(224)),mD(mU.head(184))
+	:L1Decoder(wCN,wTN,wMapping,wParent)
+{
+}
+
+SharedL1Decoder::SharedL1Decoder()
+	: mBlockCoder(0x10004820009ULL, 40, 224),
+	mC(456),
+	mU(228), 
+	mP(mU.segment(184,40)),mDP(mU.head(224)),mD(mU.head(184)),
+	mHParity(0x06f,6,8),mHU(18),mHD(mHU.head(8))
 {
 	for (int i=0; i<4; i++) {
+		mE[i] = SoftVector(114);
 		mI[i] = SoftVector(114);
 		// Fill with zeros just to make Valgrind happy.
+		mE[i].fill(.0);
 		mI[i].fill(.0);
 	}
 }
 
 
 
-void XCCHL1Decoder::writeLowSide(const RxBurst& inBurst)
+void XCCHL1Decoder::writeLowSideRx(const RxBurst& inBurst)
 {
 	OBJLOG(DEBUG) <<"XCCHL1Decoder " << inBurst;
 	// If the channel is closed, ignore the burst.
 	if (!active()) {
 		OBJLOG(DEBUG) <<"XCCHL1Decoder not active, ignoring input";
 		return;
-	}
+	} 
+	// save frame number for possible decrypting
+	int B = mMapping.reverseMapping(inBurst.time().FN()) % 4;
+	mFN[B] = inBurst.time().FN();
+
 	// Accept the burst into the deinterleaving buffer.
 	// Return true if we are ready to interleave.
 	if (!processBurst(inBurst)) return;
+	if (mEncrypted == ENCRYPT_YES) {
+		decrypt();
+	}
+	if (mEncrypted == ENCRYPT_MAYBE) {
+		saveMi();
+	}
 	deinterleave();
 	if (decode()) {
 		countGoodFrame();
 		mD.LSB8MSB();
 		handleGoodFrame();
 	} else {
-		countBadFrame();
+		if (mEncrypted == ENCRYPT_MAYBE) {
+			// We don't want to start decryption until we get the (encrypted) layer 2 acknowledgement
+			// of the Ciphering Mode Command, so we start maybe decrypting when we send the command,
+			// and when the frame comes along, we'll see that it doesn't pass normal decoding, but
+			// when we try again with decryption, it will pass.  Unless it's just noise.
+			OBJLOG(DEBUG) << "XCCHL1Decoder: try decoding again with decryption";
+			restoreMi();
+			decrypt();
+			deinterleave();
+			if (decode()) {
+				OBJLOG(DEBUG) << "XCCHL1Decoder: success on 2nd try";
+				// We've successfully decoded an encrypted frame.  Start decrypting all uplink frames.
+				mEncrypted = ENCRYPT_YES;
+				// Also start encrypting downlink frames.
+				parent()->encoder()->mEncrypted = ENCRYPT_YES;
+				parent()->encoder()->mEncryptionAlgorithm = mEncryptionAlgorithm;
+				countGoodFrame();
+				mD.LSB8MSB();
+				handleGoodFrame();
+			} else {
+				countBadFrame();
+			}
+		} else {
+			countBadFrame();
+		}
+	}
+}
+
+
+void XCCHL1Decoder::saveMi()
+{
+	for (int i = 0; i < 4; i++) {
+		for (int j = 0; j < 114; j++) {
+			mE[i].settfb(j, mI[i].softbit(j));
+		}
+	}
+}
+
+
+void XCCHL1Decoder::restoreMi()
+{
+	for (int i = 0; i < 4; i++) {
+		for (int j = 0; j < 114; j++) {
+			mI[i].settfb(j, mE[i].softbit(j));
+		}
+	}
+}
+
+
+void XCCHL1Decoder::decrypt()
+{
+	// decrypt y
+	for (int i = 0; i < 4; i++) {
+		unsigned char block1[15];
+		unsigned char block2[15];
+		// 03.20 C.1.2
+		// 05.02 3.3.2.2.1
+		int fn = mFN[i];
+		int t1 = fn / (26*51);
+		int t2 = fn % 26;
+		int t3 = fn % 51;
+		int count = (t1<<11) | (t3<<5) | t2;
+		if (mEncryptionAlgorithm == 1) {
+			A51_GSM(mKc, 64, count, block1, block2);
+		} else {
+			A53_GSM(mKc, 64, count, block1, block2);
+		}
+		for (int j = 0; j < 114; j++) {
+			if ((block2[j/8] & (0x80 >> (j%8)))) {
+				mI[i].settfb(j, 1.0 - mI[i].softbit(j));
+			}
+		}
 	}
 }
 
@@ -586,6 +756,7 @@ bool XCCHL1Decoder::processBurst(const RxBurst& inBurst)
 	inBurst.data2().copyToSegment(mI[B],57);
 
 	// If the burst index is 0, save the time
+	// FIXME -- This should be moved to the deinterleave methods.
 	if (B==0)
 		mReadTime = inBurst.time();
 
@@ -603,7 +774,7 @@ bool XCCHL1Decoder::processBurst(const RxBurst& inBurst)
 
 
 
-void XCCHL1Decoder::deinterleave()
+void SharedL1Decoder::deinterleave()
 {
 	// Deinterleave i[][] to c[].
 	// This comes directly from GSM 05.03, 4.1.4.
@@ -619,7 +790,7 @@ void XCCHL1Decoder::deinterleave()
 }
 
 
-bool XCCHL1Decoder::decode()
+bool SharedL1Decoder::decode()
 {
 	// Apply the convolutional decoder and parity check.
 	// Return true if we recovered a good L2 frame.
@@ -639,6 +810,11 @@ bool XCCHL1Decoder::decode()
 	OBJLOG(DEBUG) <<"XCCHL1Decoder d[]:p[]=" << mDP;
 	unsigned syndrome = mBlockCoder.syndrome(mDP);
 	OBJLOG(DEBUG) <<"XCCHL1Decoder syndrome=" << hex << syndrome << dec;
+	// Simulate high FER for testing?
+	if (random()%100 < gConfig.getNum("Test.GSM.SimulatedFER.Uplink")) {
+		LOG(NOTICE) << "simulating dropped uplink frame at " << mReadTime;
+		return false;
+	}
 	return (syndrome==0);
 }
 
@@ -665,9 +841,17 @@ void XCCHL1Decoder::handleGoodFrame()
 	OBJLOG(DEBUG) <<"XCCHL1Decoder d[]=" << mD;
 
 	if (mUpstream) {
+		// Are we fuzzing ourselves?
+		if (random()%100 < gConfig.getNum("Test.GSM.UplinkFuzzingRate")) {
+			size_t i = random() % mD.size();
+			mD[i] = 1 - mD[i];
+			LOG(NOTICE) << "fuzzing input frame, flipped bit " << i;
+		}
 		// Send all bits to GSMTAP
-		gWriteGSMTAP(ARFCN(),TN(),mReadTime.FN(),
-		             typeAndOffset(),mMapping.repeatLength()>51,true,mD);
+		if (gConfig.getBool("Control.GSMTAP.GSM")) {
+			// FIXME -- This repeatLengh>51 is a bit of a hack.
+			gWriteGSMTAP(ARFCN(),TN(),mReadTime.FN(),typeAndOffset(),mMapping.repeatLength()>51,true,mD);
+		}
 		// Build an L2 frame and pass it up.
 		const BitVector L2Part(mD.tail(headerOffset()));
 		OBJLOG(DEBUG) <<"XCCHL1Decoder L2=" << L2Part;
@@ -678,17 +862,6 @@ void XCCHL1Decoder::handleGoodFrame()
 }
 
 
-float SACCHL1Decoder::RSSI() const
-{
-	float sum=mRSSI[0]+mRSSI[1]+mRSSI[2]+mRSSI[3];
-	return 0.25F*sum;
-}
-
-float SACCHL1Decoder::timingError() const
-{
-	float sum=mTimingError[0]+mTimingError[1]+mTimingError[2]+mTimingError[3];
-	return 0.25F*sum;
-}
 
 
 
@@ -702,15 +875,15 @@ bool SACCHL1Decoder::processBurst(const RxBurst& inBurst)
 	// The actual phone settings change every 4 bursts,
 	// so average over all 4.
 	// RSSI is dB wrt full scale.
-	mRSSI[mRSSICounter] = inBurst.RSSI();
+	mRSSI = inBurst.RSSI();
 	// Timing error is a float in symbol intervals.
-	mTimingError[mRSSICounter] = inBurst.timingError();
+	mTimingError = inBurst.timingError();
+	// Timestamp
+	mTimestamp = gBTS.clock().systime(inBurst.time());
 
 	OBJLOG(INFO) << "SACCHL1Decoder " << " RSSI=" << inBurst.RSSI()
+		<< " timestamp=" << mTimestamp
 			<< " timingError=" << inBurst.timingError();
-
-	mRSSICounter++;
-	if (mRSSICounter>3) mRSSICounter=0;
 
 	return XCCHL1Decoder::processBurst(inBurst);
 }
@@ -728,8 +901,17 @@ void SACCHL1Decoder::handleGoodFrame()
 }
 
 
-
-
+// Process the 184 bit frame, starting at offset, add parity, encode.
+// Result is left in mI, representing 4 radio bursts.
+void SharedL1Encoder::encodeFrame41(const BitVector &src, int offset, bool copy)
+{
+	if (copy) src.copyToSegment(mU,offset);
+	OBJLOG(DEBUG) << "XCCHL1Encoder before d[]=" << mD;
+	mD.LSB8MSB();
+	OBJLOG(DEBUG) << "XCCHL1Encoder after d[]=" << mD;
+	encode41();
+	interleave41();
+}
 
 
 XCCHL1Encoder::XCCHL1Encoder(
@@ -737,31 +919,52 @@ XCCHL1Encoder::XCCHL1Encoder(
 		unsigned wTN,
 		const TDMAMapping& wMapping,
 		L1FEC* wParent)
-	:L1Encoder(wCN,wTN,wMapping,wParent),
-	mBlockCoder(0x10004820009ULL, 40, 224),
-	mC(456), mU(228),
-	mD(mU.head(184)),mP(mU.segment(184,40))
+	: SharedL1Encoder(),
+	  L1Encoder(wCN,wTN,wMapping,wParent)
 {
-	// Set up the interleaving buffers.
-	for(int k = 0; k<4; k++) {
-		mI[k] = BitVector(114);
-		// Fill with zeros just to make Valgrind happy.
-		mI[k].fill(0);
-	}
-
 	mFillerBurst = TxBurst(gDummyBurst);
 
 	// Set up the training sequence and stealing bits
 	// since they'll be the same for all bursts.
 
 	// stealing bits for a control channel, GSM 05.03 4.2.5, 05.02 5.2.3.
-	mBurst.Hl(1);
-	mBurst.Hu(1);
+	// (pat) For a GPRS channel these bits are used for the encoding, 1,1 implies CS-1.
+	// Since we will be sharing the channels between GSM and GPRS, we cannot depend
+	// on this preinitialization surviving.  This is so minor, I am just going
+	// to set these anew inside transmit().
+	//mBurst.Hl(1);
+	//mBurst.Hu(1);
+
 	// training sequence, GSM 05.02 5.2.3
 	gTrainingSequence[mTSC].copyToSegment(mBurst,61);
+}
 
-	// zero out u[] to take care of tail fields
-	mU.zero();
+
+// Default initialization is as for XCCH channels (SACCH) or CS-1 encoding.
+// Pat says: From GSM04.03sec5.1 the 40 bit parity is generated by the polynomial:
+// g(D) = (D23 + 1)*(D17 + D3 + 1) = 1 + D3 + D17 + D23 + D26 + D40,
+// which are the bits set in Parity initialization below.
+void SharedL1Encoder::initInterleave(int mIsize)
+{
+	// Set up the interleaving buffers.
+	for(int k = 0; k<mIsize; k++) {
+		mI[k] = BitVector(114);
+		mE[k] = BitVector(114);
+		// Fill with zeros just to make Valgrind happy.
+		mI[k].fill(0);
+		mE[k].fill(0);
+	}
+}
+
+SharedL1Encoder::SharedL1Encoder():
+	mBlockCoder(0x10004820009ULL, 40, 224),
+	mC(456), mU(228),
+	mP(mU.segment(184,40)),
+	mD(mU.head(184))
+{
+	initInterleave(4);
+	mU.zero();	// zeros out the tail bits.
+	mC.zero();	// Be safe; only happens once, ever.
 }
 
 
@@ -809,7 +1012,7 @@ void XCCHL1Encoder::writeHighSide(const L2Frame& frame)
 void XCCHL1Encoder::sendFrame(const L2Frame& frame)
 {
 	OBJLOG(DEBUG) << "XCCHL1Encoder " << frame;
-	// Make sure there's something down there to take the busts.
+	// Make sure there's something down there to take the bursts.
 	if (mDownstream==NULL) {
 		LOG(WARNING) << "XCCHL1Encoder with no downstream";
 		return;
@@ -817,27 +1020,26 @@ void XCCHL1Encoder::sendFrame(const L2Frame& frame)
 
 	// This comes from GSM 05.03 4.1
 
+	// Send to GSMTAP
+	frame.copyToSegment(mU,headerOffset());
+	if (gConfig.getBool("Control.GSMTAP.GSM")) {
+		gWriteGSMTAP(ARFCN(),TN(),mNextWriteTime.FN(),typeAndOffset(),mMapping.repeatLength()>51,false,mU);
+	}
+
+
 	// Copy the L2 frame into u[] for processing.
 	// GSM 05.03 4.1.1.
-	//assert(mD.size()==headerOffset()+frame.size());
-	frame.copyToSegment(mU,headerOffset());
-
-	// Send to GSMTAP (must send mU = real bits !)
-	gWriteGSMTAP(ARFCN(),TN(),mNextWriteTime.FN(),
-	             typeAndOffset(),mMapping.repeatLength()>51,false,mU);
-
-	// Encode data into bursts
-	OBJLOG(DEBUG) << "XCCHL1Encoder d[]=" << mD;
-	mD.LSB8MSB();
-	OBJLOG(DEBUG) << "XCCHL1Encoder d[]=" << mD;
-	encode();			// Encode u[] to c[], GSM 05.03 4.1.2 and 4.1.3.
-	interleave();		// Interleave c[] to i[][], GSM 05.03 4.1.4.
-	transmit();			// Send the bursts to the radio, GSM 05.03 4.1.5.
+	//LOG(DEBUG) << "mU=" << mU.inspect();
+	//LOG(DEBUG) << "mD=" << mD.inspect();
+	// Process the 184 bit frame, leave result in mI.
+	//mFECEnc.encodeFrame41(frame,headerOffset(),mFECEnc.mVCoder);
+	encodeFrame41(frame,headerOffset(), false);
+	const int qCS1[8] = { 1,1,1,1,1,1,1,1 };   // magically identifies CS-1.
+	transmit(mI,mE,qCS1);
 }
 
 
-
-void XCCHL1Encoder::encode()
+void SharedL1Encoder::encode41()
 {
 	// Perform the FEC encoding of GSM 05.03 4.1.2 and 4.1.3
 
@@ -853,7 +1055,7 @@ void XCCHL1Encoder::encode()
 
 
 
-void XCCHL1Encoder::interleave()
+void SharedL1Encoder::interleave41()
 {
 	// GSM 05.03, 4.1.4.  Verbatim.
 	for (int k=0; k<456; k++) {
@@ -865,11 +1067,16 @@ void XCCHL1Encoder::interleave()
 
 
 
-void XCCHL1Encoder::transmit()
+// (pat) This code is not used for gprs, but part of the L1Encoder is now shared
+// with gprs, and the stealing bits may be modified if the channel is used for
+// gprs, so this function is modified to set the stealing bits properly
+// before each transmission, rather than having them be static.
+// The qbits, also called stealing bits, are defined in GSM05.03.
+// For GPRS they specify the encoding type: CS-1 through CS-4.
+void L1Encoder::transmit(BitVector *mI, BitVector *mE, const int *qbits)
 {
 	// Format the bits into the bursts.
 	// GSM 05.03 4.1.5, 05.02 5.2.3
-
 	waitToSend();		// Don't get too far ahead of the clock.
 
 	if (!mDownstream) {
@@ -879,15 +1086,60 @@ void XCCHL1Encoder::transmit()
 		return;
 	}
 
-	for (int B=0; B<4; B++) {
+	// add noise
+	// the noise insertion happens below, merged in with the ciphering
+	int p = gConfig.getFloat("GSM.Cipher.CCHBER") * (float)0xFFFFFF;
+
+	for (int qi=0,B=0; B<4; B++) {
 		mBurst.time(mNextWriteTime);
+		// encrypt y
+		if (mEncrypted == ENCRYPT_YES) {
+			unsigned char block1[15];
+			unsigned char block2[15];
+			unsigned char *kc = parent()->decoder()->kc();
+			// 03.20 C.1.2
+			// 05.02 3.3.2.2.1
+			int fn = mNextWriteTime.FN();
+			int t1 = fn / (26*51);
+			int t2 = fn % 26;
+			int t3 = fn % 51;
+			int count = (t1<<11) | (t3<<5) | t2;
+			if (mEncryptionAlgorithm == 1) {
+				A51_GSM(kc, 64, count, block1, block2);
+			} else {
+				A53_GSM(kc, 64, count, block1, block2);
+			}
+			for (int i = 0; i < 114; i++) {
+				int b = p ? (random() & 0xFFFFFF) < p : 0;
+				b = b ^ (block1[i/8] >> (7-(i%8)));
+				mE[B].settfb(i, mI[B].bit(i) ^ (b&1));
+			}
+		} else {
+			if (p) {
+				for (int i = 0; i < 114; i++) {
+					int b = (random() & 0xFFFFFF) < p;
+					mE[B].settfb(i, mI[B].bit(i) ^ b);
+				}
+			} else {
+				// no noise or encryption. use mI below.
+			}
+		}
+
 		// Copy in the "encrypted" bits, GSM 05.03 4.1.5, 05.02 5.2.3.
-		OBJLOG(DEBUG) << "XCCHL1Encoder mI["<<B<<"]=" << mI[B];
-		mI[B].segment(0,57).copyToSegment(mBurst,3);
-		mI[B].segment(57,57).copyToSegment(mBurst,88);
+		OBJLOG(DEBUG) << "transmit mE["<<B<<"]=" << mE[B];
+		if (p || mEncrypted == ENCRYPT_YES) {
+			mE[B].segment(0,57).copyToSegment(mBurst,3);
+			mE[B].segment(57,57).copyToSegment(mBurst,88);
+		} else {
+			// no noise or encryption.  use mI.
+			mI[B].segment(0,57).copyToSegment(mBurst,3);
+			mI[B].segment(57,57).copyToSegment(mBurst,88);
+		}
+		mBurst.Hl(qbits[qi++]);
+		mBurst.Hu(qbits[qi++]);
 		// Send it to the radio.
-		OBJLOG(DEBUG) << "XCCHL1Encoder mBurst=" << mBurst;
-		mDownstream->writeHighSide(mBurst);
+		OBJLOG(DEBUG) << "transmit mBurst=" << mBurst;
+		mDownstream->writeHighSideTx(mBurst,"Shared");
 		rollForward();
 	}
 }
@@ -959,7 +1211,7 @@ void SCHL1Encoder::generate()
 	mE1.copyToSegment(mBurst,3);
 	mE2.copyToSegment(mBurst,106);
 	// Send it already!
-	mDownstream->writeHighSide(mBurst);
+	mDownstream->writeHighSideTx(mBurst,"SCH");
 	rollForward();
 }
 
@@ -983,7 +1235,7 @@ void FCCHL1Encoder::generate()
 	resync();
 	for (int i=0; i<5; i++) {
 		mBurst.time(mNextWriteTime);
-		mDownstream->writeHighSide(mBurst);
+		mDownstream->writeHighSideTx(mBurst,"FCCH");
 		rollForward();
 	}
 	sleep(1);
@@ -1023,12 +1275,15 @@ void BCCHL1Encoder::generate()
 	OBJLOG(DEBUG) << "BCCHL1Encoder " << mNextWriteTime;
 	// BCCH mapping, GSM 05.02 6.3.1.3
 	// Since we're not doing GPRS or VGCS, it's just SI1-4 over and over.
+	// pat 8-2011: If we are doing GPRS, the SI13 must be in slot 4.
 	switch (mNextWriteTime.TC()) {
+		// (pat) Maps to: XCCHL1Encoder::writeHighSide.
 		case 0: writeHighSide(gBTS.SI1Frame()); return;
 		case 1: writeHighSide(gBTS.SI2Frame()); return;
 		case 2: writeHighSide(gBTS.SI3Frame()); return;
 		case 3: writeHighSide(gBTS.SI4Frame()); return;
-		case 4: writeHighSide(gBTS.SI3Frame()); return;
+		case 4: writeHighSide(GPRS::GPRSConfig::IsEnabled() ? gBTS.SI13Frame() : gBTS.SI3Frame());
+			return;
 		case 5: writeHighSide(gBTS.SI2Frame()); return;
 		case 6: writeHighSide(gBTS.SI3Frame()); return;
 		case 7: writeHighSide(gBTS.SI4Frame()); return;
@@ -1050,21 +1305,62 @@ TCHFACCHL1Decoder::TCHFACCHL1Decoder(
 	mTCHParity(0x0b,3,50)
 {
 	for (int i=0; i<8; i++) {
+		mE[i] = SoftVector(114);
 		mI[i] = SoftVector(114);
 		// Fill with zeros just to make Valgrind happy.
 		mI[i].fill(.0);
+		mE[i].fill(.0);
 	}
 }
 
 
 
 
-void TCHFACCHL1Decoder::writeLowSide(const RxBurst& inBurst)
+void TCHFACCHL1Decoder::writeLowSideRx(const RxBurst& inBurst)
 {
+	L1FEC *fparent = parent();
+	if (fparent->mGprsReserved) {	// Channel is reserved for gprs.
+		if (parent()->mGPRSFEC) {	// If set, bursts are delivered to this FEC in GPRS.
+			GPRS::GPRSWriteLowSideRx(inBurst, parent()->mGPRSFEC);
+		}
+		return;	// done
+	}
 	OBJLOG(DEBUG) << "TCHFACCHL1Decoder " << inBurst;
 	// If the channel is closed, ignore the burst.
 	if (!active()) {
 		OBJLOG(DEBUG) << "TCHFACCHL1Decoder not active, ignoring input";
+		return;
+	}
+	if (mHandoverPending) {
+		// If this channel is waiting for an inbound handover,
+		// try to decode a handover access burst.
+		// GSM 05.03 4.9, 4.6
+		// Based on the RACHL1Decoder.
+
+		LOG(DEBUG) << "handover access " << inBurst;
+
+		// Decode the burst.
+		const SoftVector e(inBurst.segment(49,36));
+		e.decode(mVCoder,mHU);
+		LOG(DEBUG) << "handover access U=" << mHU;
+		// Check the tail bits -- should all the zero.
+		if (mHU.peekField(14,4)) return;
+		// Check the parity.
+		unsigned sentParity = ~mHU.peekField(8,6);
+		unsigned checkParity = mHD.parity(mHParity);
+		unsigned encodedBSIC = (sentParity ^ checkParity) & 0x03f;
+		LOG(DEBUG) << "handover access sentParity " << sentParity
+			<< " checkParity " << checkParity
+			<< " endcodedBSIC " << encodedBSIC;
+		if (encodedBSIC != gBTS.BSIC()) return;
+		// OK.  So we got a burst.
+		mT3103.reset();
+		mHD.LSB8MSB();
+		unsigned ref = mHD.peekField(0,8);
+		LOG(INFO) << "handover access ref=" << ref;
+
+		if (!Control::SaveHandoverAccess(ref,inBurst.RSSI(),inBurst.timingError(),inBurst.time())) return;
+		mUpstream->writeLowSide(HANDOVER_ACCESS);
 		return;
 	}
 	processBurst(inBurst);
@@ -1072,8 +1368,11 @@ void TCHFACCHL1Decoder::writeLowSide(const RxBurst& inBurst)
 
 
 
-
-
+// (pat) How the burst gets here:
+// TRXManager.cpp has a wDemuxTable for each frame+timeslot with a pointer to
+// a virtual L1Decoder::writeLowSideRx() function.  For traffic channels, this maps to 
+// XCCHL1Decoder::writeLowSideRx(), which checks active(), and if true,
+// then calls this, and if this returns true, goes ahead with decoding.
 bool TCHFACCHL1Decoder::processBurst( const RxBurst& inBurst)
 {
 	// Accept the burst into the deinterleaving buffer.
@@ -1095,9 +1394,20 @@ bool TCHFACCHL1Decoder::processBurst( const RxBurst& inBurst)
 	inBurst.data1().copyToSegment(mI[B],0);
 	inBurst.data2().copyToSegment(mI[B],57);
 
+	// save the frame numbers for each burst for possible decryption later
+	mFN[B] = inBurst.time().FN();
+
 	// Every 4th frame is the start of a new block.
 	// So if this isn't a "4th" frame, return now.
 	if (B%4!=3) return false;
+
+	if (mEncrypted == ENCRYPT_MAYBE) {
+		saveMi();
+	}
+
+	if (mEncrypted == ENCRYPT_YES) {
+		decrypt(B);
+	}
 
 	// Deinterleave according to the diagonal "phase" of B.
 	// See GSM 05.03 3.1.3.
@@ -1109,10 +1419,34 @@ bool TCHFACCHL1Decoder::processBurst( const RxBurst& inBurst)
 	bool stolen = inBurst.Hl();
 	OBJLOG(DEBUG) <<"TCHFACCHL1Decoder Hl=" << inBurst.Hl() << " Hu=" << inBurst.Hu();
 	if (stolen) {
-		if (decode()) {
+		bool ok = decode();
+		if (!ok && mEncrypted == ENCRYPT_MAYBE) {
+			// We don't want to start decryption until we get the (encrypted) layer 2 acknowledgement
+			// of the Ciphering Mode Command, so we start maybe decrypting when we send the command,
+			// and when the frame comes along, we'll see that it doesn't pass normal decoding, but
+			// when we try again with decryption, it will pass.  Unless it's just noise.
+			OBJLOG(DEBUG) << "TCHFACCHL1Decoder: try decoding again with decryption";
+			restoreMi();
+			decrypt(-1);
+			// re-deinterleave
+			if (B==3) deinterleave(4);
+			else deinterleave(0);
+			// re-decode
+			ok = decode();
+			if (ok) {
+				OBJLOG(DEBUG) << "TCHFACCHL1Decoder: success on 2nd try";
+				// We've successfully decoded an encrypted frame.  Start decrypting all uplink frames.
+				mEncrypted = ENCRYPT_YES;
+				// Also start encrypting downlink frames.
+				parent()->encoder()->mEncrypted = ENCRYPT_YES;
+				parent()->encoder()->mEncryptionAlgorithm = mEncryptionAlgorithm;
+			}
+		}
+		if (ok) {
 			OBJLOG(DEBUG) <<"TCHFACCHL1Decoder good FACCH frame";
 			countGoodFrame();
 			mD.LSB8MSB();
+			// This also resets T3109.
 			handleGoodFrame();
 		} else {
 			OBJLOG(DEBUG) <<"TCHFACCHL1Decoder bad FACCH frame";
@@ -1136,6 +1470,52 @@ bool TCHFACCHL1Decoder::processBurst( const RxBurst& inBurst)
 }
 
 
+void TCHFACCHL1Decoder::saveMi()
+{
+	for (int i = 0; i < 8; i++) {
+		for (int j = 0; j < 114; j++) {
+			mE[i].settfb(j, mI[i].softbit(j));
+		}
+	}
+}
+
+void TCHFACCHL1Decoder::restoreMi()
+{
+	for (int i = 0; i < 8; i++) {
+		for (int j = 0; j < 114; j++) {
+			mI[i].settfb(j, mE[i].softbit(j));
+		}
+	}
+}
+
+
+void TCHFACCHL1Decoder::decrypt(int B)
+{
+	// decrypt x
+	unsigned char block1[15];
+	unsigned char block2[15];
+	int bb = B==7 ? 4 : 0;
+	int be = B<0 ? 8 : bb+4;
+	for (int i = bb; i < be; i++) {
+		// 03.20 C.1.2
+		// 05.02 3.3.2.2.1
+		int fn = mFN[i];
+		int t1 = fn / (26*51);
+		int t2 = fn % 26;
+		int t3 = fn % 51;
+		int count = (t1<<11) | (t3<<5) | t2;
+		if (mEncryptionAlgorithm == 1) {
+			A51_GSM(mKc, 64, count, block1, block2);
+		} else {
+			A53_GSM(mKc, 64, count, block1, block2);
+		}
+		for (int j = 0; j < 114; j++) {
+			if ((block2[j/8] & (0x80 >> (j%8)))) {
+				mI[i].settfb(j, 1.0 - mI[i].softbit(j));
+			}
+		}
+	}
+}
 
 
 void TCHFACCHL1Decoder::deinterleave(int blockOffset )
@@ -1156,6 +1536,12 @@ void TCHFACCHL1Decoder::deinterleave(int blockOffset )
 bool TCHFACCHL1Decoder::decodeTCH(bool stolen)
 {
 	// GSM 05.02 3.1.2, but backwards
+
+	// Simulate high FER for testing?
+	if (random()%100 < gConfig.getNum("Test.GSM.SimulatedFER.Uplink")) {
+		LOG(DEBUG) << "simulating dropped uplink vocoder frame at " << mReadTime;
+		stolen = true;
+	}
 
 	// If the frame wasn't stolen, we'll update this with parity later.
 	bool good = !stolen;
@@ -1203,23 +1589,33 @@ bool TCHFACCHL1Decoder::decodeTCH(bool stolen)
 			mTCHD.unmap(g610BitOrder,260,payload);
 			mVFrame.pack(newFrame);
 			// Save a copy for bad frame processing.
-			memcpy(mPrevGoodFrame,newFrame,33);
+			mPrevGoodFrame.clone(mVFrame);
 		}
 	}
 
+	// We end up here for bad frames.
+	// We also jump here directly for stolen frames.
 	if (!good) {
 		// Bad frame processing, GSM 06.11.
-		// Attenuate block amplitudes and andomize grid positions.
-		char rawByte = mPrevGoodFrame[27];
-		unsigned xmaxc = rawByte & 0x01f;
-		if (xmaxc>2) xmaxc -= 2;
-		else xmaxc = 0;
+		// Attenuate block amplitudes and randomize grid positions.
+		// The spec give the bit-packing format in GSM 06.10 1.7.
+		// Note they start counting bits from 1, not 0.
+		BitVector vbits = mPrevGoodFrame.payload();
+		// Get avg xmax value from previous good frame.
+		int xmax = 0;
 		for (unsigned i=0; i<4; i++) {
-			unsigned pos = random() % 4;
-			mPrevGoodFrame[6+7*i] = (rawByte & 0x80) | pos | xmaxc;
-			mPrevGoodFrame[7+7*i] &= 0x7F;
+			xmax += vbits.peekField(48+i*56-1,6);
 		}
-		memcpy(newFrame,mPrevGoodFrame,33);
+		xmax /= 4;
+		// "Age" the frame.
+		for (unsigned i=0; i<4; i++) {
+			// decrement xmax
+			if (xmax>0) xmax--;
+			vbits.fillField(48+i*56-1,xmax,6);
+			// randomize grid positions
+			vbits.fillField(46+i*56-1,random(),2);
+		}
+		mPrevGoodFrame.pack(newFrame);
 	}
 
 	// Good or bad, we must feed the speech channel.
@@ -1251,15 +1647,17 @@ TCHFACCHL1Encoder::TCHFACCHL1Encoder(
 	const TDMAMapping& wMapping,
 	L1FEC *wParent)
 	:XCCHL1Encoder(wCN, wTN, wMapping, wParent), 
-	mPreviousFACCH(false),mOffset(0),
+	mPreviousFACCH(true),mOffset(0),
 	mTCHU(189),mTCHD(260),
 	mClass1_c(mC.head(378)),mClass1A_d(mTCHD.head(50)),mClass2_d(mTCHD.segment(182,78)),
 	mTCHParity(0x0b,3,50)
 {
 	for(int k = 0; k<8; k++) {
 		mI[k] = BitVector(114);
+		mE[k] = BitVector(114);
 		// Fill with zeros just to make Valgrind happy.
 		mI[k].fill(0);
+		mE[k].fill(0);
 	}
 }
 
@@ -1281,6 +1679,7 @@ void TCHFACCHL1Encoder::open()
 	// There was over stuff here at one time to justify overriding the default.
 	// But it's gone now.
 	XCCHL1Encoder::open();
+	mPreviousFACCH = true;
 }
 
 
@@ -1324,6 +1723,11 @@ void TCHFACCHL1Encoder::encodeTCH(const VocoderFrame& vFrame)
 void TCHFACCHL1Encoder::sendFrame( const L2Frame& frame )
 {
 	OBJLOG(DEBUG) << "TCHFACCHL1Encoder " << frame;
+	// Simulate high FER for testing.
+	if (random()%100 < gConfig.getNum("Test.GSM.SimulatedFER.Downlink")) {
+		LOG(NOTICE) << "simulating dropped downlink frame at " << mNextWriteTime;
+		return;
+	}
 	mL2Q.write(new L2Frame(frame));
 }
 
@@ -1358,20 +1762,24 @@ void TCHFACCHL1Encoder::dispatch()
 	// Since Asterisk is local, latency should be small.
 	OBJLOG(DEBUG) <<"TCHFACCHL1Encoder speechQ.size=" << mSpeechQ.size();
 	int maxQ = gConfig.getNum("GSM.MaxSpeechLatency");
-	while (mSpeechQ.size() > maxQ) delete mSpeechQ.read();
+	while ((int)mSpeechQ.size() > maxQ) delete mSpeechQ.read();
 
 	// Send, by priority: (1) FACCH, (2) TCH, (3) filler.
 	if (L2Frame *fFrame = mL2Q.readNoBlock()) {
 		OBJLOG(DEBUG) <<"TCHFACCHL1Encoder FACCH " << *fFrame;
 		currentFACCH = true;
+		// Send to GSMTAP
+		if (gConfig.getBool("Control.GSMTAP.GSM")) {
+			gWriteGSMTAP(ARFCN(),TN(),mNextWriteTime.FN(),typeAndOffset(),mMapping.repeatLength()>51,false,*fFrame);
+		}
 		// Copy the L2 frame into u[] for processing.
 		// GSM 05.03 4.1.1.
 		fFrame->LSB8MSB();
 		fFrame->copyTo(mU);
 		// Encode u[] to c[], GSM 05.03 4.1.2 and 4.1.3.
-		encode();
-		delete fFrame;
+		encode41();
 		OBJLOG(DEBUG) <<"TCHFACCHL1Encoder FACCH c[]=" << mC;
+		delete fFrame;
 		// Flush the vocoder FIFO to limit latency.
 		while (mSpeechQ.size()>0) delete mSpeechQ.read();
 	} else if (VocoderFrame *tFrame = mSpeechQ.readNoBlock()) {
@@ -1382,14 +1790,27 @@ void TCHFACCHL1Encoder::dispatch()
 		OBJLOG(DEBUG) <<"TCHFACCHL1Encoder TCH c[]=" << mC;
 	} else {
 		// We have no ready data but must send SOMETHING.
-		// This filler pattern was captured from a Nokia 3310, BTW.
-		static const BitVector fillerC("110100001000111100000000111001111101011100111101001111000000000000110111101111111110100110101010101010101010101010101010101010101010010000110000000000000000000000000000000000000000001101001111000000000000000000000000000000000000000000000000111010011010101010101010101010101010101010101010101001000011000000000000000000110100111100000000111001111101101000001100001101001111000000000000000000011001100000000000000000000000000000000000000000000000000000000001");
-		fillerC.copyTo(mC);
+		if (!mPreviousFACCH) {
+			// This filler pattern was captured from a Nokia 3310, BTW.
+			static const BitVector fillerC("110100001000111100000000111001111101011100111101001111000000000000110111101111111110100110101010101010101010101010101010101010101010010000110000000000000000000000000000000000000000001101001111000000000000000000000000000000000000000000000000111010011010101010101010101010101010101010101010101001000011000000000000000000110100111100000000111001111101101000001100001101001111000000000000000000011001100000000000000000000000000000000000000000000000000000000001");
+			fillerC.copyTo(mC);
+		} else {
+			// FIXME -- This could be a lot more efficient.
+			currentFACCH = true;
+			L2Frame frame(L2IdleFrame());
+			frame.LSB8MSB();
+			frame.copyTo(mU);
+			encode41();
+		}
 		OBJLOG(DEBUG) <<"TCHFACCHL1Encoder filler FACCH=" << currentFACCH << " c[]=" << mC;
 	}
 
 	// Interleave c[] to i[].
-	interleave(mOffset);
+	interleave31(mOffset);
+
+	// randomly toggle bits in control channel bursts
+	// the toggle happens below, merged in with the ciphering
+	int p = currentFACCH ? gConfig.getFloat("GSM.Cipher.CCHBER") * (float)0xFFFFFF : 0;
 
 	// "mapping on a burst"
 	// Map c[] into outgoing normal bursts, marking stealing flags as needed.
@@ -1397,15 +1818,53 @@ void TCHFACCHL1Encoder::dispatch()
 	for (int B=0; B<4; B++) {
 		// set TDMA position
 		mBurst.time(mNextWriteTime);
+		// encrypt x
+		if (mEncrypted == ENCRYPT_YES) {
+			unsigned char block1[15];
+			unsigned char block2[15];
+			unsigned char *kc = parent()->decoder()->kc();
+			// 03.20 C.1.2
+			// 05.02 3.3.2.2.1
+			int fn = mNextWriteTime.FN();
+			int t1 = fn / (26*51);
+			int t2 = fn % 26;
+			int t3 = fn % 51;
+			int count = (t1<<11) | (t3<<5) | t2;
+			if (mEncryptionAlgorithm == 1) {
+				A51_GSM(kc, 64, count, block1, block2);
+			} else {
+				A53_GSM(kc, 64, count, block1, block2);
+			}
+			for (int i = 0; i < 114; i++) {
+				int b = p ? (random() & 0xFFFFFF) < p : 0;
+				b = b ^ (block1[i/8] >> (7-(i%8)));
+				mE[B+mOffset].settfb(i, mI[B+mOffset].bit(i) ^ (b&1));
+			}
+		} else {
+			if (p) {
+				for (int i = 0; i < 114; i++) {
+					int b = (random() & 0xFFFFFF) < p;
+					mE[B+mOffset].settfb(i, mI[B+mOffset].bit(i) ^ b);
+				}
+			} else {
+				// no noise and no encryption - use mI below
+			}
+		}
 		// copy in the bits
-		mI[B+mOffset].segment(0,57).copyToSegment(mBurst,3);
-		mI[B+mOffset].segment(57,57).copyToSegment(mBurst,88);
+		if (p || mEncrypted == ENCRYPT_YES) {
+			mE[B+mOffset].segment(0,57).copyToSegment(mBurst,3);
+			mE[B+mOffset].segment(57,57).copyToSegment(mBurst,88);
+		} else {
+			// no noise and no encryption - use mI
+			mI[B+mOffset].segment(0,57).copyToSegment(mBurst,3);
+			mI[B+mOffset].segment(57,57).copyToSegment(mBurst,88);
+		}
 		// stealing bits
 		mBurst.Hu(currentFACCH);
 		mBurst.Hl(mPreviousFACCH);
 		// send
 		OBJLOG(DEBUG) <<"TCHFACCHEncoder sending burst=" << mBurst;
-		mDownstream->writeHighSide(mBurst);	
+		mDownstream->writeHighSideTx(mBurst,"FACCH");	
 		rollForward();
 	}	
 
@@ -1419,7 +1878,7 @@ void TCHFACCHL1Encoder::dispatch()
 
 
 
-void TCHFACCHL1Encoder::interleave(int blockOffset)
+void TCHFACCHL1Encoder::interleave31(int blockOffset)
 {
 	// GSM 05.03, 3.1.3
 	for (int k=0; k<456; k++) {
@@ -1444,9 +1903,9 @@ void SACCHL1FEC::setPhy(const SACCHL1FEC& other)
 	mSACCHEncoder->setPhy(*other.mSACCHEncoder);
 }
 
-void SACCHL1FEC::setPhy(float RSSI, float timingError)
+void SACCHL1FEC::setPhy(float RSSI, float timingError, double wTimestamp)
 {
-	mSACCHDecoder->setPhy(RSSI,timingError);
+	mSACCHDecoder->setPhy(RSSI,timingError,wTimestamp);
 	mSACCHEncoder->setPhy(RSSI,timingError);
 }
 
@@ -1466,12 +1925,13 @@ void SACCHL1Decoder::open()
 
 
 
-void SACCHL1Decoder::setPhy(float wRSSI, float wTimingError)
+void SACCHL1Decoder::setPhy(float wRSSI, float wTimingError, double wTimestamp)
 {
 	// Used to initialize L1 phy parameters.
-	for (int i=0; i<4; i++) mRSSI[i]=wRSSI;
-	for (int i=0; i<4; i++) mTimingError[i]=wTimingError;
-	OBJLOG(INFO) << "SACCHL1Decoder RSSI=" << wRSSI << "timingError=" << wTimingError;
+	mRSSI=wRSSI;
+	mTimingError=wTimingError;
+	mTimestamp=wTimestamp;
+	OBJLOG(INFO) << "SACCHL1Decoder RSSI=" << wRSSI << " timingError=" << wTimingError << " timestamp=" << wTimestamp;
 }
 
 void SACCHL1Decoder::setPhy(const SACCHL1Decoder& other)
@@ -1480,9 +1940,11 @@ void SACCHL1Decoder::setPhy(const SACCHL1Decoder& other)
 	// from those of a preexisting established channel.
 	mActualMSPower = other.mActualMSPower;
 	mActualMSTiming = other.mActualMSTiming;
-	for (int i=0; i<4; i++) mRSSI[i]=other.mRSSI[i];
-	for (int i=0; i<4; i++) mTimingError[i]=other.mTimingError[i];
-	OBJLOG(INFO) << "SACCHL1Decoder actuals RSSI=" << mRSSI[0] << "timingError=" << mTimingError[0]
+	mRSSI=other.mRSSI;
+	mTimingError=other.mTimingError;
+	mTimestamp=other.mTimestamp;
+	OBJLOG(INFO) << "SACCHL1Decoder actuals RSSI=" << mRSSI << " timingError=" << mTimingError
+		<< " timestamp=" << mTimestamp
 		<< " MSPower=" << mActualMSPower << " MSTiming=" << mActualMSTiming;
 }
 
@@ -1602,16 +2064,27 @@ void SACCHL1Encoder::sendFrame(const L2Frame& frame)
 	// Write physical header into mU and then call base class.
 
 	// SACCH physical header, GSM 04.04 6.1, 7.1.
-	OBJLOG(INFO) <<"SACCHL1Encoder orders pow=" << mOrderedMSPower << " TA=" << mOrderedMSTiming;
 	mU.fillField(0,encodePower(mOrderedMSPower),8);
 	mU.fillField(8,(int)(mOrderedMSTiming+0.5F),8);	// timing (GSM 04.04 6.1)
-	OBJLOG(DEBUG) << "SACCHL1Encoder phy header " << mU.head(16);
+	OBJLOG(INFO) <<"SACCHL1Encoder orders pow=" << mOrderedMSPower << " TA=" << mOrderedMSTiming << " with header " << mU.head(16);
 
 	// Encode the rest of the frame.
 	XCCHL1Encoder::sendFrame(frame);
 }
 
 
+
+
+
+void CBCHL1Encoder::sendFrame(const L2Frame& frame)
+{
+	// Sync to (FN/51)%8==0 at the start of a new block.
+	if (frame.peekField(4,4)==0) {
+		mNextWriteTime.rollForward(mMapping.frameMapping(0),51*8);
+	}
+	// Transmit.
+	XCCHL1Encoder::sendFrame(frame);
+}
 
 
 

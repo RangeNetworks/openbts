@@ -2,26 +2,18 @@
 /*
 * Copyright 2008, 2009, 2010 Free Software Foundation, Inc.
 * Copyright 2010 Kestrel Signal Processing, Inc.
-* Copyright 2011 Range Networks, Inc.
+* Copyright 2011, 2012 Range Networks, Inc.
 *
-* This software is distributed under the terms of the GNU Affero Public License.
-* See the COPYING file in the main directory for details.
+* This software is distributed under multiple licenses;
+* see the COPYING file in the main directory for licensing
+* information for this specific distribuion.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
 
-	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
 
@@ -96,6 +88,9 @@ unsigned allocateRTPPorts()
 
 
 
+
+
+
 /**
 	Force clearing on the GSM side.
 	@param transaction The call transaction record.
@@ -104,17 +99,22 @@ unsigned allocateRTPPorts()
 */
 void forceGSMClearing(TransactionEntry *transaction, GSM::LogicalChannel *LCH, const GSM::L3Cause& cause)
 {
+	LOG(DEBUG);
 	LOG(INFO) << "Q.931 state " << transaction->GSMState();
 	// Already cleared?
 	if (transaction->GSMState()==GSM::NullState) return;
 	// Clearing not started?  Start it.
 	if (!transaction->clearingGSM()) LCH->send(GSM::L3Disconnect(transaction->L3TI(),cause));
 	// Force the rest.
+	LOG(DEBUG);
 	LCH->send(GSM::L3ReleaseComplete(transaction->L3TI()));
 	LCH->send(GSM::L3ChannelRelease());
+	LOG(DEBUG);
 	transaction->resetTimers();
 	transaction->GSMState(GSM::NullState);
-	LCH->send(GSM::RELEASE);
+	LOG(DEBUG);
+	//LCH->send(GSM::RELEASE);
+	//LOG(DEBUG);
 }
 
 
@@ -129,17 +129,18 @@ void forceSIPClearing(TransactionEntry *transaction)
 		return;
 	}
 
+	LOG(DEBUG);
 	SIP::SIPState state = transaction->SIPState();
 	LOG(INFO) << "SIP state " << state;
-	//why aren't we checking for failed here? -kurtis
+	//why aren't we checking for failed here? -kurtis ; we are now. -david
 	if (transaction->SIPFinished()) return;
 	if (state==SIP::Active){
 		//Changes state to clearing
-		transaction->MODSendBYE();
+ 		transaction->MODSendBYE();
 		//then cleared
 		transaction->MODWaitForBYEOK();
 	} else if (transaction->instigator()){ //hasn't started yet, need to cancel
-		//Changes state to canceling
+ 		//Changes state to canceling
 		transaction->MODSendCANCEL();
 		//then canceled
 		transaction->MODWaitForCANCELOK();
@@ -283,6 +284,7 @@ bool assignTCHF(TransactionEntry *transaction, GSM::LogicalChannel *DCCH, GSM::T
 	
 	// Shut down the SIP side of the call.
 	forceSIPClearing(transaction);
+
 	// Indicate failure.
 	return false;
 }
@@ -301,7 +303,7 @@ bool assignTCHF(TransactionEntry *transaction, GSM::LogicalChannel *DCCH, GSM::T
 */
 bool callManagementDispatchGSM(TransactionEntry *transaction, GSM::LogicalChannel* LCH, const GSM::L3Message *message)
 {
-	LOG(DEBUG) << "from " << transaction->subscriber() << " message " << *message;
+	if (message) { LOG(DEBUG) << "from " << transaction->subscriber() << " message " << *message; }
 
 	// FIXME -- This dispatch section should be something more efficient with PD and MTI swtiches.
 
@@ -356,7 +358,7 @@ bool callManagementDispatchGSM(TransactionEntry *transaction, GSM::LogicalChanne
 
 	// Disconnect (1st step of MOD)
 	// GSM 04.08 5.4.3.2
-	if (const GSM::L3Disconnect *disc = dynamic_cast<const GSM::L3Disconnect*>(message)) {
+	if (const GSM::L3Disconnect* disc = dynamic_cast<const GSM::L3Disconnect*>(message)) {
 		LOG(INFO) << "GSM Disconnect " << *transaction;
 		gReports.incr("OpenBTS.GSM.CC.MOD.Disconnect");
 		bool early = transaction->GSMState() != GSM::Active;
@@ -365,7 +367,7 @@ bool callManagementDispatchGSM(TransactionEntry *transaction, GSM::LogicalChanne
 			LOG(NOTICE) << "abnormal terminatation: " << *disc;
 		}
 		/* late RLLP request */
-		if (normal && !early && gConfig.defines("Control.Call.QueryRRLP.Late")) {
+		if (normal && !early && gConfig.getBool("Control.Call.QueryRRLP.Late")) {
 			// Query for RRLP
 			if (!sendRRLP(transaction->subscriber(), LCH)) {
 				LOG(INFO) << "RRLP request failed";
@@ -397,8 +399,8 @@ bool callManagementDispatchGSM(TransactionEntry *transaction, GSM::LogicalChanne
 				transaction->MODWaitForResponse(&valid);*/
 			}
 			else { //if we received it, send a 4** instead
-                               //transaction->MODSendERROR(NULL, 480, "Temporarily Unavailable", true);
-                                transaction->MODSendERROR(NULL, 486, "Busy Here", true);
+				//transaction->MODSendERROR(NULL, 480, "Temporarily Unavailable", true);
+				transaction->MODSendERROR(NULL, 486, "Busy Here", true);
 				transaction->MODWaitForERRORACK(true);
 			}
 			//transaction->GSMState(GSM::NullState);
@@ -408,11 +410,14 @@ bool callManagementDispatchGSM(TransactionEntry *transaction, GSM::LogicalChanne
 	}
 
 	// Release (2nd step of MTD)
-	if (dynamic_cast<const GSM::L3Release*>(message)) {
+	if (const GSM::L3Release *rls = dynamic_cast<const GSM::L3Release*>(message)) {
 		LOG(INFO) << "GSM Release " << *transaction;
 		gReports.incr("OpenBTS.GSM.CC.MTD.Release");
+		if (rls->haveCause() && (rls->cause().cause() > 0x10)) {
+			LOG(NOTICE) << "abnormal terminatation: " << *rls;
+		}
 		/* late RLLP request */
-		if (gConfig.defines("Control.Call.QueryRRLP.Late")) {
+		if (gConfig.getBool("Control.Call.QueryRRLP.Late")) {
 			// Query for RRLP
 			if (!sendRRLP(transaction->subscriber(), LCH)) {
 				LOG(INFO) << "RRLP request failed";
@@ -524,6 +529,14 @@ bool callManagementDispatchGSM(TransactionEntry *transaction, GSM::LogicalChanne
 		return false;
 	}
 
+	if (dynamic_cast<const GSM::L3CipheringModeComplete*>(message)) {
+		LOG(DEBUG) << "received Ciphering Mode Complete on " << *LCH << " for " << transaction->subscriber();
+		// Although the spec (04.08 3.4.7) says you can start ciphering the downlink at this time,
+		// it also says you can start when you successfully decrypt an uplink layer 2 frame,
+		// which is what we do.
+		return false;
+	}
+
 	// Stubs for unsupported features.
 	// We need to answer the handset so it doesn't hang.
 
@@ -535,8 +548,11 @@ bool callManagementDispatchGSM(TransactionEntry *transaction, GSM::LogicalChanne
 		return false;
 	}
 
-	if (message)  { LOG(NOTICE) << "no support for message " << *message << " from " << transaction->subscriber(); }
-	else { LOG(NOTICE) << "no support for unrecognized message from " << transaction->subscriber(); }
+	if (message) {
+		LOG(NOTICE) << "no support for message " << *message << " from " << transaction->subscriber();
+	} else {
+		LOG(NOTICE) << "no support for unrecognized message from " << transaction->subscriber();
+	}
 
 
 	// If we got here, we're ignoring the message.
@@ -641,6 +657,7 @@ bool updateSIPSignalling(TransactionEntry *transaction, GSM::LogicalChannel *LCH
 	if (transaction->SIPFinished()) return true;
 
 	bool GSMClearedOrClearing = GSMCleared || transaction->clearingGSM();
+
 	//only checking for Clearing because the call is active at this state. Should not cancel
 	if (transaction->MTDCheckBYE() == SIP::MTDClearing) {
 		LOG(DEBUG) << "got SIP BYE " << *transaction;
@@ -679,6 +696,61 @@ bool updateSignalling(TransactionEntry *transaction, GSM::LogicalChannel *LCH, u
 
 
 
+bool outboundHandoverTransfer(TransactionEntry* transaction, GSM::TCHFACCHLogicalChannel *TCH)
+{
+	// By returning true, this function indicates to its caller that the call is cleared
+	// and no longer needs a channel on this BTS.
+
+	// In this method, we are "BS1" in the ladder diagram.
+	// BS2 has alrady accepted the handover request.
+
+	// Send the handover command.
+	TCH->send(GSM::L3HandoverCommand(
+		transaction->outboundCell(),
+		transaction->outboundChannel(),
+		transaction->outboundReference(),
+		transaction->outboundPowerCmd(),
+		transaction->outboundSynch()
+		));
+
+	// Start a timer for T3103, the handover failure timer.
+	GSM::Z100Timer T3103(gConfig.getNum("GSM.Timer.T3103"));
+	T3103.set();
+
+	// The next step for the MS is to send Handover Access to BS2.
+	// The next step for us is to wait for the Handover Complete message
+	// and see that the phone doesn't come back to us.
+	// BS2 is doing most of the work now.
+	// We will get a handover complete once it's over, but we don't really need it.
+
+	// Q: What about transferring audio packets?
+	// A: There should not be any after we send the Handover Command.
+
+	// Get the response.
+	// This is supposed to time out on successful handover, similar to the early assignment channel transfer..
+	GSM::L3Frame *result = TCH->recv(T3103.remaining());
+	if (result) {
+		// If we got here, the handover failed and we just keep running the call.
+		LOG(NOTICE) << "failed handover, received " << *result;
+		delete result;
+		// Restore the call state.
+		transaction->GSMState(GSM::Active);
+		return false;
+	}
+
+	// If the phone doesn't come back, either the handover succeeded or
+	// the phone dropped the connection.  Either way, we are clearing the call.
+
+	// Invalidate local cache entry for this IMSI in the subscriber registry.
+	string imsi = string("IMSI").append(transaction->subscriber().digits());
+	gSubscriberRegistry.removeUser(imsi.c_str());
+
+	LOG(INFO) "timeout following outbound handover; exiting normally";
+	TCH->send(GSM::HARDRELEASE);
+	return true;
+}
+
+
 /**
 	Poll for activity while in a call.
 	Sleep if needed to prevent fast spinning.
@@ -689,9 +761,11 @@ bool updateSignalling(TransactionEntry *transaction, GSM::LogicalChannel *LCH, u
 */
 bool pollInCall(TransactionEntry *transaction, GSM::TCHFACCHLogicalChannel *TCH)
 {
+
 	// See if the radio link disappeared.
 	if (TCH->radioFailure()) {
 		LOG(NOTICE) << "radio link failure, dropped call";
+		gReports.incr("OpenBTS.GSM.CC.DroppedCalls");
 		forceSIPClearing(transaction);
 		return true;
 	}
@@ -699,6 +773,10 @@ bool pollInCall(TransactionEntry *transaction, GSM::TCHFACCHLogicalChannel *TCH)
 	// Process pending SIP and GSM signalling.
 	// If this returns true, it means the call is fully cleared.
 	if (updateSignalling(transaction,TCH)) return true;
+
+	// Check for outbound handover.
+	if (transaction->GSMState() == GSM::HandoverOutbound)
+		return outboundHandoverTransfer(transaction,TCH);
 
 	// Did an outside process request a termination?
 	if (transaction->terminationRequested()) {
@@ -714,6 +792,7 @@ bool pollInCall(TransactionEntry *transaction, GSM::TCHFACCHLogicalChannel *TCH)
 
 	// Transfer vocoder data.
 	// If anything happened, then the call is still up.
+	// This is a blocking call, blocking 20 ms on average.
 	if (updateCallTraffic(transaction,TCH)) return false;
 
 	// If nothing happened, sleep so we don't burn up the CPU cycles.
@@ -749,9 +828,28 @@ bool waitInCall(TransactionEntry *transaction, GSM::TCHFACCHLogicalChannel *TCH,
 	@param transaction The transaction record for this call, will be cleared on exit.
 	@param TCH The TCH+FACCH for the call.
 */
-void callManagementLoop(TransactionEntry *transaction, GSM::TCHFACCHLogicalChannel* TCH)
+void Control::callManagementLoop(TransactionEntry *transaction, GSM::TCHFACCHLogicalChannel* TCH)
 {
 	LOG(INFO) << " call connected " << *transaction;
+	if (gConfig.getBool("GSM.Cipher.Encrypt")) {
+		int encryptionAlgorithm = gTMSITable.getPreferredA5Algorithm(transaction->subscriber().digits());
+		if (!encryptionAlgorithm) {
+			LOG(DEBUG) << "A5/3 and A5/1 not supported: NOT sending Ciphering Mode Command on " << *TCH << " for " << transaction->subscriber();
+		} else if (TCH->decryptUplink_maybe(transaction->subscriber().digits(), encryptionAlgorithm)) {
+			// send Ciphering Mode Command
+			// start reception in new mode (GSM 04.08, 3.4.7)
+			// The spec says to start decrypting uplink at this time, but that would cause us to
+			// start decrypting before the Ciphering Mode Command is acknowledged, so we start
+			// maybe decrypting - try decoding without decrypting, and when a frame comes along
+			// that fails, we try decrypting, and if that passes than we start decrypting everything.
+			LOG(DEBUG) << "sending Ciphering Mode Command on " << *TCH << " for " << transaction->subscriber();
+			TCH->send(GSM::L3CipheringModeCommand(
+				GSM::L3CipheringModeSetting(true, encryptionAlgorithm),
+				GSM::L3CipheringModeResponse(false)));
+		} else {
+			LOG(DEBUG) << "no ki: NOT sending Ciphering Mode Command on " << *TCH << " for " << transaction->subscriber();
+		}
+	}
 	gReports.incr("OpenBTS.GSM.CC.CallMinutes");
 	// poll everything until the call is finished
 	// A rough count of frames.
@@ -769,6 +867,7 @@ void callManagementLoop(TransactionEntry *transaction, GSM::TCHFACCHLogicalChann
 		// Every minute, reset the watchdog timer.
 		if ((fCount%(60*50))==0) {
 			LOG(DEBUG) << fCount << " cycles of call management loop; resetting watchdog";
+			gResetWatchdog();
 			gReports.incr("OpenBTS.GSM.CC.CallMinutes");
 		}
 	}
@@ -840,13 +939,12 @@ void Control::MOCStarter(const GSM::L3CMServiceRequest* req, GSM::LogicalChannel
 		}
 		throw UnexpectedMessage();
 	}
-
 	gReports.incr("OpenBTS.GSM.CC.MOC.Setup");
-
+	
 	/* early RLLP request */
 	/* this seems to need to be sent after initial call setup
 	   -kurtis */
-	if (gConfig.defines("Control.Call.QueryRRLP.Early")) {
+	if (gConfig.getBool("Control.Call.QueryRRLP.Early")) {
 		// Query for RRLP
 		if (!sendRRLP(mobileID, LCH)) {
 			LOG(INFO) << "RRLP request failed";
@@ -1074,6 +1172,8 @@ void Control::MOCController(TransactionEntry *transaction, GSM::TCHFACCHLogicalC
 	transaction->MOCInitRTP();
 	transaction->MOCSendACK();
 
+	// FIXME -- We need to watch for a repeated OK in case the ACK got lost.
+
 	// Get the Connect Acknowledge message.
 	while (transaction->GSMState()!=GSM::Active) {
 
@@ -1107,7 +1207,7 @@ void Control::MTCStarter(TransactionEntry *transaction, GSM::LogicalChannel *LCH
 	if (LCH->type()==GSM::FACCHType) veryEarly=true;
 
 	/* early RLLP request */
-	if (gConfig.defines("Control.Call.QueryRRLP.Early")) {
+	if (gConfig.getBool("Control.Call.QueryRRLP.Early")) {
 		// Query for RRLP
 		if (!sendRRLP(transaction->subscriber(), LCH)) {
 			LOG(INFO) << "RRLP request failed";
@@ -1197,7 +1297,7 @@ void Control::MTCStarter(TransactionEntry *transaction, GSM::LogicalChannel *LCH
 	}
 	else {
 		// For late assignment, send the TCH assignment now.
-		// This dispatcher on the next channel will continue the transaction.
+		// The dispatcher on the next channel will continue the transaction.
 		assert(TCH);
 		assignTCHF(transaction,LCH,TCH);
 	}
@@ -1233,7 +1333,7 @@ void Control::MTCController(TransactionEntry *transaction, GSM::TCHFACCHLogicalC
 		if (transaction->MTCCheckForCancel()==SIP::MTDCanceling) {
 			LOG(INFO) << "MTCCheckForCancel return Canceling";
 			transaction->MTDSendCANCELOK();
-			//should probably send a 487 here -kurtis
+			//should probably send a 487 here
 			// Cause 0x15 is "rejected"
 			return abortAndRemoveCall(transaction,TCH,GSM::L3Cause(0x15));
 		}
@@ -1285,6 +1385,21 @@ void Control::MTCController(TransactionEntry *transaction, GSM::TCHFACCHLogicalC
 }
 
 
+void Control::TestCall(TransactionEntry *transaction, GSM::LogicalChannel *LCH)
+{
+	assert(LCH);
+	LOG(INFO) << LCH->type() << " transaction: "<< *transaction;
+	assert(transaction->L3TI()<7);
+
+	// Mark the call as active.
+	transaction->GSMState(GSM::Active);
+
+	LOG(INFO) << "starting test call";
+	while (!transaction->terminationRequested()) { sleep(1); }
+	LOG(INFO) << "ending test call";
+	LCH->send(GSM::L3ChannelRelease());
+	gTransactionTable.remove(transaction);
+}
 
 
 

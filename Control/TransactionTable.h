@@ -90,15 +90,59 @@ class TransactionEntry {
 	Timeval mStateTimer;					///< timestamp of last state change.
 	TimerTable mTimers;						///< table of Z100-type state timers
 
+	/**@name Handover parameters */
+	//@{
+	/**@name Inbound */
+	//@{
+	struct ::sockaddr_in mInboundPeer;		///< other BTS in inbound handover
+	unsigned mInboundReference;			///< handover reference
+	float mInboundRSSI;				///< access burst RSSI in dB wrt full scale
+	float mInboundTimingError;			///< access burst timing error in symbol periods
+	unsigned mCSeq;
+	string mCallID;
+	unsigned mCodec;
+	string mRTPState;
+	string mSessionID;
+	string mSessionVersion;
+	string mRemoteUsername;
+	string mRemoteDomain;
+	string mSIPDisplayname;
+	string mSIPUsername;
+	string mFromTag;
+	string mFromUsername;
+	string mFromIP;
+	string mToTag;
+	string mToUsername;
+	string mToIP;
+	string mCallIP;
+	short mRTPRemPort;
+	string mRTPRemIP;
+	short mRmtPort;
+	string mRmtIP;
+	string mSRIMSI;
+	string mSRCALLID;
+
+	//@}
+	/**@name Outbound */
+	//@{
+	struct ::sockaddr_in mOutboundPeer;		///< other BTS in outbound handover
+	GSM::L3CellDescription mOutboundCell;
+	GSM::L3ChannelDescription2 mOutboundChannel;
+	GSM::L3HandoverReference mOutboundReference;
+	GSM::L3PowerCommandAndAccessType mOutboundPowerCmd;
+	GSM::L3SynchronizationIndication mOutboundSynch;
+	//@}
+	//@}
+
 	unsigned mNumSQLTries;					///< number of SQL tries for DB operations
 
 	GSM::LogicalChannel *mChannel;			///< current channel of the transaction
 
 	bool mTerminationRequested;
 
-	volatile bool mRemoved;			///< true if ready for removal
+	unsigned mHandoverOtherBSTransactionID;
 
-	bool mFake;					///true if this is a fake message generated internally	
+	volatile bool mRemoved;			///< true if ready for removal
 
 	public:
 
@@ -109,8 +153,7 @@ class TransactionEntry {
 		const GSM::L3CMServiceType& wService,
 		const GSM::L3CallingPartyBCDNumber& wCalling,
 		GSM::CallState wState = GSM::NullState,
-		const char *wMessage = NULL,
-		bool wFake=false);
+		const char *wMessage = NULL);
 
 	/** This form is used for MOC, setting mGSMState to MOCInitiated. */
 	TransactionEntry(const char* proxy,
@@ -119,13 +162,6 @@ class TransactionEntry {
 		const GSM::L3CMServiceType& wService,
 		unsigned wL3TI,
 		const GSM::L3CalledPartyBCDNumber& wCalled);
-
-	/** This form is used for SOS calls, setting mGSMState to MOCInitiated. */
-	TransactionEntry(const char* proxy,
-		const GSM::L3MobileIdentity& wSubscriber,
-		GSM::LogicalChannel* wChannel,
-		const GSM::L3CMServiceType& wService,
-		unsigned wL3TI);
 
 	/** Form for MO-SMS; sets yet-unknown TI to 7 and GSM state to SMSSubmitting */
 	TransactionEntry(const char* proxy,
@@ -138,6 +174,14 @@ class TransactionEntry {
 	TransactionEntry(const char* proxy,
 		const GSM::L3MobileIdentity& wSubscriber,
 		GSM::LogicalChannel* wChannel);
+
+	/** Form used for handover requests; argument is taken from the message string. */
+	TransactionEntry(const struct ::sockaddr_in* peer,
+		unsigned wHandoverReference,
+		SimpleKeyValue &params,
+		const char *proxy,
+		GSM::LogicalChannel* wChannel,
+		unsigned otherTransactionID);
 
 
 	/** Delete the database entry upon destruction. */
@@ -162,8 +206,6 @@ class TransactionEntry {
 
 	const GSM::L3CallingPartyBCDNumber& calling() const { return mCalling; }
 
-	bool fake() const {return mFake; }
-
 	const char* message() const { return mMessage.c_str(); }
 	void message(const char *wMessage, size_t length);
 	const char* messageType() const { return mContentType.c_str(); }
@@ -173,6 +215,64 @@ class TransactionEntry {
 
 	GSM::CallState GSMState() const;
 	void GSMState(GSM::CallState wState);
+
+	/** Inbound reference set in the constructor, no lock needed. */
+	// FIXME -- These should probably all the const references.
+	unsigned inboundReference() const { return mInboundReference; }
+	unsigned Codec() { return mCodec; }
+	unsigned CSeq() { return mCSeq; }
+	string CallID() { return mCallID; }
+	string RemoteUsername() { return mRemoteUsername; }
+	string RemoteDomain() { return mRemoteDomain; }
+	string SIPUsername() { return mSIPUsername; }
+	string SIPDisplayname() { return mSIPDisplayname; }
+	string FromTag() { return mFromTag; }
+	string FromUsername() { return mFromUsername; }
+	string FromIP() { return mFromIP; }
+	string ToTag() { return mToTag; }
+	string ToUsername() { return mToUsername; }
+	string ToIP() { return mToIP; }
+	string CallIP() { return mCallIP; }
+	short RTPRemPort() { return mRTPRemPort; }
+	string RTPRemIP() { return mRTPRemIP; }
+	string RTPState() { return mRTPState; }
+	string SessionID() { return mSessionID; }
+	string SessionVersion() { return mSessionVersion; }
+	short RmtPort() { return mRmtPort; }
+	string RmtIP() { return mRmtIP; }
+	string SRIMSI() { return mSRIMSI; }
+	string SRCALLID() { return mSRCALLID; }
+	unsigned HandoverOtherBSTransactionID() { return mHandoverOtherBSTransactionID; }
+
+	GSM::L3HandoverReference outboundReference() const { ScopedLock lock(mLock); return mOutboundReference; }
+	GSM::L3CellDescription outboundCell() const { ScopedLock lock(mLock); return mOutboundCell; }
+	GSM::L3ChannelDescription2 outboundChannel() const { ScopedLock lock(mLock); return mOutboundChannel; }
+	GSM::L3PowerCommandAndAccessType outboundPowerCmd() const { ScopedLock lock(mLock); return mOutboundPowerCmd; }
+	GSM::L3SynchronizationIndication outboundSynch() const { ScopedLock lock(mLock); return mOutboundSynch; }
+
+	/** Set the outbound handover parameters and set the state to HandoverOutbound. */
+	void setOutboundHandover(
+		const GSM::L3HandoverReference& reference,
+		const GSM::L3CellDescription& cell,
+		const GSM::L3ChannelDescription2& chan,
+		const GSM::L3PowerCommandAndAccessType& pwrCmd,
+		const GSM::L3SynchronizationIndication& synch
+			);
+
+	/** Set the inbound handover parameters on the channel; state should alread be HandoverInbound. */
+	void setInboundHandover(
+		float wRSSI,
+		float wTimingError,
+		double wTimestamp
+			);
+
+	// This is thread-safe because mInboundPeer is only modified in the constructor.
+	const struct ::sockaddr_in* inboundPeer() const { return &mInboundPeer; }
+
+	float inboundTimingError() const { ScopedLock lock(mLock); return mInboundTimingError; }
+
+	//@}
+
 
 	/** Initiate the termination process. */
 	void terminate() { ScopedLock lock(mLock); mTerminationRequested=true; }
@@ -193,13 +293,6 @@ class TransactionEntry {
 	SIP::SIPState MOCCheckForOK();
 	SIP::SIPState MOCSendACK();
 	void MOCInitRTP() { ScopedLock lock(mLock); return mSIP.MOCInitRTP(); }
-
-	SIP::SIPState SOSSendINVITE(short rtpPort, unsigned codec);
-	SIP::SIPState SOSResendINVITE() { return MOCResendINVITE(); }
-	SIP::SIPState SOSCheckForOK() { return MOCCheckForOK(); }
-	SIP::SIPState SOSSendACK() { return MOCSendACK(); }
-	void SOSInitRTP() { MOCInitRTP(); }
-
 
 	SIP::SIPState MTCSendTrying();
 	SIP::SIPState MTCSendRinging();
@@ -229,6 +322,13 @@ class TransactionEntry {
 	SIP::SIPState MOSMSWaitForSubmit();
 
 	SIP::SIPState MTSMSSendOK();
+
+	SIP::SIPState inboundHandoverSendINVITE(unsigned RTPPort)
+		{ ScopedLock lock(mLock); return mSIP.inboundHandoverSendINVITE(this, RTPPort); }
+	SIP::SIPState inboundHandoverCheckForOK()
+		{ ScopedLock lock(mLock); return mSIP.inboundHandoverCheckForOK(&mLock); }
+	SIP::SIPState inboundHandoverSendACK()
+		{ ScopedLock lock(mLock); return mSIP.inboundHandoverSendACK(); }
 
 	bool sendINFOAndWaitForOK(unsigned info);
 
@@ -286,6 +386,9 @@ class TransactionEntry {
 
 	/** Dump information as text for debugging. */
 	void text(std::ostream&) const;
+
+	/** Genrate an encoded string for handovers. */
+	std::string handoverString() const;
 
 	private:
 
@@ -373,6 +476,13 @@ class TransactionTable {
 	bool RTPAvailable(short rtpPort);
 
 	/**
+		Fand an entry by its handover reference.
+		@param ref The 8-bit handover reference.
+		@return NULL if ID is not found or was dead
+	*/
+	TransactionEntry* inboundHandover(unsigned ref);
+
+	/**
 		Remove an entry from the table and from gSIPMessageMap.
 		@param wID The transaction ID to search.
 		@return True if the ID was really in the table and deleted.
@@ -397,6 +507,9 @@ class TransactionTable {
 		@return pointer to entry or NULL if no active match
 	*/
 	TransactionEntry* find(const GSM::LogicalChannel *chan);
+
+	/** Find a transaction in the HandoverInbound state on the given channel. */
+	TransactionEntry* inboundHandover(const GSM::LogicalChannel *chan);
 
 	/**
 		Find an entry by its SACCH channel pointer; returns first entry found.
@@ -458,6 +571,9 @@ class TransactionTable {
 
 	size_t dump(std::ostream& os, bool showAll=false) const;
 
+	/** Generate a unique handover reference. */
+	//unsigned generateInboundHandoverReference(TransactionEntry* transaction);
+
 	private:
 
 	friend class TransactionEntry;
@@ -477,6 +593,9 @@ class TransactionTable {
 	*/
 	void innerRemove(TransactionMap::iterator);
 
+
+	/** Check to see if a given outbound handover reference is in use. */
+	//bool outboundReferenceUsed(unsigned ref);
 
 };
 

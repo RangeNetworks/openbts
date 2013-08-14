@@ -1,24 +1,14 @@
 /*
 * Copyright 2008 Free Software Foundation, Inc.
 *
-* This software is distributed under the terms of the GNU Affero Public License.
-* See the COPYING file in the main directory for details.
+* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
 
-	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
 
@@ -46,7 +36,7 @@ public:
   /** constructor */
   radioVector(const signalVector& wVector,
               GSM::Time& wTime,
-              int& wARFCN): signalVector(wVector),mTime(wTime),mARFCN(wARFCN){};
+              int& wARFCN): signalVector(wVector),mTime(wTime),mARFCN(wARFCN) {};
 
   /** timestamp read and write operators */
   GSM::Time time() const { return mTime;}
@@ -117,12 +107,12 @@ private:
 public:
 
   /** Set clock */
-  void set(const GSM::Time& wTime) { ScopedLock lock(mLock); mClock = wTime; updateSignal.signal();}
-  //void set(const GSM::Time& wTime) { ScopedLock lock(mLock); mClock = wTime; updateSignal.broadcast();;}
+  //void set(const GSM::Time& wTime) { ScopedLock lock(mLock); mClock = wTime; updateSignal.signal();}
+  void set(const GSM::Time& wTime) { ScopedLock lock(mLock); mClock = wTime; updateSignal.broadcast();;}
 
   /** Increment clock */
-  void incTN() { ScopedLock lock(mLock); mClock.incTN(); updateSignal.signal();}
-  //void incTN() { ScopedLock lock(mLock); mClock.incTN(); updateSignal.broadcast();}
+  //void incTN() { ScopedLock lock(mLock); mClock.incTN(); updateSignal.signal();}
+  void incTN() { ScopedLock lock(mLock); mClock.incTN(); updateSignal.broadcast();}
 
   /** Get clock value */
   GSM::Time get() { ScopedLock lock(mLock); return mClock; }
@@ -223,6 +213,8 @@ public:
   /** get receive gain */
   double getRxGain(void) {if (mRadio) return mRadio->getRxGain(); else return -1;}
 
+  /** tune VCTCXO */
+  bool setVCTCXO(unsigned int tuneVoltage);
 
   /** set transmit frequency */
   bool tuneTx(double freq, double adjFreq);

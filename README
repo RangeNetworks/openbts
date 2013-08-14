@@ -14,6 +14,7 @@ AsteriskConfig	Asterisk configuration files for use with OpenBTS.
 CommonLib	Common-use libraries, mostly C++ wrappers for basic facilities.
 Control		Control-layer functions for the protocols of GSM 04.08 and SIP.
 GSM		The GSM stack.
+RRLP		Radio Resource Location Protocol
 SIP		Components of the SIP state machines ued by the control layer.
 SMS		The SMS stack.
 SR		The subscriber registry.
@@ -38,13 +39,17 @@ By default, OpenBTS assumes the following UDP port assignments:
 These can be controlled in the CONFIG table in /etc/OpenBTS.db.
 
 Standrd paths:
-/OpenBTS -- Binary installation.
+/OpenBTS -- Binary installation and authorization keys.
 /etc/OpenBTS -- Configuration databases.
 /var/run/OpenBTS -- Real-time reporting databases.
 
 The script apps/setUpFiles.sh will create these directories and install the
 correct files in them.
 
+
+Releases 2.5 and later include the smqueue SMS server.  It is NOT part of the
+normal GNU build process with the rest of OpenBTS.  To build smqueue, go
+into the smqueue directory and just type "make -f Makefile.standalone".
 
 
 
@@ -152,8 +157,7 @@ Release	Name		SVN Reposiory	SVN Rev	Comments
 							added CLI "rxpower" command (r844)
 							added CLI "unconfig" command
 
-2.7	Natchitoches	Range	rxxx			(never released publicly)
-							converted TMSITable to sqlite3 (r902)
+2.7	Natchitoches	Range	rxxx			converted TMSITable to sqlite3 (r902)
 							sqlite3-based configuration (r???)
 							converted Logger to syslogd (r903)
 							added support for rest octets (r1022)
@@ -162,7 +166,9 @@ Release	Name		SVN Reposiory	SVN Rev	Comments
 							in-call delivery and submission of text messages (r1231)
 							RFC-2833 DMTF (r1249)
 
-2.8	Opelousas	Range	rxxx			move databases to /etc and /var
-							RRLP aiding support
+2.8	Opelousas	Range	rxxx			added SHA1/RSA image verification
+							move databases to /etc and /var
+							SIP-based authentication
 
-
+2.9	Plaquemine	Range				socket-based remote CLI
+							merge-in of "S" Release

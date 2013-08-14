@@ -1,25 +1,19 @@
 /**@file SMS Control (L3), GSM 03.40, 04.11. */
 /*
-* Copyright 2008, 2009, 2011 Free Software Foundation, Inc.
+* Copyright 2008, 2009 Free Software Foundation, Inc.
 * Copyright 2010 Kestrel Signal Processing, Inc.
 * Copyright 2011 Range Networks, Inc.
 *
+* This software is distributed under multiple licenses;
+* see the COPYING file in the main directory for licensing
+* information for this specific distribuion.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
 
-	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
 
@@ -141,12 +135,17 @@ bool handleRPDU(TransactionEntry *transaction, const RLFrame& RPDU)
 				
 				body << submit.UD().decode();
 			} else if (contentType == "application/vnd.3gpp.sms") {
+				LOG(DEBUG) << "RPDU: " << RPDU;
 				RPDU.hex(body);
+				LOG(DEBUG) << "RPDU result: " << body;
 			} else {
 				LOG(ALERT) << "\"" << contentType << "\" is not a valid SMS payload type";
 			}
 			const char* address = NULL;
-			if (gConfig.defines("SIP.SMSC")) address = gConfig.getStr("SIP.SMSC").c_str();
+			string tmpAddress = gConfig.getStr("SIP.SMSC");
+			if (tmpAddress.length()) {
+				address = tmpAddress.c_str();
+			}
 
 			/* The SMSC is not defined, we are using an older version */
 			if (address == NULL) {
@@ -293,7 +292,7 @@ void Control::MOSMSController(const GSM::L3CMServiceRequest *req, GSM::LogicalCh
 	gReports.incr("OpenBTS.GSM.SMS.MOSMS.Complete");
 
 	/* MOSMS RLLP request */
-	if (gConfig.defines("Control.SMS.QueryRRLP")) {
+	if (gConfig.getBool("Control.SMS.QueryRRLP")) {
 		// Query for RRLP
 		if (!sendRRLP(mobileID, LCH)) {
 			LOG(INFO) << "RRLP request failed";
@@ -412,7 +411,6 @@ bool Control::deliverSMSToMS(const char *callingPartyDigits, const char* message
 		delete CM;
 		throw UnexpectedMessage();
 	}
-	
 
 	// FIXME -- Check L3 TI.
 
@@ -482,7 +480,7 @@ void Control::MTSMSController(TransactionEntry *transaction, GSM::LogicalChannel
 	LOG(INFO) << "transaction: "<< *transaction;
 
 	/* MTSMS RLLP request */
-	if (gConfig.defines("Control.SMS.QueryRRLP")) {
+	if (gConfig.getBool("Control.SMS.QueryRRLP")) {
 		// Query for RRLP
 		if(!sendRRLP(transaction->subscriber(), LCH)){
 	  		LOG(INFO) << "RRLP request failed";
@@ -617,7 +615,7 @@ void Control::InCallMOSMSController(const CPData *cpData, TransactionEntry* tran
 	   here -kurtis */
 
 	/* MOSMS RLLP request */
-	if (gConfig.defines("Control.SMS.QueryRRLP")) {
+	if (gConfig.getBool("Control.SMS.QueryRRLP")) {
 		// Query for RRLP
 		if (!sendRRLP(transaction->subscriber(), LCH)) {
 			LOG(INFO) << "RRLP request failed";

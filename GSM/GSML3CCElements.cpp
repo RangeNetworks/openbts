@@ -1,25 +1,17 @@
-/**@file @brief Call Control messages, GSM 04.08 9.3 */
+/**@file
+	@brief Call Control messages, GSM 04.08 9.3
+*/
 /*
 * Copyright 2008, 2009 Free Software Foundation, Inc.
 *
-* This software is distributed under the terms of the GNU Affero Public License.
-* See the COPYING file in the main directory for details.
+* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
 
-	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
 
@@ -71,19 +63,26 @@ void L3BearerCapability::text(ostream& os) const
 }
 
 
-void L3BCDDigits::parse(const L3Frame& src, size_t &rp, size_t numOctets)
+void L3BCDDigits::parse(const L3Frame& src, size_t &rp, size_t numOctets, bool international)
 {
 	unsigned i=0;
 	size_t readOctets = 0;
+	if (international) mDigits[i++] = '+';
 	while (readOctets < numOctets) {
 		unsigned d2 = src.readField(rp,4);
 		unsigned d1 = src.readField(rp,4);
 		readOctets++;
-		mDigits[i++]=d1+'0';
-		if (d2!=0x0f) mDigits[i++]=d2+'0';
+		mDigits[i++] = d1 == 10 ? '*' : d1 == 11 ? '#' : d1+'0';
+		if (d2!=0x0f) mDigits[i++] = d2 == 10 ? '*' : d2 == 11 ? '#' : d2+'0';
 		if (i>maxDigits) L3_READ_ERROR;
 	}
 	mDigits[i++]='\0';
+}
+
+
+int encode(char c)
+{
+	return c == '*' ? 10 : c == '#' ? 11 : c-'0';
 }
 
 
@@ -91,10 +90,13 @@ void L3BCDDigits::write(L3Frame& dest, size_t &wp) const
 {
 	unsigned index = 0;
 	unsigned numDigits = strlen(mDigits);
+	if (index < numDigits && mDigits[index] == '+') {
+		index++;
+	}
 	while (index < numDigits) {
-		if ((index+1) < numDigits) dest.writeField(wp,mDigits[index+1]-'0',4);
+		if ((index+1) < numDigits) dest.writeField(wp,encode(mDigits[index+1]),4);
 		else dest.writeField(wp,0x0f,4);
-		dest.writeField(wp,mDigits[index]-'0',4);
+		dest.writeField(wp,encode(mDigits[index]),4);
 		index += 2;
 	}
 }
@@ -103,6 +105,7 @@ void L3BCDDigits::write(L3Frame& dest, size_t &wp) const
 size_t L3BCDDigits::lengthV() const 
 {
 	unsigned sz = strlen(mDigits);
+	if (*mDigits == '+') sz--;
 	return (sz/2) + (sz%2);
 }
 
@@ -131,7 +134,7 @@ void L3CalledPartyBCDNumber::parseV( const L3Frame &src, size_t &rp, size_t expe
 	if (src.readField(rp, 1) != 1) L3_READ_ERROR;	
 	mType = (TypeOfNumber)src.readField(rp, 3);
 	mPlan = (NumberingPlan)src.readField(rp, 4);
-	mDigits.parse(src,rp,expectedLength-1);
+	mDigits.parse(src,rp,expectedLength-1, mType == InternationalNumber);
 }
 
 
@@ -154,7 +157,7 @@ void L3CallingPartyBCDNumber::writeV( L3Frame &dest, size_t &wp ) const
 {
 	// If Octet3a is extended, then write 0 else 1.
 	dest.writeField(wp, (!mHaveOctet3a & 0x01), 1);
-	dest.writeField(wp, mType, 3);
+	dest.writeField(wp, *digits() == '+' ? InternationalNumber : mType, 3);
 	dest.writeField(wp, mPlan, 4);
 
 	if(mHaveOctet3a){

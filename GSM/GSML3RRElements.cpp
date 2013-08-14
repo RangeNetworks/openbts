@@ -1,35 +1,25 @@
-/**@file
-	@brief Radio Resource messages, GSM 04.08 9.1.
-*/
+/**@file @brief Radio Resource messages, GSM 04.08 9.1.  */
 
 /*
 * Copyright 2008, 2009 Free Software Foundation, Inc.
-* Copyright 2010 Kestrel Signal Processing, Inc.
+* Copyright 2010, 2013 Kestrel Signal Processing, Inc.
 *
-* This software is distributed under the terms of the GNU Affero Public License.
-* See the COPYING file in the main directory for details.
+* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
 
-	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
 
 #include <iterator> // for L3APDUData::text
 
 #include "GSML3RRElements.h"
+#include "Defines.h"
+#include "GSMConfig.h"
 
 #include <Logger.h>
 
@@ -104,6 +94,20 @@ void L3CellSelectionParameters::text(ostream& os) const
 
 
 
+
+unsigned L3ControlChannelDescription::getBS_PA_MFRMS()
+{
+	unsigned bs_pa_mfrms = mBS_PA_MFRMS + 2;
+	if (bs_pa_mfrms != RN_BOUND(bs_pa_mfrms,2,sMax_BS_PA_MFRMS)) {
+		static bool printed_msg = false;
+		if (!printed_msg) {
+			LOG(ERR) << "Invalid BS_PA_MFRMS value, must be 2.."<<sMax_BS_PA_MFRMS;
+			printed_msg = true;
+		}
+		bs_pa_mfrms = 2;	// If invalid, it is ok as long as we use the same value all the time.
+	}
+	return bs_pa_mfrms;
+}
 
 
 void L3ControlChannelDescription::writeV(L3Frame& dest, size_t &wp) const
@@ -180,7 +184,7 @@ void L3FrequencyList::writeV(L3Frame& dest, size_t &wp) const
 	// bit map
 	unsigned delta = spread();
 	unsigned numBits = 8*lengthV() - 17;
-	if (numBits<delta) { LOG(ALERT) << "L3FrequencyList cannot encode full ARFCN set"; }
+	if (numBits<delta) { LOG(ALERT) << "L3FrequencyList cannot encode full ARFCN set, base=" << baseARFCN << " delta=" << delta; }
 	for (unsigned i=0; i<numBits; i++) {
 		unsigned thisARFCN = baseARFCN + 1 + i;
 		if (contains(thisARFCN)) dest.writeField(wp,1,1);
@@ -316,6 +320,7 @@ void L3ChannelDescription::writeV( L3Frame &dest, size_t &wp ) const
 //
 
 	// HACK -- Hard code for non-hopping.
+	// (pat) Same format used for Packet Channel Description 10.5.2.25a
 	assert(mHFlag==0);
 	dest.writeField(wp,mTypeAndOffset,5);
 	dest.writeField(wp,mTN,3);
@@ -345,7 +350,6 @@ void L3ChannelDescription::parseV(const L3Frame& src, size_t &rp)
 
 void L3ChannelDescription::text(std::ostream& os) const
 {
-
 	os << "typeAndOffset=" << mTypeAndOffset;
 	os << " TN=" << mTN;
 	os << " TSC=" << mTSC;
@@ -353,16 +357,16 @@ void L3ChannelDescription::text(std::ostream& os) const
 }
 
 
-
 void L3RequestReference::writeV( L3Frame &dest, size_t &wp ) const 
 {
 
 
-// 					Request Reference Format.
-// 		 	7      6      5      4      3     2      1      0
-//	  [      			RequestReference [7:0]   			]  Octet 2
-//	  [			T1[4:0]                 ][   T3[5:3]        ]  Octet 3
-//	  [       T3[2:0]     ][            T2[4:0]             ]  Octet 4
+	// Note: fields are written MSB first, then bytes are reversed later in the encoder.
+	// 					Request Reference Format.
+	// 		 	7      6      5      4      3     2      1      0
+	//	  [      			RequestReference [7:0]   			]  Octet 2
+	//	  [			T1[4:0]                 ][   T3[5:3]        ]  Octet 3
+	//	  [       T3[2:0]     ][            T2[4:0]             ]  Octet 4
 
 	dest.writeField(wp, mRA, 8);
 	dest.writeField(wp, mT1p, 5);
@@ -373,7 +377,10 @@ void L3RequestReference::writeV( L3Frame &dest, size_t &wp ) const
 
 void L3RequestReference::text(ostream& os) const
 {
-	os << "RA=" << mRA;	
+	os << hex << "RA=0x" << mRA << dec;	
+	// pat added: This is the frame number recomputed from T1p, T2, T3:
+	unsigned recomputed = 51 * ((mT3-mT2) % 26) + mT3 + 51 * 26 * mT1p;
+	os << " T=" << recomputed;
 	os << " T1'=" << mT1p;
 	os << " T2=" << mT2;
 	os << " T3=" << mT3;	
@@ -600,21 +607,21 @@ void L3MeasurementResults::text(ostream& os) const
 }
 
 
-unsigned L3MeasurementResults::RXLEV_NCELL(unsigned * target) const
+unsigned L3MeasurementResults::RXLEV_NCELLs(unsigned * target) const
 {
 	for (unsigned i=0; i<mNO_NCELL; i++) target[i] = mRXLEV_NCELL[i];
 	return mNO_NCELL;
 }
 
 
-unsigned L3MeasurementResults::BCCH_FREQ_NCELL(unsigned * target) const
+unsigned L3MeasurementResults::BCCH_FREQ_NCELLs(unsigned * target) const
 {
 	for (unsigned i=0; i<mNO_NCELL; i++) target[i] = mBCCH_FREQ_NCELL[i];
 	return mNO_NCELL;
 }
 
 
-unsigned L3MeasurementResults::BSIC_NCELL(unsigned * target) const
+unsigned L3MeasurementResults::BSIC_NCELLs(unsigned * target) const
 {
 	for (unsigned i=0; i<mNO_NCELL; i++) target[i] = mBSIC_NCELL[i];
 	return mNO_NCELL;
@@ -642,37 +649,59 @@ float L3MeasurementResults::decodeQualToBER(unsigned qual) const
 
 L3SI3RestOctets::L3SI3RestOctets()
 	:L3RestOctets(),
+	mHaveSI3RestOctets(false),
 	mHaveSelectionParameters(false),
 	mCBQ(0),mCELL_RESELECT_OFFSET(0),
 	mTEMPORARY_OFFSET(0),
-	mPENALTY_TIME(0)
+	mPENALTY_TIME(0),
+	mRA_COLOUR(0),
+	mHaveGPRS(false)
 {
+	// (pat) 11-26-2011 If you enable this in the OpenBTS sql, the microtech
+	// modem stops registering.
+
 	// See GSM 04.08 10.5.2.34 and 05.08 9 Table 1.
-	if (!gConfig.defines("GSM.SI3RO")) return;
+	// 12-12: Pat reversed the logic of this so the default is to have the rest octets
+	// if any of the other SI3R0 things are defined, unless you specifically
+	// define GSM.SI3RO as 0:
+	if (gConfig.defines("GSM.SI3RO")) {
+		mHaveSI3RestOctets = gConfig.getNum("GSM.SI3RO");
+		if (!mHaveSI3RestOctets) return;
+	}
 
 	// Optional Cell Selection Parameters.
 
 	// CELL_BAR_QUALIFY. 1 bit. Default value is 0.
 	if (gConfig.defines("GSM.SI3RO.CBQ")) {
 		mCBQ = gConfig.getNum("GSM.SI3RO.CBQ");
+		mHaveSI3RestOctets = true;
 		mHaveSelectionParameters = true;
 	}
 	// CELL_RESELECT_OFFSET. 6 bits. Default value is 0.
 	// C2 offset in 2 dB steps
 	if (gConfig.defines("GSM.SI3RO.CRO")) {
 		mCELL_RESELECT_OFFSET = gConfig.getNum("GSM.SI3RO.CRO");
+		mHaveSI3RestOctets = true;
 		mHaveSelectionParameters = true;
 	}
 	// Another offset to C2 in 10 dB steps, applied during penalty time.
 	// 3 bits.  // Default is 0 dB but "7" means "infinity".
 	if (gConfig.defines("GSM.SI3RO.TEMPORARY_OFFSET")) {
 		mTEMPORARY_OFFSET = gConfig.getNum("GSM.SI3RO.TEMPORARY_OFFSET");
+		mHaveSI3RestOctets = true;
 		mHaveSelectionParameters = true;
 	}
 	// The time for which the temporary offset is applied, 20*(n+1).
 	if (gConfig.defines("GSM.SI3RO.PENALTY_TIME")) {
 		mPENALTY_TIME = gConfig.getNum("GSM.SI3RO.PENALTY_TIME");
+		mHaveSI3RestOctets = true;
 		mHaveSelectionParameters = true;
+	}
+
+	mHaveGPRS = GPRS::GPRSConfig::IsEnabled();
+	if (mHaveGPRS) {
+		mHaveSI3RestOctets = true;
+		mRA_COLOUR = gConfig.getNum("GPRS.RA_COLOUR");
 	}
 }
 
@@ -680,36 +709,187 @@ L3SI3RestOctets::L3SI3RestOctets()
 size_t L3SI3RestOctets::lengthV() const
 {
 	size_t sumBits = 0;
+	if (!mHaveSI3RestOctets) { return 0; }
 	if (mHaveSelectionParameters) sumBits += 1 + 1+6+3+5;
-
+	else sumBits += 1;
+	sumBits += 1 // L for Optional Power Offset
+			+ 1 // L for System Information 2ter Indicator
+			+ 1 // L for Early Classmark Sending Control
+			+ 1; // L for Scheduling if and where
+	if (mHaveGPRS) sumBits += 1 // H for GPRS Indicator
+			+ 4;// Size of GPRS Indicator field.
+	else sumBits += 1;
 	size_t octets = sumBits/8;
 	if (sumBits%8) octets += 1;
 	return octets;
 }
 
 
+// GSM04.08 sec10.5.2.34
 void L3SI3RestOctets::writeV(L3Frame& dest, size_t &wp) const
 {
+	if (!mHaveSI3RestOctets) { return; }
+	size_t wpstart = wp;
 	if (mHaveSelectionParameters) {
 		dest.writeH(wp);
 		dest.writeField(wp,mCBQ,1);
 		dest.writeField(wp,mCELL_RESELECT_OFFSET,6);
 		dest.writeField(wp,mTEMPORARY_OFFSET,3);
 		dest.writeField(wp,mPENALTY_TIME,5);
+	} else {
+		dest.writeL(wp);
 	}
+	dest.writeL(wp); // L for Optional Power Offset
+	dest.writeL(wp); // L for System Information 2ter Indicator
+	dest.writeL(wp); // L for Early Classmark Sending Control
+	dest.writeL(wp); // L for Scheduling if and where (means no System Information Type 9.)
+	if (mHaveGPRS) {
+		dest.writeH(wp); // H for GPRS Indicator
+		// (pat) The GPRS Indicator.
+		dest.writeField(wp,mRA_COLOUR,3);
+		dest.writeField(wp,0,1);	// SI13 POSITION: 0 => BCCH Norm
+	} else {
+		dest.writeL(wp);
+	}
+	while (wp & 7) { dest.writeL(wp); }	// spare padding to byte boundary.
+	assert(wp-wpstart == lengthV() * 8);
 }
 
 
 void L3SI3RestOctets::text(ostream& os) const
 {
+	if (!mHaveSI3RestOctets) { return; }
 	if (mHaveSelectionParameters) {
 		os << "CBQ=" << mCBQ;
 		os << " CELL_RESELECT_OFFSET=" << mCELL_RESELECT_OFFSET;
 		os << " TEMPORARY_OFFSET=" << mTEMPORARY_OFFSET;
-		os << " PANALTY_TIME=" << mPENALTY_TIME;
+		os << " PENALTY_TIME=" << mPENALTY_TIME;
+	}
+	if (mHaveGPRS) {
+		os << " RA_COLOUR=" << mRA_COLOUR;
 	}
 }
 
+
+
+void L3HandoverReference::writeV(L3Frame& frame, size_t& wp) const
+{
+	frame.writeField(wp,mValue,8);
+}
+
+
+void L3HandoverReference::text(ostream& os) const
+{
+	os << "value=" << mValue;
+}
+
+
+size_t L3CipheringModeSetting::lengthV() const
+{
+	return 0;
+}
+
+void L3CipheringModeSetting::writeV(L3Frame& frame, size_t& wp) const
+{
+	frame.writeField(wp, mCiphering? mAlgorithm-1: 0, 3);
+	frame.writeField(wp, mCiphering, 1);
+}
+
+void L3CipheringModeSetting::text(ostream& os) const
+{
+	os << "ciphering=" << mCiphering;
+	os << " algorithm=A5/" << mAlgorithm;
+}
+
+size_t L3CipheringModeResponse::lengthV() const
+{
+	return 0;
+}
+
+void L3CipheringModeResponse::writeV(L3Frame& frame, size_t& wp) const
+{
+	frame.writeField(wp, 0, 3);
+	frame.writeField(wp, mIncludeIMEISV, 1);
+}
+
+void L3CipheringModeResponse::text(ostream& os) const
+{
+	os << "includeIMEISV=" << mIncludeIMEISV;
+}
+
+void L3SynchronizationIndication::writeV(L3Frame& frame, size_t& wp) const
+{
+	frame.writeField(wp,0xD,4);
+	frame.writeField(wp,mNCI,1);
+	frame.writeField(wp,mROT,1);
+	frame.writeField(wp,mSI,2);
+}
+
+void L3SynchronizationIndication::text(ostream& os) const
+{
+	os << "NCI=" << (int)mNCI << " ROT=" << (int)mROT << " SI=" << mSI;
+}
+
+
+void L3CellDescription::writeV(L3Frame& frame, size_t &wp) const
+{
+	frame.writeField(wp, mARFCN>>8, 2);
+	frame.writeField(wp, mNCC, 3);
+	frame.writeField(wp, mBCC, 3);
+	frame.writeField(wp, mARFCN & 0x0ff, 8);
+}
+
+
+
+void L3CellDescription::text(std::ostream& os) const
+{
+	os << " ARFCN=" << mARFCN;	
+	os << " NCC=" << mNCC;
+	os << " BCC=" << mBCC;
+}
+
+
+
+
+
+
+void L3SI13RestOctets::writeV(L3Frame& dest, size_t &wp) const
+{
+	size_t wpstart = wp;
+	dest.writeH(wp);	// Indicates Rest Octets are present.
+
+	// FIXME -- Need to implement BCCH_CHANGE_MARK
+	// If implemented, BCCH_CHANGE_MARK would be a counter
+	// that is incremented when the BCCH content changes.
+	dest.writeField(wp,gBTS.changemark()%8,3);	// BCCH_CHANGE_MARK
+
+	dest.writeField(wp,0,4);	// SI13_CHANGE_FIELD
+
+	dest.writeField(wp,0,1);	// no changemark or mobile allocation
+				// (pat) The GPRS "mobile allocation" is optional and does
+				// not indicate that GPRS service is present or absent.
+
+	dest.writeField(wp,0,1);	// no PBCCH  (pat says: This is correct.)
+	dest.writeField(wp,mRAC,8);
+	dest.writeField(wp,mSPGC_CCCH_SUP,1);
+	dest.writeField(wp,mPRIORITY_ACCESS_THR,3);
+	dest.writeField(wp,mNETWORK_CONTROL_ORDER,2);
+	mCellOptions.writeBits(dest,wp);
+	mPowerControlParameters.writeBits(dest,wp);
+	while (wp & 7) { dest.writeL(wp); }	// spare padding to byte bondary.
+	assert(wp-wpstart == lengthV() * 8);
+}
+
+
+void L3SI13RestOctets::text(ostream& os) const
+{
+	os << "RAC=" << mRAC;
+	os << " SPGC_CCCH_SUP=" << mSPGC_CCCH_SUP;
+	os << " PRIORITY_ACCESS_THR=" << mPRIORITY_ACCESS_THR;
+	os << " NETWORK_CONTROL_ORDER=" << mNETWORK_CONTROL_ORDER;
+	os << " cellOptions=(" << mCellOptions << ")";
+	os << " powerControlParameters=(" << mPowerControlParameters << ")";
+}
 
 
 // vim: ts=4 sw=4

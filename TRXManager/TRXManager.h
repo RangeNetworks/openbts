@@ -1,24 +1,14 @@
 /*
 * Copyright 2008 Free Software Foundation, Inc.
 *
-* This software is distributed under the terms of the GNU Affero Public License.
-* See the COPYING file in the main directory for details.
+* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
 
-	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
 
@@ -149,7 +139,11 @@ class ARFCNManager {
 
 	unsigned ARFCN() const { return mARFCN; }
 
-	void writeHighSide(const GSM::TxBurst& burst);
+	 // (pat) This passes the message through to UDPSocket::write(),
+	 // which maps to DatagramSocket::write() which does an immediate sendto() on the socket.
+	 // (pat) Renamed overloaded function to clarify code.
+	 // Culprit says who called us, for debugging.
+	void writeHighSideTx(const GSM::TxBurst& burst,const char *culprit);
 
 
 	/**@name Transceiver controls. */
@@ -172,9 +166,11 @@ class ARFCNManager {
 	/** Turn off the transceiver. */
 	bool powerOff();
 
-	/** 
-	    Turn on the transceiver. 
-	    @param warn Warn if the transceiver fails to start
+	/** Turn on the transceiver. */
+	
+	/**
+		Turn on the transceiver.
+		@param warn Warn if the transceiver fails to start
 	*/
 	bool powerOn(bool warn);
 
@@ -192,11 +188,32 @@ class ARFCNManager {
         */
         signed setRxGain(signed dB);
 
+        /**     
+                Set radio transmit attenuation
+                @param new desired attenuation in dB.
+                @return new attenuation in dB.
+        */
+        signed setTxAtten(signed dB);
+
+        /**     
+                Set radio frequency offset
+                @param new desired freq. offset
+                @return new freq. offset
+        */
+        signed setFreqOffset(signed offset);
+
+
         /**
                 Get noise level as RSSI.
                 @return current noise level.
         */
         signed getNoiseLevel(void);
+
+	/**
+	Get factory calibration values.
+	@return current eeprom values.
+	*/
+	signed getFactoryCalibration(const char * param);
 
 	/**
 		Set power wrt full scale.
@@ -227,6 +244,20 @@ class ARFCNManager {
 	*/
 	bool setSlot(unsigned TN, unsigned combo);
 
+	/**
+		Set the given slot to run the handover burst correlator.
+		@param TN The timeslot number.
+		@return true on succes.
+	*/
+	bool setHandover(unsigned TN);
+
+	/**
+		Clear the given slot to run the handover burst correlator.
+		@param TN The timeslot number.
+		@return true on success.
+	*/
+	bool clearHandover(unsigned TN);
+
 	//@}
 
 
@@ -253,6 +284,15 @@ class ARFCNManager {
 		@return Length of the response or -1 on failure.
 	*/
 	int sendCommandPacket(const char* command, char* response);
+
+	/**
+		Send a command with a parameter.
+		@param command The command name.
+		@param param The parameter for the command.
+		@param responseParam Optional parameter returned
+		@return The status code, 0 on success, -1 on local failure.
+	*/
+	int sendCommand(const char*command, const char*param, int *responseParam);
 
 	/**
 		Send a command with a parameter.

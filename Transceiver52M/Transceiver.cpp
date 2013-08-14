@@ -105,6 +105,7 @@ Transceiver::Transceiver(int wBasePort,
   mPower = -10;
   mEnergyThreshold = INIT_ENERGY_THRSHD;
   prevFalseDetectionTime = startTime;
+
 }
 
 Transceiver::~Transceiver()
@@ -114,20 +115,22 @@ Transceiver::~Transceiver()
   mTransmitPriorityQueue.clear();
 }
   
-
-void Transceiver::addRadioVector(BitVector &burst,
+radioVector *Transceiver::fixRadioVector(BitVector &burst,
 				 int RSSI,
 				 GSM::Time &wTime)
 {
+
   // modulate and stick into queue 
   signalVector* modBurst = modulateBurst(burst,*gsmPulse,
 					 8 + (wTime.TN() % 4 == 0),
 					 mSamplesPerSymbol);
   scaleVector(*modBurst,txFullScale * pow(10,-RSSI/10));
+
   radioVector *newVec = new radioVector(*modBurst,wTime);
-  mTransmitPriorityQueue.write(newVec);
+  //fillerActive[ARFCN][wTime.TN()] = (ARFCN==0) || (RSSI != 255);
 
   delete modBurst;
+  return newVec;
 }
 
 #ifdef TRANSMIT_LOGGING
@@ -153,6 +156,26 @@ void Transceiver::unModulateVector(signalVector wVector)
 }
 #endif
 
+// If force, set the FillerTable regardless of channel.
+// If allocate, must allocate a copy of the incoming vector.
+void Transceiver::setFiller(radioVector *rv, bool allocate, bool force)
+{
+	int TN = rv->getTime().TN() & 0x07;	// (pat) Changed to 0x7 from 0x3.
+	if (!force && (IGPRS == mChanType[TN])) {
+		LOG(INFO) << "setFiller ignored"<<LOGVAR(TN);
+		if (!allocate) { delete rv; }
+		return;
+	}
+	LOG(DEBUG) << "setFiller"<<LOGVAR(TN);
+	int modFN = rv->getTime().FN() % fillerModulus[TN];
+	delete fillerTable[modFN][TN];
+	if (allocate) {
+		fillerTable[modFN][TN] = new signalVector(*rv);
+	} else {
+		fillerTable[modFN][TN] = rv;
+	}
+}
+
 void Transceiver::pushRadioVector(GSM::Time &nowTime)
 {
 
@@ -161,37 +184,49 @@ void Transceiver::pushRadioVector(GSM::Time &nowTime)
     // Even if the burst is stale, put it in the fillter table.
     // (It might be an idle pattern.)
     LOG(NOTICE) << "dumping STALE burst in TRX->USRP interface";
-    const GSM::Time& nextTime = staleBurst->getTime();
-    int TN = nextTime.TN();
-    int modFN = nextTime.FN() % fillerModulus[TN];
-    delete fillerTable[modFN][TN];
-    fillerTable[modFN][TN] = staleBurst;
+    setFiller(staleBurst,false,false);
   }
-  
+
+  // Everything from this point down operates in one TN period,
   int TN = nowTime.TN();
-  int modFN = nowTime.FN() % fillerModulus[nowTime.TN()];
 
+  radioVector *sendVec = NULL;
   // if queue contains data at the desired timestamp, stick it into FIFO
-  if (radioVector *next = (radioVector*) mTransmitPriorityQueue.getCurrentBurst(nowTime)) {
-    LOG(DEBUG) << "transmitFIFO: wrote burst " << next << " at time: " << nowTime;
-    delete fillerTable[modFN][TN];
-    fillerTable[modFN][TN] = new signalVector(*(next));
-    mRadioInterface->driveTransmitRadio(*(next),(mChanType[TN]==NONE)); //fillerTable[modFN][TN]));
-    delete next;
-#ifdef TRANSMIT_LOGGING
-    if (nowTime.TN()==TRANSMIT_LOGGING) { 
-      unModulateVector(*(fillerTable[modFN][TN]));
+  bool addFiller = true;
+  while (radioVector *next = (radioVector*) mTransmitPriorityQueue.getCurrentBurst(nowTime)) {
+    //LOG(DEBUG) << "transmitFIFO: wrote burst " << next << " at time: " << nowTime;
+    LOG(DEBUG) << (sendVec?"adding":"sending")<<" burst " << next << " at time: " << nowTime;
+    setFiller(next,true,false);
+    addFiller = false;
+    if (!sendVec) {
+      sendVec = next;
+    } else {
+      addVector(*sendVec,*next);
+      delete next;
     }
-#endif
-    return;
   }
 
-  // otherwise, pull filler data, and push to radio FIFO
-  mRadioInterface->driveTransmitRadio(*(fillerTable[modFN][TN]),(mChanType[TN]==NONE));
-#ifdef TRANSMIT_LOGGING
-  if (nowTime.TN()==TRANSMIT_LOGGING) 
-    unModulateVector(*fillerTable[modFN][TN]);
-#endif
+  // pull filler data, and set it up to be transmitted
+  if (addFiller){
+    int modFN = nowTime.FN() % fillerModulus[TN];
+    radioVector *tmpVec = new radioVector(*fillerTable[modFN][TN],nowTime);
+    if (IGPRS == mChanType[TN]) {
+      LOG(DEBUG) << (sendVec?"adding":"setting")<<" GPRS filler burst on T" << TN << " FN " << nowTime.FN();
+    }
+    if (!sendVec) {
+      sendVec = tmpVec;
+    } else {
+      addVector(*sendVec,*tmpVec);
+      delete tmpVec;
+    }
+  }
+
+  //LOG(DEBUG) << "sendVec size: " << sendVec->size();
+
+  // What if sendVec is still NULL?
+  // It can't be if there are no NULLs in the filler table.
+  mRadioInterface->driveTransmitRadio(*sendVec,false);
+  delete sendVec;
 
 }
 
@@ -203,6 +238,7 @@ void Transceiver::setModulus(int timeslot)
   case II:
   case III:
   case FILL:
+  case IGPRS:
     fillerModulus[timeslot] = 26;
     break;
   case IV:
@@ -213,9 +249,6 @@ void Transceiver::setModulus(int timeslot)
     //case V: 
   case VII:
     fillerModulus[timeslot] = 102;
-    break;
-  case XIII:
-    fillerModulus[timeslot] = 52;
     break;
   default:
     break;
@@ -236,6 +269,7 @@ Transceiver::CorrType Transceiver::expectedCorrType(GSM::Time currTime)
   case FILL:
     return IDLE;
     break;
+  case IGPRS:
   case I:
     return TSC;
     /*if (burstFN % 26 == 25) 
@@ -271,16 +305,6 @@ Transceiver::CorrType Transceiver::expectedCorrType(GSM::Time currTime)
     else
       return TSC;
     break;
-  case XIII: {
-    int mod52 = burstFN % 52;
-    if ((mod52 == 12) || (mod52 == 38))
-      return RACH;
-    else if ((mod52 == 25) || (mod52 == 51))
-      return IDLE;
-    else
-      return TSC;
-    break;
-  }
   case LOOPBACK:
     if ((burstFN % 51 <= 50) && (burstFN % 51 >=48))
       return IDLE;
@@ -591,6 +615,36 @@ void Transceiver::driveControl()
       sprintf(response,"RSP SETTSC 0 %d",TSC);
     }
   }
+  else if (strcmp(command,"HANDOVER")==0) {
+    int  timeslot;
+    sscanf(buffer,"%3s %s %d",cmdcheck,command,&timeslot);
+    //sscanf(buffer,"%3s %s %d %d %d",cmdcheck,command,&timeslot,&corrCode,&ARFCN);
+    if ((timeslot < 0) || (timeslot > 7)) {
+      LOG(ERR) << "bogus message on control interface";
+      sprintf(response,"RSP HANDOVER 1 %d",timeslot);
+    }
+    else {
+      //mHandoverActive[ARFCN][timeslot] = true;
+      //sprintf(response,"RSP HANDOVER 0 %d",timeslot);
+      //handover fails! -kurtis
+      sprintf(response,"RSP HANDOVER 1 %d",timeslot);
+    }
+  }
+  else if (strcmp(command,"NOHANDOVER")==0) {
+    int  timeslot;
+    sscanf(buffer,"%3s %s %d",cmdcheck,command,&timeslot);
+    //sscanf(buffer,"%3s %s %d %d %d",cmdcheck,command,&timeslot,&corrCode,&ARFCN);
+    if ((timeslot < 0) || (timeslot > 7)) {
+      LOG(ERR) << "bogus message on control interface";
+      sprintf(response,"RSP NOHANDOVER 1 %d",timeslot);
+    }
+    else {
+      //mHandoverActive[ARFCN][timeslot] = false;
+      //sprintf(response,"RSP NOHANDOVER 0 %d",timeslot);
+      //hanover fails! -kurtis
+      sprintf(response,"RSP NOHANDOVER 1 %d",timeslot);
+    }
+  }
   else if (strcmp(command,"SETSLOT")==0) {
     // set TSC 
     int  corrCode;
@@ -605,6 +659,13 @@ void Transceiver::driveControl()
     setModulus(timeslot);
     sprintf(response,"RSP SETSLOT 0 %d %d",timeslot,corrCode);
 
+  }
+  else if (strcmp(command,"READFACTORY")==0) {
+    // TODO: Actually support reading data from various USRPs
+    int ret = 0; //fail everything -kurtis
+    //sprintf(response,"RSP READFACTORY 0 %d", ret);
+    // READFACTORY FAILS
+    sprintf(response,"RSP READFACTORY 1 %d", ret);
   }
   else {
     LOG(WARNING) << "bogus command " << command << " on control interface.";
@@ -628,10 +689,13 @@ bool Transceiver::driveTransmitPriorityQueue()
   }
 
   int timeSlot = (int) buffer[0];
+  int fillerFlag = timeSlot & SET_FILLER_FRAME;	// Magic flag says this is a filler burst.
+  timeSlot = timeSlot & 0x7;
   uint64_t frameNum = 0;
   for (int i = 0; i < 4; i++)
     frameNum = (frameNum << 8) | (0x0ff & buffer[i+1]);
-  
+
+ 
   /*
   if (GSM::Time(frameNum,timeSlot) >  mTransmitDeadlineClock + GSM::Time(51,0)) {
     // stale burst
@@ -649,13 +713,12 @@ bool Transceiver::driveTransmitPriorityQueue()
 */
   
   // periodically update GSM core clock
-  LOG(DEBUG) << "mTransmitDeadlineClock " << mTransmitDeadlineClock
-		<< " mLastClockUpdateTime " << mLastClockUpdateTime;
+  //LOG(DEBUG) << "mTransmitDeadlineClock " << mTransmitDeadlineClock
+  //		<< " mLastClockUpdateTime " << mLastClockUpdateTime;
   if (mTransmitDeadlineClock > mLastClockUpdateTime + GSM::Time(216,0))
     writeClockInterface();
 
-
-  LOG(DEBUG) << "rcvd. burst at: " << GSM::Time(frameNum,timeSlot);
+  LOG(DEBUG) << "rcvd. burst at: " << GSM::Time(frameNum,timeSlot) <<LOGVAR(fillerFlag);
   
   int RSSI = (int) buffer[5];
   static BitVector newBurst(gSlotLen);
@@ -665,10 +728,16 @@ bool Transceiver::driveTransmitPriorityQueue()
     *itr++ = *bufferItr++;
   
   GSM::Time currTime = GSM::Time(frameNum,timeSlot);
+
+  radioVector *newVec = fixRadioVector(newBurst,RSSI,currTime);
+
+  if (false && fillerFlag) {
+	setFiller(newVec,false,true);
+  } else {
+	mTransmitPriorityQueue.write(newVec);
+  }
   
-  addRadioVector(newBurst,RSSI,currTime);
-  
-  LOG(DEBUG) "added burst - time: " << currTime << ", RSSI: " << RSSI; // << ", data: " << newBurst; 
+  //LOG(DEBUG) "added burst - time: " << currTime << ", RSSI: " << RSSI; // << ", data: " << newBurst; 
 
   return true;
 

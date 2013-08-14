@@ -1,24 +1,17 @@
 /*
-* Copyright 2008-2011 Free Software Foundation, Inc.
+* Copyright 2008, 2009, 2010 Free Software Foundation, Inc.
+* Copyright 2010 Kestrel Signal Processing, Inc.
 *
-* This software is distributed under the terms of the GNU Affero Public License.
-* See the COPYING file in the main directory for details.
+* This software is distributed under multiple licenses;
+* see the COPYING file in the main directory for licensing
+* information for this specific distribuion.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
 
-	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
 
@@ -97,6 +90,21 @@ class TMSITable {
 
 	/** Set the classmark. */
 	bool classmark(const char* IMSI, const GSM::L3MobileStationClassmark2& classmark);
+
+	/** Get the preferred A5 algorithm (3, 1, or 0). */
+	int getPreferredA5Algorithm(const char* IMSI);
+
+	/** Save a RAND/SRES pair. */
+	void putAuthTokens(const char* IMSI, uint64_t upperRAND, uint64_t lowerRAND, uint32_t SRES);
+
+	/** Get a RAND/SRES pair. */
+	bool getAuthTokens(const char* IMSI, uint64_t &upperRAND, uint64_t &lowerRAND, uint32_t &SRES);
+
+	/** Save Kc. */
+	void putKc(const char* IMSI, std::string Kc);
+
+	/** Get Kc. */
+	std::string getKc(const char* IMSI);
 
 	/** Get the next TI value to use for this IMSI or TMSI. */
 	unsigned nextL3TI(const char* IMSI);

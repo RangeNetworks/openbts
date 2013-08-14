@@ -1,0 +1,788 @@
+Kyles Blackberry is Blackberry 9700
+
+Speed tests:
+	From mobileSpeedTest.com:
+	Original:
+		Your speed: 5.166 Kbps
+		Your latency: 3.057 seconds
+		Transferred 100KB in 154.86 seconds.
+	With ganged TBFs, TBF wrap-around disabled, GPRS.Counters.N3105=3, GPRS.TBF.Retry=4,
+	GPRS.SinglePduMode=0.  The thing is still getting alot of 3105 errors.
+	And in general it gets cause=1 too, although not during this test, but before.
+		Your speed: 6.984 Kbps
+		Your latency: 2.09 seconds
+		Transferred 100KB in 114.55 seconds.
+	Another try:
+		Your speed: 7.539 Kbps
+		Your latency: 2.583 seconds
+		Transferred 100KB in 106.11 seconds.
+	Then I tried allowing TBF wrap-around and it went down!
+		Your speed: 6.383 Kbps
+		Your latency: 2.34 seconds
+		Transferred 100KB in 125.34 seconds.
+
+
+Got 11 retries during the test,
+
+Note: GSM04.08 (L3 Procedures) and GSM04.18 (L3 messages) replaced by 44.18 + 24.08
+	4.08 has a state machine picture in 4.1.2, and GMM states a little after.
+	24.007 7.1.1 has lots of state machines including same state machine picture,
+		but I dont think they are useful.
+	3.64 6.2 has the DTM state machine picture.
+
+	23.060 6.1 has a description of GMM states (PMM_whatever) for 3G-SGSN.
+
+	24.007 11.2.4 - Lists IEI formats so you can tell how to skip an unrecognized IEI.
+
+	3.03 2.6 - how to encode TLLI.
+
+Measurement Reports:
+	45.008 10.1.4: in Network Control Order 2 (the one I have been using) if the 
+	MS detects a downlink signalling failure or random access failure
+	(as defined in 44.018/44.060) the MS will perform autonomous cell reselection.
+	This may have been what was happening when the MS would stop listening
+	to the BTS for 2 second straight.
+
+RA Update - for GPRS.
+LA Update - for CS calls.
+Combined RA/LA update permitted at SGSN.
+
+DRX mode and paging groups covered in GSM05.02.
+	MS tells DRX mode to SGSN in the GPRS Attach or RA Update messages.
+	Just what does the sgsn think it is going to do with it?
+
+GPRS:
+	Jean Samuel - French guy funding Russians to develop GPRS.
+
+The BCS Block Check Sequence shown in GSM03.64 6.6.4 figure 20
+is just the 40 bit checksum added by transmit().
+
+PDP Context Activiation: Getting IP address: 24.008 6.1.2
+
+GSM 4.64 - LLC layer.
+
+Note from man 7 tcp:
+	tcp_frto (integer; default: 0; since Linux 2.4.21/2.6)
+              Enables  F-RTO,  an enhanced recovery algorithm for TCP retransmission time-
+              outs (RTOs).  It is particularly beneficial in wireless  environments  where
+              packet loss is typically due to random radio interference rather than inter-
+              mediate router congestion.  See RFC 4138 for more details.
+
+              This file can have one of the following values:
+
+              0  Disabled.
+
+              1  The basic version F-RTO algorithm is enabled.
+
+              2  Enable SACK-enhanced F-RTO if flow uses SACK.  The basic version  can  be
+                 used  also  when  SACK  is  in use though in that case scenario(s) exists
+                 where F-RTO interacts badly with the packet counting of the  SACK-enabled
+                 TCP flow.
+
+              Before  Linux  2.6.22,  this  parameter was a Boolean value, supporting just
+              values 0 and 1 above.
+
+RadioResource.cpp: AccessGrantResponder()
+serviceLoop()
+TCHFACCHL1Encoder::dispatch() - does TCH data pushing.
+mDemuxTable in TRXManager.cpp, calls writeLowSideRx in a L1Decoder descendent class.
+mGPRSFEC
+
+Maximum LLC PDU size is 1560 bytes. (GSM04.60 sec9.1.12)  Bytes over are discarded in RLC.
+In unacknowledged mode, LLC-PDUs delivered in the order received, with 0-bits for missing blocks.
+The minimum payload size (using CS-1) is 20 bytes (see RLCPayloadSize)
+Therefore, a single PDU may take 78 blocks.
+
+There are 1-N downstream L1 physical channels.
+Each is connected to an L1FEC.
+
+An N-PDU is on the network side of SGMS
+A PDU (aka NS-PDU) is on the downstream side of SGMS, after SNDCP
+A Segment is a part of a PDU for transmission in an RLC Radio Block.
+
+All MAC control functions come from the SGMS via BSSGP.
+The RLC/MAC is entirely oblivious of PDU content, just passes it to SGMS.
+The RLC reports downlink packet loss information to SGMS as
+a Bucket Leak Rate, per BSS (aka BVC on the BSSGP interface), and per MS.
+
+Notes:
+  Notes: The SAPMux class defines writeHighSide and writeLowSide
+  An encoder class defines only writeHighSide
+  A decoder class defines only writeLowSide.
+
+  MAC MODE:
+	Dont understand.  For downlink allocation it is:
+		Dynamic allocation, Extended Dynamic allocation, (arent these inapplicable?)
+		Fixed allocation full duplex, Fixed allocation half duplex.
+
+  TBF Mode:
+    Packet Uplink Assignment, Packet Downlink Assignment, Immediate Assignment
+    TFI goes with TBF.  TFI is unique only within a PDCH.
+    For Multislot, TFI is unique in all PDCH of multislot.
+
+  RLC Mode:
+	Acknowledged or Unacknowledged.  (See GSM04.60 11.2.7 Packet Downlink Assignment)
+
+Upstream:
+  BSSGSP
+    Definitions:
+      BVCI - BSSGP Virtual Connection ID, 0 = signaling, 1 = PTM (point-to-multipoint)
+	It corresponds to a cell, and can be used instead of routing area id
+	at operators discretion.
+	NSEI+BVCI
+      NSE - Network Service Entity.  There is one or more NSE inside the BSS for signaling.
+      NSEI - Network Service Entity Id.
+	I think these correspond to BSS.
+      ---
+      NS-VC - Virtual Connection
+      ---
+      LSP - Link Selector Parameter, something used only inside the BSS or SGSN,
+      		and not transmitted, to uniquely identify NS-VC.
+		We wont use it.
+      QoS Profile: specifies transmission mode (acknowledged, etc), bit rate, other stuff.
+    Messages:
+    DL-UNITDATA
+      Includes PDU type (DL-UNITDATA), TLLI, QoS Profile, PDU Lifetime, PDU.
+      optional: IMSI, oldTLLI, PFI (Packet Flow Identifier), etc.
+      Does NOT include LSP, BVCI, NSEI
+    UL-UNITDATA
+      Includes PDU type (UL-UNITDATA), TLLI, BVCI, Cell Identifier, PDU.
+      Does NOT include LSP, BVCI, NSEI.
+    GMM-PAGING-PS/GMM-PAGING-CS (for packet or voice)
+      Includes PDU type (PAGING-PS), QoS Profile, P-TMSI <or> IMSI.
+      Note: If TLLI is specified and already exists within a Radio Context in BSS
+      [because MS has communicated previously] it is used.
+
+      BVCI <or> Location Area <or> Routing Area <or> BSSArea Indication
+      Optional: P-TMSI, BVCI, Location area, Routing area.
+    GMM-RA-CAPABILITY, GMM-RA-CAPABILITY-UPDATE
+      Astonishingly, the BSS asks the SGSN for this info.
+    GMM-RADIO-STATUS
+    GMM-SUSPEND
+    GMM-RESUME
+    NM-FLUSH
+    NM-LLC-DISCARDED
+    NM-FLOW-CONTROL-BVC
+    NM-FLOW-CONTROL-MS
+    NM-STATUS
+    NM-BVC-BLOCK/NM-BVC-UNBLOCK
+    NM-BVC-RESET
+    NM-TRACE
+    PFM-...
+
+Downstream:
+  RACH/AGCH for paging.
+  PDUs via RLC
+
+
+SGSN Uplink:
+// 
+// OpenBSC endpoint for NS layer packets: libgp/gprs_ns.c:read_nsip_msg
+// (in OpenBSC, NSIP means NS over IP), which eventually calls:
+// libgp/gprs_ns.c:gprs_ns_rcvmsg(), in which BSS is identified by three ways:
+// 1.  First it tries using the IP address of the BSS to identify the BSS.
+// 2.  If unrecognized, the NSEI specified in the NS_RESET command is used.
+// 3.  If no NS_RESET ever received, sets NSEI to 0xfffe and proceeds; this works
+//     if there is only one BSS, ever, as in our case.
+// NS-UNITDATA packets (the only data type) are sent to gprs_ns_rx_unitdata(),
+// which somehow calls sgsn_ns_cb() (a callback function)
+// which calls libgp/bprs_bssgp.c:gprs_bssgp_rcvmsg(bci and nsei as params)
+// which looks up the BTS using the NSEI, then uses:
+// switch (BVCI) {
+//	case BVCI_SIGNALLING: gprs_bssgp_rx_sign()
+//	case PVCI_PTM: // throw an error
+//	default: gprs_bssgp_rx_ptp().
+// gprs_bssgp_rx_ptp() is the main BSSGP function, does this:
+// switch (pdu_type):
+//	case BSSGP_PDUT_UL_UNITDATA: bssgp_rx_ul_ud(),
+//		which calls bssgp_rx_ul_ud(),  which calls gprs_llc_rcvmsg()
+//	case BSSGP_PDUT_FLOW_CONTROL_BVC: bssgp_rx_fc_bvc();
+//	default: // throw an error
+// 
+// gprs/gprs_llc.c:gprs_llc_rcvmsg() is the main entry point.
+//	extracts TLLI, and forwards message based on SAPI to:
+//	case GPRS_SAPI_GMM: gsm0408_gprs_rcvmsg()
+//	case GPRS_SAPI_SNDCP3/5/9/11: sndcp_llunitdata_ind(),
+//		which assembles NS-PDUs as per SNDCP, then sends the complete N-PDU to:
+//		sgsn_rx_sndcp_ud_ind(), which looks up the MM context by RAI+TLLI,
+// 		then looks up the PDP context by NSAPI+MM context,
+//		counts bytes sent, then calls gtp_data_req(gsn, pdp->lib,npdu,npdu_len)
+
+SGSN Downlink:
+Packets come in on a tunnel, may have different header sizes depending on version.
+Gtp lib decapsulates them, gtp_decaps0(),gtp_decaps1(), gets the header,
+which may indicate PDP creation, update, etc, or "GTP_PDU" type, which calls:
+gtp/gtp.c: gtp_gtpu_ind() which calls (via callback table, to get out of gtp lib)
+sgsn_libgtp.c: cb_data_ind(struct pdp_t*lib,void *packet,unsigned len)
+The pdp has an MM context, which has the nsei+bvci+tlli.
+If mm_state is GMM_REGISTERED_SUSPENDED, it calls gprs_bssgp_tx_paging(),
+(and apparently drops the incoming NPDU on the floor)
+else if mm_state is GMM_REGISTERED_NORMAL it just sends the packet to:
+sndcp_unitdata_req()
+Eventually it calls:
+int gprs_bssgp_tx_dl_ud(struct msgb *msg, struct sgsn_mm_ctx *mmctx)
+	which calls: gprs_ns_sendmsg(bssgp_nsi, msg);
+	where bssgp_nsi is a global var.
+int gprs_ns_sendmsg(struct gprs_ns_inst *nsi, struct msgb *msg)
+	does: { ... nsvc = nsvc_by_nsei(nsi, msgb_nsei(msg)); }
+	then calls gprs_ns_tx(nsvc,msg)
+which calls nsip_sendmsg(nsvc,msg)
+which if the encapsulation is udp calls gprs_ns_tx(nsvc,msg) (else *_frgre_*something()
+which calls nsip_sendmsg(nsvc,msg) which uses:
+	struct gprs_ns_inst *nsi = nsvc->nsi;
+    struct sockaddr_in *daddr = &nsvc->ip.bts_addr;
+	rc = sendto(nsi->nsip.fd.fd, msg->data, msg->len, 0,
+			   (struct sockaddr *)daddr, sizeof(*daddr));
+
+
+In osmocom/openbsc/openbsc/src/gprs
+I modified the sgsn Makefile to remove -lgtp, and took out all the gtp references
+execpt pdp stuff, so we can move that file to sgsn and stop linking with libgtp.
+Notes: the cb_conf callback creates the pdp context;
+to replace, I must call create_pdp_conf(), which calls gsm48_tx_gsm_act_pdp_acc() to
+send an acknowledgment to the MS.
+The eua is struct pdp_t is the IP address.  First byte is IETF, second 
+GPRS Messages in GSM04.08  also GSM44.18
+
+the opensgsn accepts flow control messages but ignores them
+
+Wikipediate/GPRS_Core_Network says:
+GTP-U is used for user-data in spearated unnels for each PDP context.
+GTP-C for control: setup of PDP contexts, etc.
+GTP-C on UDP port 2123 and GTP-U port 2125
+GTP version zero supports both on one generic header, can be used with UDP or TCP on port 3386.
+But port 3386 is also dedicated to the charging service, specifically: "GSM/UMTS CDR logging protocol".
+GSM 20.060 - Routing!  Finally!
+
+sndcp:
+/* Request transmission of a SN-PDU over specified LLC Entity + SAPI */
+sndcp_unitdata_req()
+Note that sndcp header compression is optional, so I suspect opensgsn doesnt bother, not sure.
+
+
+GTP and GGSN:
+See 29.060 for GTP, and 27.060 for an example.
+29.060 7.3.2 create pdp context response:
+
+PPP is not normally used on the GGSN
+PPP support was added to allow an MS to use PPP to go all the way to a network endpoint.
+See cisco document: http://www.cisco.com/en/US/docs/ios/12_3/12_3y/12_3yq/ggsn_5_2/configuration/guide/ggsnppp.html
+
+And I quote:
+If the MS requests a dynamic PDP address with the PDP Type IPv4, IPv6 or
+IPv4v6 and a dynamic PDP address is allowed, then the End User Address
+information element shall be included and the PDP Address field in the End
+User Address information element shall contain the dynamic PDP Address(es)
+allocated by the GGSN.  If the MS requests a static PDP address with
+the PDP Type IPv4, IPv6 or IPv4v6, or a PDP address is specified with
+PDP Type PPP, then the End User Address information element shall be
+included and the PDP Address field shall not be included.
+
+
+ephemeral ports:
+cat /proc/sys/net/ipv4/ip_local_port_range 
+
+
+ /* actually send the N-PDU to the SGSN core code, which then
+  * hands it off to the correct GTP tunnel + GGSN via gtp_data_req() */
+return sgsn_rx_sndcp_ud_ind(&sne->ra_id, lle->llme->tlli, sne->nsapi, msg, npdu_len, npdu)
+
+// Wrap BSSGP packets in yet another layer per 44.018
+// OpenBSC endpoint: libgp/gprs_ns.c:read_nsip_msg (NSIP == NS over IP), which eventually calls:
+struct NSLayer {
+};
+
+// Talk to BSSGSP (or whomever)
+struct BSSGPLayer {
+  send and recv L2 messages.
+  Talk to the socket.
+};
+
+
+
+class MACB {
+  // Just one of these.
+  For each PCH:
+  	TFI table - points to MACD for each TFI for both uplink and downlink.
+	// Which MS is using which Block locations currently.
+	// This could just be bit mask, which is set when TBF allocated
+	// and reset when TBF unallocated.  If you really need to know
+	// who owns a slot, you could run through the TFI table.
+	Uplink_Block_Assignment[12];
+	Downlink_Block_Assignment[12];
+  IMSI to MACD table
+  PTMSI to MACD table
+  TLLI to MACD table
+
+  // Routine to assign blocks to MACDs.
+};
+
+GPRSChannel pickChannel() {
+}
+
+
+class MACD {	// aka Radio Context.
+  // One per IMSI or TLLI, which means one per MS.
+  // We will keep these around until the MS detaches, or they get really old.
+  TLLI mtlli;	// Not known when MS first attaches.
+  IMSI mimsi;
+  // State of MS: packet-idle, packet-transfer.
+  // Points to in-process TBFs; there could be multiple ones because a single
+  // block.
+  // 1 or more PCH assigned to MS.
+  // NO, the SGMS does this: Incoming message may be control or data, routed to UplinkTBF.
+};
+
+class GPRSChannel {
+  GPRSL12Uplink *uplink;
+  GPRSL12Downlink *downlink;
+};
+
+class GPRSL12Uplink {	// aka PCH
+  	// downstream attaches to a single Physical channel in L1FEC.
+  	// Incoming messages are routed to MACD based on TFI.
+	List mReservations;	// Radio blocks that have been reserved for some purpose,
+				// eg, single block grants requested by RACH
+	// Return an available RB on this uplink.
+	RBN reserveOneBlock() {
+	}
+};
+
+class GPRSL12Downlink {	// aka PCH
+	// One of these for each PCH (physical channel), attached to L1FEC.
+	// Accepts Radio Blocks from anybody.
+};
+
+class AGCHResponder {
+	// This class queues GPRS responses that must be sent via AGCH.
+	// These are:
+};
+
+class GPRSRachManager - not needed, just use some functions.
+{
+	// Receives Packet Channel Request on RACH.  (from Control:AccessGrantResponder())
+	// Routes to MACD.
+	// Note that SGMS knows nothing about this yet - the MS will use its newly
+	// allocated channel to send a PDU that goes to SGMS.
+};
+
+// A TBF can be a single block packet access, or one or two phase multi-block access,
+// although this class does not do the phases, it just handles a single TBF transaction,
+// then disappars.
+class DownlinkTBF {
+	// Contains the downlink RLCEngine.
+	PDU *data[0..n]		// 1 or more PDUs to send.
+	GPRSL12Downlink mpch[4];		// Up to 4 physical channel
+	int PDUPriority
+	MACD *my_ms;		// Used to get TLLI.
+	int TFI;		// 0..7, assigned when transaction starts.
+};
+
+// For open-ended dynamic uplink, which uses USF, the MS will continue to monitor
+// the PDCH for its USF value until it receives ... or until T3180 expires: 5 seconds.
+// If MS finishes, it sends its final block then immediately enters packet-idle mode
+// unless there is a downlink in progress.
+class UplinkTBF {
+	// Contains the uplink RLCEngine.
+	// Assembles the PDUs and sends them to BSSGP.
+};
+
+
+
+
+=========================================================================
+
+// IMMEDIATE ASSIGNMENT FORMAT: GSM04.08sec9.1.18
+// Notes: We will not use:
+//	Immediate_Assignment_Extended for RR only and addresses 2 mobiles simultaneously.
+//	"RR Packet Uplink/Downlink Assignment" is part of the "Packet Assignment"
+//	command that is sent on DCCH of an MS with an ongoing RR channel.
+struct {
+  uint l2_pseudo_length:8;
+  uint RR_protocol_discriminator:4;	// Not sure, see 04.18sec10.2, GSM24.07
+  uint skip_indicator:4;	// 0 == dont ignore this message.
+  uint message_type:8;		// 0x3f == IMMEDIATE_ASSIGNMENT,
+  uint page_mode:4;
+  uint dedicated_mode_or_TBF:4;	// sec10.5.2.25b
+    // bits are:
+  	// unused:1;
+	// TMA:1; 0 == no meaning ??, 1 == first of two message TBF assignment.
+	// downlink:1; 0 == RR, 1 == TBF.
+	// TD:1; 0 == no meaning ??, 1 == there is something in the rest octets
+		// for a TBF, it is the Packet Uplink Assignment.
+  uint channel_description:24;		// for RR, ignored for TBF.
+  // GSM04.08sec10.5.2.25a
+  <or> uint packet_channel_description:24;	// for TBF
+      struct {
+	uint channel_type:5;		// unused, must be 1;
+	uint TN:3;			// Timeslot Number.
+	uint TSC:3;			// Training Sequence Code; GSN.05.02
+	uint union_encode_bits:2; 	// set to 0x00 to indicate no frequency hopping.
+	uint spare:1;			// set to 0
+	uint ARFCN:10;
+      };
+  uint request_reference:24;		// Identifies the MS that sent the RACH.
+      // use: L3RequestReference foo(RA,GSM::Time&when);
+      struct {
+	uint RA:8;		// The 8-bit RACH message sent by the MS.
+	// The T? fields encode the FN module 42432 in which RACH was received.
+	// Note: FN modulo 42432 == (51X((T3-T2) mod 26) + T3 + 51*26*T1prime
+	uint T1prime:5;		// FN (div 1326) mod 32;
+	uint T3highpart:3	// FN mod 51, in 6 bits;
+	uint T3lowpart:3;
+	uint T2:5;		// FN mod 26.
+	};
+  uint timing_advance:8;
+  mobile allocation:8; 		// encoded as Format LV? length 1-9 bytes.
+  				// length indicator set to 0 unless there is frequency hopping.
+  starting_time:24;		// optional, encoded as Format TV with IEI = 0x7c;
+  				// Sec 9.1.18.2 says: starting_time ignored for TBF.
+  IA_rest_octets[]		// For RR, may be Frequency Params
+  			// For TBF, may be Packet Uplink Assignment, Packet Downlink Assignment,
+			// or Second Part Packet Assignment sec10.5.2.16
+  // Packet Uplink Assignment Message rest_octets:
+  struct IA_Rest_Octets {	// 10.5.2.16
+    union1:2;  // Must be HH for a TBF
+    uint type1;	// 0 => Packet Uplink/downlink Assignment,
+    		// 1 =>  Second Part Assignment.
+    uint type2:	// 0 => packet_uplink_assignment, 1 => Packet_Downlink_Assignment,
+
+    Packet_Uplink_Assignment {
+    uint union_altype:1:	// 0 => single_block_allocation, 1 => Fixed or Dynamic Allocation;
+    		// (But note: polling indicates a Fixed Allocation for just one block.)
+    if (union_altype == 1) {
+      uint TFI_Assignment:5;
+      uint Polling:1;	// 1 => MS shall send a Packet Control Acknowledgement in the
+      			// uplink block specified by TBF Starting TIme.
+      uint union_fixed_indicator:1;
+      if (union_fixed_indicator == 0) {
+	// USF stuff, we dont need yet.
+      } else {	// union_fixed_indicator == 1
+	Allocation_Bitmap_Length:5;
+	Allocation_Bitmap // variable sized.
+	union_p0_indicator:1;	// 1 =>  P0 present;
+	if (union_p0_indicator == 1) {
+	  P0:4; BTS_PWR_CTRL_MODE:1; PR_MODE:1;
+	}
+      }
+      Channel_Coding_Command:2;
+      TLLI_Block_Channel_Coding:1;
+      { 0 | 1 ALPHA:4; }
+      GAMMA:5
+      { 0 | 1 Timing_Advance_Index:4}
+      { 0 | 1 TBF_Starting_time:16 }
+    } else {	// union_altype == 0
+      // Single Block Allocation
+      { 0 | 1 ALPHA:4; }
+      GAMMA:5
+      uint Note1_bits:2;	// Must be 0x1;
+      TBF_Starting_time:16;
+      {L | H 
+	  P0:4; BTS_PWR_CTRL_MODE:1; PR_MODE:1;
+      }
+    }
+    };
+  };
+};
+
+=========================================================================
+
+Mobile Originated Packet Transfer:
+  Described in GSM03.64sec6.6.4.7, and GSM44.018sec3.
+  Note: GSM44.018 talks about RR establishment, which is a voice call, in sec 3.2,3.3 and 3.4.
+  Voice mode is "idle mode" or "dedicated mode" 
+  GPRS is in "packet idle mode" or "packet transfer mode".
+  Note that an MS in packet idle mode will receive pages on PACCH, but the Page may specify
+  establishment of a GSM RR connection, ie a voice call.
+  Section 3.5 (and only sec 3.5) talks about packet mode.
+
+  PACCH = Packet Associated Control Channel.
+
+	RACH -> Packet Channel Request (requests one block, may request one or two phase mode)
+	  GSM04.18sec9.1.8 - Channel Request word encoding.
+	  GSM04.18sec3.3.1.1.1 Channel request procedure.  and GSM24.07? 
+	  This message contains only:
+	  	Establishment Cause (1 byte)
+		Random Reference (There is none in this case,
+		because Establishment Cause takes the whole byte.)
+	  (Mobile may send M+1 of these)
+	  Which phase will be requested documented in 44.018 3.5.2.1.2, but I dont think we care.
+	  Establishment cause is one or two phase "packet access".
+	  The request may specify:
+	    - for user data, unacknowledged mode, MS requests single block, and attempts two-phase;
+	    - for user data, acknowledged mode, MS requests either one-phase access
+	    	or a single block packet access.
+	    - for page response, etc, MS requests a one phase access.
+	    Note: Network may change one-phase request into single-block access, which forces
+	      the MS to perform two-phase access [if it wants to send multiple packets].
+	  fy, for GSM: After sending M+1, MS starts T3126, and if no answer, gives up.
+	  MS enters packet transfer mode, and listens to all of BCCH and CCCH in its timeslot.
+
+	  GPRS: After sending max number of Channel Request, MS starts T3146,
+	  after which is sends a Random Access Failure and looks for another cell.
+
+	Response may be any of:
+	AGCH <- IMMEDIATE ASSIGNMENT, which either contains Packet Uplink Assignment,
+		or bit in "Dedicated mode or TBF" element saying it is 2 part,
+		in which case the real IMMEDIATE ASSIGNMENT is sent within 2 multiframes.
+		The MS will then respond to IMMEDIATE ASSIGNMENT, (and then can try to do its
+		uplink using the packet channel.)
+	AGCH <- REJECT, which lets the MS look for another cell.
+	PAGCH <- Packet Queuing Notification. (optional, used if heavy traffic,
+		but only applicable on PCCCH, not CCCH.)
+
+	Medium Access Modes:
+	  Fixed, Dynamic (uses USF), Extended Dynamic, or Exclusive Allocation.
+
+	For two-phase access, need an additional set of transfers before starting:
+	PACCH -> Packet Resource Request (optional, used for Fixed or Exclusive Allocation)
+	PACCH <- Packet Uplink Assignment (optional, used for Fixed or Exclusive Allocation)
+	    For Fixed Allocation, Packet Uplink Assignment specfies start frame, slot, and
+	    bitmap of blocks assigned to MS.
+
+	For one-phase access:
+	I think one-phase access also works for a single unacknowledged uplink block?
+	For Dynamic Allocation, USF (Uplink State Flag) in download block tells MS
+	when they can use the upload blocks.
+
+Unacknowledged Mode Uplink Data Transfer:
+    Fixed Allocation Uplink 4.60sec8.1.1.3:
+	Initiation by MS sending PACKET RESOURCE REQUEST, using Mobile Originated blah above,
+	or during downlink transfer, can also send PACKET DOWNLINK ACK/NAC with
+	essentially the same info.
+	Closed-ended TBF:
+	  PACKET RESOURCE REQUEST includes non-zero RLC_OCTET_COUNT, which is number
+	  of bytes + RLC block length but less LLC boundaries, which the network must add in.
+	  Network sends PACKET UPLINK ASSIGNMENT with enough blocks to handle it.
+	  Premature end is possible by FINAL_ALLOCATION indication in a fixed allocation
+	  assignment message.
+	Open-ended TBF:
+	  At the beginning of the uplink allocation the MS may request to continue the TBF
+	  by transmitting another PACKET RESOURCE REQUEST or PACKET DOWNLINK ACK/NACK,
+	  with the number RLC data otets ready to transmit in the RLC_OCTET_COUNT.
+	  [in the Channel Request Description IE.]
+	  Alternatively, can request open-ended TBF with first PACKET RESOURCE REQUEST
+	  RLC_OCTET_COUNT == 0.
+	  Network sends another PACKET UPLINK ASSIGNMENT with a new fixed allocation,
+	  or PACKET ACCESS REJECT.  PACKET UPLINK ASSIGNMENT may also set the FINAL_ALLOCATION bit
+	  to stop the open-ended transfer after this final assignment.
+
+	PDTCH (assigned slot and block numbers) -> Data
+	...
+	PACCH <- Packet Uplink Ack/Nack (includes the successfully received block mask, but it is not used except to determine channel quality.)
+	No Packet Control Acknowledgment is sent..
+
+Notes Uplink Data Transfer, either acknolwedged or unacknowledged:
+	Network can send a downlink assignment or timeslot reconfig (needed for multislot)
+	while uplink is running.
+	If MS in half duplex mode it has to wait for uplink to end before
+	starting a downlink.
+	Note: Half Duplex Mode is a Medium Access Mode described in GSM04.60sec8.1.0,
+	specified in MAC_MODE parameter in downlink assignment, or
+	weirdly in uplink assignment.
+
+
+Holding the line open:
+	By this I mean, keeping the MS listening to PDCH so you dont have to send
+	another control block on CCCh.
+	Downlink: you cant hold the TBF open, because the RLC Data Block has a TFI bit
+	that indicates the end of the transfer.  I looked a little at sending 0 sized blocks,
+	but became confused.  However, after downlink, the MS stays on PDCH
+	until T3192 expires, for both Acknowledged (sec 9.3.2.6) and Unacknowledged mode, (sec 9.3.3.5.)
+	(Note: T3191 is something to do with how long the MS has to respond
+	to the final block sent downlink.)
+	Accodring to GSM04.60 table 13.1, you can continue to send down the final block
+	of the transaction over and over to keep T3192 reset.
+	This would work for acknowledged mode, because the network is just pretending
+	it did not receive the final block, but I am not sure how this would work in
+	unacknowledged mode, where each block is only sent once.
+
+	Uplink: See 04.60 sec 9.3.3.3.  After the final uplink block, network sends
+	Packet Uplink Ack/Nack (even for unacknowledged mode) with "Final Ack" == 1
+	and an RRBP field, which indicates an uplink slot the MS uses to send
+	a new PACKET RESOURCE REQUEST if it wants to send more, or PACKET CONTROL ACKNOLWEDGEMENT
+	and unless there is a downlink TBF in progress, immediately enters packet-idle mode.
+	If the Packet Control Acknowledgement is a RACH, there is also a way to encode
+	CTRL_ACK to specify the MS wants a new uplink TBF.  The Packet Control Acknowledgement
+	documentation for CTRL_ACK is full of special cases because you would only use
+	that if it is a RACH, otherwise the MS would send a Packet Resource Request.
+	Options:
+	o   Sec 7.1 lists all the ways an uplink TBF can be established, and there is no way
+		for the MS to do this during the T3192 period, when there is no TBF in either
+		direction but the MS is still waiting out T3192 for a new downlink TBF.
+		If you want to keep the MS camped on PDCH, they expect you to use PCCCH.
+	o	The network could delay sending the final uplinkAck/Nack up to 5 sec, but that might
+		prevent the MS from starting a new uplink until then.
+	o   The network could send an AckNack requesting retransmission just to keep the MS
+		on the line, but that risks having an outright failure reported by the MS to upper
+		layers if it cannot get the block through on the resend, and at the very least,
+		reporting incorrect QoS parameters.
+	o	Near the end of T3192 (after downlink ends) send an unsolicited single-block uplink.
+		This is undocumented, so it might not work.
+	o   This idea does not work (because MS must respond to an RRBP, which it will not get):
+		The network could send a new downlink message before T3192 expires,
+		and then just never send any downlink (let the timer expire) and send
+		Packet Polling Requests to the MS.  The 51-multiframe is a 1/4 sec.
+	o	Maybe network could send a dummy control block with an RRBP field.
+
+	For Fixed uplink, the MS may request more uplink via:
+	bits in the "Packet Downlink Ack/Nack" block sent
+	upwards during an existing downlink, or in the first packet of an existing uplink.
+
+Notes: The "GPRS Cell Options" information element (GSM04.60 table 12.4.2) is
+sent in PSI1, PSI13, PSI14 (PACCH only), and SI13.
+Note that both PSI1 and PSI13 can be sent on PAACH as well as PCCCH.
+
+It specifies the values for T3168: range 0-0.5sec and T3192: range 0-1.5sec.
+
+The RRBP field in acknowledged download mode specifies yet another
+single block packet the MS can send upwards, for Ack/Nack or any other purpose
+the MS desires.
+
+The first block of a downlink must arrive within T3190, which is 5sec.
+The MS will stay camped on the downlink until T3190 expires, which is 5sec.
+
+
+
+
+Acknowledged Mode Uplink Data Transfer:
+    (Note: TBF survives until all blocks acknowledged.)
+
+    Fixed Allocation Transfer:
+	PDTCH (assigned slot and block numbers) -> Data
+	...
+	PACCH <- Packet Uplink Ack/Nack
+		(or unsolicited PACKET UPLINK ASSIGNMENT or TIMESLOT RECONFIG)
+	PACCH -> Packet Control Acknowledgment.
+
+    Dynamic Allocation Transfer:
+	PDTCH -> Data
+	...
+	PACCH <- Packet Uplink Ack/Nack
+	PDTCH -> Data (new data or possibly retries)
+	..
+	PDTCH -> Last Data Block.
+
+	PACCH <- Packet Uplink Assignment
+	PACCH -> Packet Control Acknowledgment.
+
+Downlink Transfer:
+	PACKET DOWNLINK ASSIGNMENT or TIMESLOT RECONFIG contains TBF start time.
+	If a second downlink assignment or timeslot reconfig arrives while downlink
+	in progress, MS waits until TBF start time, then switches to new one.
+	If the downlink assignment does not include a TBF start time, the MS reacts
+	within reaction time specified in GSM05.10.
+	If the gap between blocks addressed to itself ever exceeds T3190, MS aborts
+	as per sec 8.7.1
+	Network sends PACKET TBF RELEASE to end downlink prematurely.
+	If no on-going uplink TBF, puts the MS in packet idle mode.
+	Note: It looks like you can keep the "line open" by letting
+
+Network Originated Downlink: GSM4.08 sec3.5.3
+	CCCH <- IMMEDIATE ASSIGNMENT with a Packet Downlink Assignment,
+		IMMEDIATE ASSIGNMENT format in GSN04.18sec9.1.18
+		Note: The network must use this only when MS is in packet-idle mode.
+		The IMMEDIATE ASSIGNMENT contains:
+		  packet channel description, initial timing advance, and packet downlink assignment,
+		  which contains: TLLI, TFI, RLC mode, power control, polling bit,
+		  timing advance valid flag,
+		  and optionally: TAI (timing advance index) and/or TBF start time.
+	optional: MS -> PDCH  If polling bit is 1, MS waits for TBF start time and
+		sends PACKET CONTROL ACKNOWLEDGMENT first.
+		Note: in this case TBF start time applies both to download time and upload time.
+	Then network starts sending the packets.
+	Note: 4.08 sec 3.5.3.2 says you can also send a single RLC/MAC control message the same way,
+	but you dont have to specify TFI.
+
+Network Originated Page:
+    The GMM can use this to find out the Routing Area of the MS.
+    For GPRS see 44.018sec3.3.2.1.1 "Paging initiation using paging subchannel on CCCH"
+    	PCH of CCCH <- Paging Request, using P-TMSI or IMSI.
+	  CCCH Paging Request format in GSM04.18sec9.1.22 and following.
+		If IMSI, page request may be for RR (voice) or packet, depending on
+		"Packet Page Indication" field.
+	RACH -> Channel Request
+
+	Mobile then does a Mobile Originated Packet Transfer, and sends a packet paging response
+	(GSM03.64) to the network, which is an LLC frame and we dont need to know anything
+	more about it, because it is interpreted inside the SGSN.
+	Note: The SGSN sets the mobility management mode to "Ready", but the MS is usually
+	still in packet-idle-mode until the SGSN initiates a downlink packet transfer.
+
+	CCCH [AGCH?] <- Packet Uplink Assignment (or Immediate Assignment)
+
+	For two-phase access:
+	PACCH -> Packet Resource Request (optional, used for Fixed or Exclusive Allocation)
+	PACCH <- Packed Uplink Assignment (optional, used for Fixed or Exclusive Allocation)
+
+	PDTCH -> Packet Paging Response (LLC frame)
+	Now the MM (Mobility management) state of the MS is Ready.
+
+    When MS is in Ready state:
+	If Packet uplink in progress:
+	  PACCH <- Packet Downlink Assignment Message, specifies PDCH to be used.
+	else:
+	  CCCH <- Immediate Assignment Message, specifies PDCH to be used.
+	  -> Packet Control Acknowledgement (if requested by network, used for timing advance)
+	PDCH <- Data, indicated by TFI
+	  All the modes same as for uplink.
+
+
+
+=========================================================================
+
+GSM MODE (old, I aborted this):
+	RACH -> Packet Channel Request (requests one block, may request one or two phase mode)
+	  (Mobile may send M+1 of these)
+	  Includes establishment cause which may be "answer to paging", or
+	  "procedures that can be completed with SDCCH"
+	  GPRS Channel Request Purposes are in 44.018 3.5.2.1.2
+	  GSM: After sending M+1, MS starts T3126, and if no answer, gives up.
+	  GPRS: After sending max number of Channel Request, MS starts T3146,
+	  after which is sends a Random Access Failure and looks for another cell.
+
+	Response may be any of:
+	PAGCH <- Packet Queuing Notification. (optional, used if heavy traffic,
+		only applicable on PCCCH, not CCCH)
+	AGCH <- Packet Uplink Assignment???
+	AGCH <- REJECT, which lets the MS look for another cell.
+	AGCH <- IMMEDIATE ASSIGNMENT, which either contains Packet Downlink Assignment,
+		or bit saying it is 2 part, in which case the real IMMEDIATE ASSIGNMENT
+		is sent within 2 multiframes.
+		The MS will then respond to IMMEDIATE ASSIGNMENT, and then can try to do its
+		uplink using the packet channel.
+		On CCCH, may send either IMMEDIATE ASSIGNMENT,must use Immediate Assignment.
+	Class A or B may receive <- Paging Request, which upon which the MS may abort the packet attempt.
+Network Originated Transfer:
+    If MS is in Standby state:
+    	PCH <- Paging Request
+	RACH -> Channel Request
+	Mobile then does a Mobile Originated Packet Transfer, and sends a Packet Paging Response
+	to the network, which is an LLC frame.
+	CCCH [AGCH?] <- Packet Uplink Assignment (or Immediate Assignment)
+
+	For two-phase access:
+	PACCH -> Packet Resource Request (optional, used for Fixed or Exclusive Allocation)
+	PACCH <- Packed Uplink Assignment (optional, used for Fixed or Exclusive Allocation)
+
+	PDTCH -> Packet Paging Response (LLC frame)
+	Now the MM (Mobility management) state of the MS is Ready.
+
+    When MS is in Ready state:
+	If Packet uplink in progress:
+	  PACCH <- Packet Downlink Assignment Message, specifies PDCH to be used.
+	else:
+	  CCCH <- Immediate Assignment Message, specifies PDCH to be used.
+	-> Packet Control Acknowledgement (if requested by network, used for timing advance)
+	PDCH <- Data, indicated by TFI
+	  All the modes same as for uplink.
+
+
+============================================================================
+Radio stuff:
+GSMConfig.cpp:
+TCHFACCHLogicalChannel *GSMConfig::getTCH()
+getChan<TCHFACCHLogicalChannel>(mTCHPool)
+
+L1Encoder, L2Decoder are ok
+L1FEC is referenced by parent.

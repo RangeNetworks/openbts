@@ -1,27 +1,19 @@
 /**@file GSM Radio Resource procedures, GSM 04.18 and GSM 04.08. */
 /*
-* Copyright 2008-2011 Free Software Foundation, Inc.
+* Copyright 2008, 2009, 2010 Free Software Foundation, Inc.
 * Copyright 2010 Kestrel Signal Processing, Inc.
 * Copyright 2011 Range Networks, Inc.
 *
-* This software is distributed under the terms of the GNU Affero Public License.
-* See the COPYING file in the main directory for details.
+* This software is distributed under multiple licenses;
+* see the COPYING file in the main directory for licensing
+* information for this specific distribuion.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
 
-	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
 
@@ -30,13 +22,17 @@
 
 #include <list>
 #include <GSML3CommonElements.h>
+#include <Interthread.h>
 
 
 namespace GSM {
 class Time;
 class TCHFACCHLogicalChannel;
+class SACCHLogicalChannel;
 class L3PagingResponse;
 class L3AssignmentComplete;
+class L3HandoverComplete;
+class L3HandoverAccess;
 };
 
 namespace Control {
@@ -46,12 +42,25 @@ class TransactionEntry;
 
 
 
-/** Find and compelte the in-process transaction associated with a paging repsonse. */
+/**
+	Determine whether or not to initiate a handover.
+	@param measurements The measurement results from the SACCH.
+	@param SACCH The SACCH in question.
+*/
+void HandoverDetermination(const GSM::L3MeasurementResults &measurements, GSM::SACCHLogicalChannel* SACCH);
+
+
+/** Find and complete the in-process transaction associated with a paging repsonse. */
 void PagingResponseHandler(const GSM::L3PagingResponse*, GSM::LogicalChannel*);
 
 /** Find and compelte the in-process transaction associated with a completed assignment. */
 void AssignmentCompleteHandler(const GSM::L3AssignmentComplete*, GSM::TCHFACCHLogicalChannel*);
 
+/** Save handover parameters from L1 in the proper transaction record. */
+bool SaveHandoverAccess(unsigned handoverReference, float RSSI, float timingError, const GSM::Time& timestamp);
+
+/** Process the handover access; returns when the transaction is cleared. */
+void ProcessHandoverAccess(GSM::TCHFACCHLogicalChannel *TCH);
 
 /**@ Access Grant mechanisms */
 //@{
@@ -177,7 +186,7 @@ class Pager {
 		const GSM::L3MobileIdentity& addID,
 		GSM::ChannelType chanType,
 		TransactionEntry& transaction,
-		unsigned wLife=gConfig.getNum("SIP.Timer.B")
+		unsigned wLife=gConfig.getNum("GSM.Timer.T3113")
 	);
 
 	/**
@@ -212,6 +221,7 @@ public:
 
 
 void *PagerServiceLoopAdapter(Pager*);
+
 
 
 //@}	// paging mech
