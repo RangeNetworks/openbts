@@ -458,10 +458,10 @@ void L1Encoder::handoverPending(bool flag)
 {
 	if (flag) {
 		bool ok = mDownstream->setHandover(mTN);
-		if (!ok) LOG(ALERT) << "handover setup failed";
+		if (!ok) LOG(WARNING) << "handover setup failed";
 	} else {
 		bool ok = mDownstream->clearHandover(mTN);
-		if (!ok) LOG(ALERT) << "handover clear failed";
+		if (!ok) LOG(WARNING) << "handover clear failed";
 	}
 }
 
