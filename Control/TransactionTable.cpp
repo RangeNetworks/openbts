@@ -1068,9 +1068,9 @@ string TransactionEntry::handoverString() const
 		mSIP.RTPSession()->rtp.last_rcv_SR_ts << "," <<
 		mSIP.RTPSession()->rtp.last_rcv_SR_time.tv_sec << "," << mSIP.RTPSession()->rtp.last_rcv_SR_time.tv_usec << "," << 
 		mSIP.RTPSession()->rtp.snd_seq << "," <<
-		mSIP.RTPSession()->rtp.last_rtcp_report_snt_r << "," <<
-		mSIP.RTPSession()->rtp.last_rtcp_report_snt_s << "," <<
-		mSIP.RTPSession()->rtp.rtcp_report_snt_interval << "," <<
+		//mSIP.RTPSession()->rtp.last_rtcp_report_snt_r << "," <<
+		//mSIP.RTPSession()->rtp.last_rtcp_report_snt_s << "," <<
+		//mSIP.RTPSession()->rtp.rtcp_report_snt_interval << "," <<
 		mSIP.RTPSession()->rtp.last_rtcp_packet_count << "," <<
 		mSIP.RTPSession()->rtp.sent_payload_bytes;
 
