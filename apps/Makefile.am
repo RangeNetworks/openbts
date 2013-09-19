@@ -62,6 +62,7 @@ OpenBTSDo_SOURCES = OpenBTSDo.cpp
 EXTRA_DIST = \
 	OpenBTS.example.sql \
 	setUpFiles.sh \
+	runloop.OpenBTS.sh \
 	generateConfigTable.sh \
 	exportConfigTable.sh \
 	importConfigTable.sh \
@@ -73,6 +74,7 @@ install: OpenBTS OpenBTSCLI OpenBTSDo
 	install OpenBTS "$(DESTDIR)/OpenBTS/"
 	install OpenBTSCLI "$(DESTDIR)/OpenBTS/"
 	install OpenBTSDo "$(DESTDIR)/OpenBTS/"
+	install runloop.OpenBTS.sh "$(DESTDIR)/OpenBTS/"
 	mkdir -p "$(DESTDIR)/etc/OpenBTS/"
 	install iptables.rules "$(DESTDIR)/etc/OpenBTS/"
 	install OpenBTS.example.sql "$(DESTDIR)/etc/OpenBTS/"
