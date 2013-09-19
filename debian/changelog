@@ -1,11 +1,5 @@
-openbts-public (3.2) UNRELEASED; urgency=low
+openbts-public (3.1) UNRELEASED; urgency=low
 
   * Public sync
 
  -- Kurtis <kheimerl@darth-maul>  Thu, 01 Aug 2013 20:37:03 -0700
-
-openbts-public (3.2) UNRELEASED; urgency=low
-
-    * Test
-
- -- Donald C. Kirker <donald.kirker@rangenetworks.com> Mon, 22 Apr 2013 00:11:00 -0700

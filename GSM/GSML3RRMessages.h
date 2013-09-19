@@ -101,7 +101,6 @@ class L3RRMessage : public L3Message {
 		///@name ciphering
 		//@{
 		CipheringModeCommand=0x35,
-		CipheringModeComplete=0x32,
 		//@}
 		///@name miscellaneous
 		//@{
@@ -1118,43 +1117,6 @@ class L3HandoverFailure : public L3RRMessageNRO {
 	void text(std::ostream&) const;
 
 	const L3RRCause& cause() const { return mCause; }
-};
-
-
-/** GSM 04.08 9.1.9 */
-class L3CipheringModeCommand : public L3RRMessageNRO {
-
-	protected:
-
-	L3CipheringModeSetting mCipheringModeSetting;
-	L3CipheringModeResponse mCipheringResponse;
-
-	public:
-
-	L3CipheringModeCommand(L3CipheringModeSetting wCipheringModeSetting, L3CipheringModeResponse wCipheringResponse)
-		: mCipheringModeSetting(wCipheringModeSetting),
-		mCipheringResponse(wCipheringResponse)
-	{ }
-
-	int MTI() const;
-
-	size_t l2BodyLength() const { return 1; }
-	void writeBody(L3Frame&, size_t&) const;
-	void text(std::ostream&) const;
-};
-
-/** GSM 04.08 9.1.10 */
-class L3CipheringModeComplete : public L3RRMessageNRO {
-
-	protected:
-
-	public:
-
-	int MTI() const;
-
-	size_t l2BodyLength() const { return 0; }
-	void parseBody(const L3Frame&, size_t&);
-	void text(std::ostream&) const;
 };
 
 

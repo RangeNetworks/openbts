@@ -32,7 +32,7 @@ noinst_PROGRAMS = \
 	OpenBTSDo \
 	OpenBTSCLI
 
-OpenBTS_SOURCES = OpenBTS.cpp GetConfigurationKeys.cpp
+OpenBTS_SOURCES = OpenBTS.cpp
 OpenBTS_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES)
 
 ourlibs = \
@@ -52,7 +52,7 @@ ourlibs = \
 	$(OSIP_LIBS) \
 	$(ORTP_LIBS)
 
-OpenBTS_LDADD = $(ourlibs) -ldl -losipparser2 -losip2 -lortp -la53
+OpenBTS_LDADD = $(ourlibs) -ldl -losipparser2 -losip2 -lortp
 
 OpenBTSCLI_SOURCES = OpenBTSCLI.cpp
 # RedHat RHEL5 needs to have ncurses included
@@ -85,4 +85,6 @@ install: OpenBTS OpenBTSCLI OpenBTSDo
 	mkdir -p "$(DESTDIR)/home/openbts/"
 	install CLI "$(DESTDIR)/home/openbts/"
 	install openbtsconfig "$(DESTDIR)/home/openbts/"
+	install killBTS "$(DESTDIR)/home/openbts/"
+	install startBTS "$(DESTDIR)/home/openbts/"
 

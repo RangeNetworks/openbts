@@ -57,7 +57,7 @@ void PagingResponseHandler(const GSM::L3PagingResponse*, GSM::LogicalChannel*);
 void AssignmentCompleteHandler(const GSM::L3AssignmentComplete*, GSM::TCHFACCHLogicalChannel*);
 
 /** Save handover parameters from L1 in the proper transaction record. */
-bool SaveHandoverAccess(unsigned handoverReference, float RSSI, float timingError, const GSM::Time& timestamp);
+bool SaveHandoverAccess(unsigned handoverReference, float RSSI, float timingError);
 
 /** Process the handover access; returns when the transaction is cleared. */
 void ProcessHandoverAccess(GSM::TCHFACCHLogicalChannel *TCH);

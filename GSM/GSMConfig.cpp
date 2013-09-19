@@ -120,7 +120,7 @@ void GSMConfig::regenerateBeacon()
 	L3Frame SI3L3(UNIT_DATA);
 	SI3->write(SI3L3);
 	L2Header SI3Header(L2Length(SI3L3.L2Length()));
-	mSI3Frame = L2Frame(SI3Header,SI3L3,true);
+	mSI3Frame = L2Frame(SI3Header,SI3L3);
 	LOG(DEBUG) << "mSI3Frame " << mSI3Frame;
 
 	// SI4
@@ -134,7 +134,7 @@ void GSMConfig::regenerateBeacon()
 	//printf("SI4 bodylength=%d l2len=%d\n",SI4.l2BodyLength(),SI4L3.L2Length());
 	//printf("SI4L3.size=%d\n",SI4L3.size());
 	L2Header SI4Header(L2Length(SI4L3.L2Length()));
-	mSI4Frame = L2Frame(SI4Header,SI4L3,true);
+	mSI4Frame = L2Frame(SI4Header,SI4L3);
 	LOG(DEBUG) << "mSI4Frame " << mSI4Frame;
 
 #if GPRS_PAT | GPRS_TEST
@@ -148,12 +148,17 @@ void GSMConfig::regenerateBeacon()
 	//printf("SI13 bodylength=%d l2len=%d\n",SI13.l2BodyLength(),SI13L3.L2Length());
 	//printf("SI13L3.size=%d\n",SI13L3.size());
 	L2Header SI13Header(L2Length(SI13L3.L2Length()));
-	mSI13Frame = L2Frame(SI13Header,SI13L3,true);
+	mSI13Frame = L2Frame(SI13Header,SI13L3);
 	LOG(DEBUG) << "mSI13Frame " << mSI13Frame;
 #endif
 
 	// SI5
-	regenerateSI5();
+	L3SystemInformationType5 *SI5 = new L3SystemInformationType5(neighbors);
+	if (mSI5) delete mSI5;
+	mSI5 = SI5;
+	LOG(INFO) << *SI5;
+	SI5->write(mSI5Frame);
+	LOG(DEBUG) << "mSI5Frame " << mSI5Frame;
 
 	// SI6
 	L3SystemInformationType6 *SI6 = new L3SystemInformationType6;
@@ -166,18 +171,8 @@ void GSMConfig::regenerateBeacon()
 }
 
 
-void GSMConfig::regenerateSI5()
-{
-	std::vector<unsigned> neighbors = gNeighborTable.ARFCNList();
-	// if the neighbor list is emtpy, put ourselves on it
-	if (neighbors.size()==0) neighbors.push_back(gConfig.getNum("GSM.Radio.C0"));
-	L3SystemInformationType5 *SI5 = new L3SystemInformationType5(neighbors);
-	if (mSI5) delete mSI5;
-	mSI5 = SI5;
-	LOG(INFO) << *SI5;
-	SI5->write(mSI5Frame);
-	LOG(DEBUG) << "mSI5Frame " << mSI5Frame;
-}
+
+
 
 CCCHLogicalChannel* GSMConfig::minimumLoad(CCCHList &chanList)
 {

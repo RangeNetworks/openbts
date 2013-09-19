@@ -117,7 +117,7 @@ public:
 	GSM::Time getNextWriteTime() { return mL1->encoder()->getNextWriteTime(); }
 
 	/** Set L1 physical parameters from a RACH or pre-exsting channel. */
-	virtual void setPhy(float wRSSI, float wTimingError, double wTimestamp);
+	virtual void setPhy(float wRSSI, float wTimingError);
 
 	/* Set L1 physical parameters from an existing logical channel. */
 	virtual void setPhy(const LogicalChannel&);
@@ -276,8 +276,6 @@ public:
 	virtual float RSSI() const;
 	/** Uplink timing error. */
 	virtual float timingError() const;
-	/** System timestamp of RSSI and TA */
-	virtual double timestamp() const;
 	/** Actual MS uplink power. */
 	virtual int actualMSPower() const;
 	/** Actual MS uplink timing advance. */
@@ -330,8 +328,6 @@ public:
 
 	public:
 	bool inUseByGPRS() { return mL1->inUseByGPRS(); }
-
-	bool decryptUplink_maybe(string wIMSI, int wA5Alg) { return mL1->decoder()->decrypt_maybe(wIMSI, wA5Alg); }
 };
 
 
@@ -432,11 +428,9 @@ class SACCHLogicalChannel : public LogicalChannel {
 	//@{
 	float RSSI() const { return mSACCHL1->RSSI(); }
 	float timingError() const { return mSACCHL1->timingError(); }
-	double timestamp() const { return mSACCHL1->timestamp(); }
 	int actualMSPower() const { return mSACCHL1->actualMSPower(); }
 	int actualMSTiming() const { return mSACCHL1->actualMSTiming(); }
-	void setPhy(float RSSI, float timingError, double wTimestamp)
-		{ mSACCHL1->setPhy(RSSI,timingError,wTimestamp); }
+	void setPhy(float RSSI, float timingError) { mSACCHL1->setPhy(RSSI,timingError); }
 	void setPhy(const SACCHLogicalChannel& other) { mSACCHL1->setPhy(*other.mSACCHL1); }
 	void RSSIBumpDown(int dB) { assert(mL1); mSACCHL1->RSSIBumpDown(dB); }
 

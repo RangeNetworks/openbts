@@ -30,9 +30,6 @@
 #include "GSMTransfer.h"
 #include "GSMTDMA.h"
 
-#include "a53.h"
-#include "A51.h"
-
 #include "GSM610Tables.h"
 
 #include <Globals.h>
@@ -67,14 +64,6 @@ class TrafficTranscoder;
 	i[B][k]		interleaved data bits
 	e[B][k]		bits in a burst
 */
-
-
-enum EncryptionType {
-	ENCRYPT_NO,
-	ENCRYPT_MAYBE,
-	ENCRYPT_YES
-};
-
 
 
 
@@ -129,9 +118,6 @@ class L1Encoder {
 
 	public:
 
-	EncryptionType mEncrypted;
-	int mEncryptionAlgorithm;
-
 	/**
 		The basic encoder constructor.
 		@param wCN carrier index.
@@ -152,7 +138,7 @@ class L1Encoder {
 
 	ARFCNManager *getRadio() { return mDownstream; }
 	// Used by XCCHEncoder
-	void transmit(BitVector *mI, BitVector *mE, const int *qbits);
+	void transmit(BitVector *mI, const int *qbits);
 
 	/**@name Accessors. */
 	//@{
@@ -272,10 +258,7 @@ class L1Decoder {
 	// (pat) Moved to classes that use the convolutional coder.
 	//ViterbiR2O4 mVCoder;	///< nearly all GSM channels use the same convolutional code
 
-	EncryptionType mEncrypted;
-	int mEncryptionAlgorithm;
-	unsigned char mKc[8];
-	int mFN[8];
+	unsigned mRSSIHistory[4];
 
 
 	public:
@@ -294,9 +277,7 @@ class L1Decoder {
 			mRunning(false),
 			mFER(0.0F),
 			mCN(wCN),mTN(wTN),
-			mMapping(wMapping),mParent(wParent),
-			mEncrypted(ENCRYPT_NO),
-			mEncryptionAlgorithm(0)
+			mMapping(wMapping),mParent(wParent)
 	{
 		// Start T3101 so that the channel will
 		// become recyclable soon.
@@ -378,9 +359,6 @@ class L1Decoder {
 	public:
 	void countGoodFrame();
 	void countBadFrame();
-
-	bool decrypt_maybe(string wIMSI, int wA5Alg);
-	unsigned char *kc() { return mKc; }
 };
 
 
@@ -682,7 +660,6 @@ class SharedL1Encoder
 	public:
     BitVector mD;               ///< d[], as per GSM 05.03 2.2		Incoming Data.
     BitVector mI[4];           ///< i[][], as per GSM 05.03 2.2	Outgoing Data.
-    BitVector mE[4];
 
 	/**
 	  Encode u[] to c[].
@@ -722,7 +699,6 @@ class SharedL1Decoder
     BitVector mDP;              ///< d[]:p[] (data & parity)
 	public:
     BitVector mD;               ///< d[], as per GSM 05.03 2.2
-    SoftVector mE[4];
     SoftVector mI[4];           ///< i[][], as per GSM 05.03 2.2
 	/**@name Handover Access Burst FEC state. */
 	//@{
@@ -779,10 +755,6 @@ class XCCHL1Decoder :
 
 	XCCHL1Decoder(unsigned wCN, unsigned wTN, const TDMAMapping& wMapping,
 		L1FEC *wParent);
-
-	void saveMi();
-	void restoreMi();
-	void decrypt();
 
 	protected:
 
@@ -853,9 +825,9 @@ class SACCHL1Decoder : public XCCHL1Decoder {
 	private:
 
 	SACCHL1FEC *mSACCHParent;
-	volatile float mRSSI;			///< most recent RSSI, dB wrt full scale
-	volatile float mTimingError;		///< Timing error history in symbols
-	volatile double mTimestamp;		///< system time of most recent received burst
+	unsigned mRSSICounter;
+	volatile float mRSSI[4];			///< RSSI history , dB wrt full scale
+	volatile float mTimingError[4];		///< Timing error histoty in symbol
 	volatile int mActualMSPower;		///< actual MS tx power in dBm
 	volatile int mActualMSTiming;		///< actual MS tx timing advance in symbols
 
@@ -868,12 +840,10 @@ class SACCHL1Decoder : public XCCHL1Decoder {
 		SACCHL1FEC *wParent)
 		:XCCHL1Decoder(wCN,wTN,wMapping,(L1FEC*)wParent),
 		mSACCHParent(wParent),
-		mRSSI(0.0F),
-		mTimingError(0.0F),
-		mTimestamp(0.0),
-		mActualMSPower(0),
-		mActualMSTiming(0)
-	{ }
+		mRSSICounter(0)
+	{
+		for (int i=0; i<4; i++) mRSSI[i]=0.0F;
+	}
 
 	ChannelType channelType() const { return SACCHType; }
 
@@ -889,24 +859,21 @@ class SACCHL1Decoder : public XCCHL1Decoder {
 	bool processBurst(const RxBurst&);
 	
 	/** Set pyshical parameters for initialization. */
-	void setPhy(float wRSSI, float wTimingError, double wTimestamp);
+	void setPhy(float wRSSI, float wTimingError);
 
 	void setPhy(const SACCHL1Decoder& other);
 
 	/** RSSI of most recent received burst, in dB wrt full scale. */
-	float RSSI() const { return mRSSI; }
+	float RSSI() const;
 	
 	/** Artificially push down RSSI to induce the handset to push more power. */
-	void RSSIBumpDown(float dB) { mRSSI -= dB; }
+	void RSSIBumpDown(float dB);
 
 	/**
 		Timing error of most recent received burst, symbol units.
 		Positive is late; negative is early.
 	*/
-	float timingError() const { return mTimingError; }
-
-	/** Timestamp of most recent received burst. */
-	double timestamp() const { return mTimestamp; }
+	float timingError() const;
 
 
 	protected:
@@ -1003,7 +970,6 @@ private:
 	bool mPreviousFACCH;	///< A copy of the previous stealing flag state.
 	size_t mOffset;			///< Current deinterleaving offset.
 
-	BitVector mE[8];
 	// (pat) Yes, the mI here duplicates but overrides the same
 	// vector down in XCCHL1Encoder.
 	BitVector mI[8];			///< deinterleaving history, 8 blocks instead of 4
@@ -1073,7 +1039,6 @@ class TCHFACCHL1Decoder : public XCCHL1Decoder {
 
 	protected:
 
-	SoftVector mE[8];	///< deinterleaving history, 8 blocks instead of 4
 	SoftVector mI[8];	///< deinterleaving history, 8 blocks instead of 4
 	BitVector mTCHU;					///< u[] (uncoded) in the spec
 	BitVector mTCHD;					///< d[] (data) in the spec
@@ -1106,10 +1071,6 @@ class TCHFACCHL1Decoder : public XCCHL1Decoder {
 		deinterleave, decode, handleGoodFrame.
 	*/
 	bool processBurst( const RxBurst& );
-
-	void saveMi();
-	void restoreMi();
-	void decrypt(int B);
 	
 	/** Deinterleave i[] to c[].  */
 	void deinterleave(int blockOffset );
@@ -1478,11 +1439,10 @@ class SACCHL1FEC : public L1FEC {
 	//@{
 	float RSSI() const { return mSACCHDecoder->RSSI(); }
 	float timingError() const { return mSACCHDecoder->timingError(); }
-	double timestamp() const { return mSACCHDecoder->timestamp(); }
 	int actualMSPower() const { return mSACCHDecoder->actualMSPower(); }
 	int actualMSTiming() const { return mSACCHDecoder->actualMSTiming(); }
 	void setPhy(const SACCHL1FEC&);
-	virtual void setPhy(float RSSI, float timingError, double wTimestamp);
+	virtual void setPhy(float RSSI, float timingError);
 	void RSSIBumpDown(int dB) { mSACCHDecoder->RSSIBumpDown(dB); }
 	//@}
 };

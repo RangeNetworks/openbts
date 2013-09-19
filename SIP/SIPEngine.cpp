@@ -289,18 +289,14 @@ void SIPEngine::writePrivateHeaders(osip_message_t *msg, const GSM::LogicalChann
 {
 	// P-PHY-Info
 	// This is a non-standard private header in OpenBTS.
-	// TA=<timing advance> TE=<TA error> UpRSSI=<uplink RSSI> TxPwr=<MS tx power>
-	// DnRSSIdBm=<downlink RSSI> time=<system time of measurements>
+	// TA=<timing advance> TE=<TA error> UpRSSI=<uplink RSSI> TxPwr=<MS tx power> DnRSSIdBm=<downlink RSSI>
 	// Get the values.
 	if (chan) {
-		LOG(DEBUG);
-		char phy_info[400];
-		sprintf(phy_info,"OpenBTS; TA=%d TE=%f UpRSSI=%f TxPwr=%d DnRSSIdBm=%d time=%9.3lf",
+		char phy_info[200];
+		sprintf(phy_info,"OpenBTS; TA=%d TE=%f UpRSSI=%f TxPwr=%d DnRSSIdBm=%d",
 			chan->actualMSTiming(), chan->timingError(),
 			chan->RSSI(), chan->actualMSPower(),
-			chan->measurementResults().RXLEV_FULL_SERVING_CELL_dBm(),
-			chan->timestamp());
-		LOG(DEBUG) << "PHY-info: " << phy_info;
+			chan->measurementResults().RXLEV_FULL_SERVING_CELL_dBm());
 		osip_message_set_header(msg,"P-PHY-Info",phy_info);
 	}
 
@@ -430,56 +426,6 @@ bool SIPEngine::Register( Method wMethod , const GSM::LogicalChannel* chan, stri
 	// is no transaction entry associated with the REGISTER.
 	gSIPInterface.removeCall(mCallID);	
 	return success;
-}
-
-
-float geodecode1(const char **p, int *err, bool colonExpected)
-{
-	float n = 0;
-	const char *q = *p;
-	while (**p >= '0' && **p <= '9') {
-		n = n * 10 + **p - '0';
-		(*p)++;
-	}
-	if (q == *p) *err = 1;
-	if (colonExpected) {
-		if (**p == ':') {
-			(*p)++;
-		} else {
-			*err = 1;
-		}
-	}
-	return n;
-}
-
-
-float geodecode(const char **p, int *err)
-{
-	float n = 0;
-	float m = 1;
-	while (**p == ' ') {
-		(*p)++;
-	}
-	if (**p == '-') {
-		m = -1;
-		(*p)++;
-	}
-	n = geodecode1(p, err, true);
-	n += geodecode1(p, err, true)/60.0;
-	n += geodecode1(p, err, false)/3600.0;
-	if (**p == ' ' || **p == 0) return n * m;
-	switch (**p) {
-		case 'N':
-		case 'E':
-			(*p)++;
-			return n * m;
-		case 'S':
-		case 'W':
-			(*p)++;
-			return n * m * -1.0;
-	}
-	*err = 1;
-	return 0;
 }
 
 SIPState SIPEngine::MOCSendINVITE( const char * wCalledUsername, 

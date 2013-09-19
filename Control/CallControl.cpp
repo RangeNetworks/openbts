@@ -529,14 +529,6 @@ bool callManagementDispatchGSM(TransactionEntry *transaction, GSM::LogicalChanne
 		return false;
 	}
 
-	if (dynamic_cast<const GSM::L3CipheringModeComplete*>(message)) {
-		LOG(DEBUG) << "received Ciphering Mode Complete on " << *LCH << " for " << transaction->subscriber();
-		// Although the spec (04.08 3.4.7) says you can start ciphering the downlink at this time,
-		// it also says you can start when you successfully decrypt an uplink layer 2 frame,
-		// which is what we do.
-		return false;
-	}
-
 	// Stubs for unsupported features.
 	// We need to answer the handset so it doesn't hang.
 
@@ -831,25 +823,6 @@ bool waitInCall(TransactionEntry *transaction, GSM::TCHFACCHLogicalChannel *TCH,
 void Control::callManagementLoop(TransactionEntry *transaction, GSM::TCHFACCHLogicalChannel* TCH)
 {
 	LOG(INFO) << " call connected " << *transaction;
-	if (gConfig.getBool("GSM.Cipher.Encrypt")) {
-		int encryptionAlgorithm = gTMSITable.getPreferredA5Algorithm(transaction->subscriber().digits());
-		if (!encryptionAlgorithm) {
-			LOG(DEBUG) << "A5/3 and A5/1 not supported: NOT sending Ciphering Mode Command on " << *TCH << " for " << transaction->subscriber();
-		} else if (TCH->decryptUplink_maybe(transaction->subscriber().digits(), encryptionAlgorithm)) {
-			// send Ciphering Mode Command
-			// start reception in new mode (GSM 04.08, 3.4.7)
-			// The spec says to start decrypting uplink at this time, but that would cause us to
-			// start decrypting before the Ciphering Mode Command is acknowledged, so we start
-			// maybe decrypting - try decoding without decrypting, and when a frame comes along
-			// that fails, we try decrypting, and if that passes than we start decrypting everything.
-			LOG(DEBUG) << "sending Ciphering Mode Command on " << *TCH << " for " << transaction->subscriber();
-			TCH->send(GSM::L3CipheringModeCommand(
-				GSM::L3CipheringModeSetting(true, encryptionAlgorithm),
-				GSM::L3CipheringModeResponse(false)));
-		} else {
-			LOG(DEBUG) << "no ki: NOT sending Ciphering Mode Command on " << *TCH << " for " << transaction->subscriber();
-		}
-	}
 	gReports.incr("OpenBTS.GSM.CC.CallMinutes");
 	// poll everything until the call is finished
 	// A rough count of frames.

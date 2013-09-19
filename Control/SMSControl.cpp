@@ -135,9 +135,7 @@ bool handleRPDU(TransactionEntry *transaction, const RLFrame& RPDU)
 				
 				body << submit.UD().decode();
 			} else if (contentType == "application/vnd.3gpp.sms") {
-				LOG(DEBUG) << "RPDU: " << RPDU;
 				RPDU.hex(body);
-				LOG(DEBUG) << "RPDU result: " << body;
 			} else {
 				LOG(ALERT) << "\"" << contentType << "\" is not a valid SMS payload type";
 			}

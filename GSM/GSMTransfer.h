@@ -98,7 +98,6 @@ class TxBurst : public BitVector {
 
 	/**@name Basic accessors. */
 	//@{
-	// Since mTime is volatile, we can't return a reference.
 	Time time() const { return mTime; }
 	void time(const Time& wTime) { mTime = wTime; }
 	//@}
@@ -162,7 +161,6 @@ class RxBurst : public SoftVector {
 	{ }
 
 
-	// Since mTime is volatile, we can't return a reference.
 	Time time() const { return mTime; }
 
 	void time(const Time& wTime) { mTime = wTime; }
@@ -466,9 +464,6 @@ class L2Frame : public BitVector {
 
 	public:
 
-	void randomizeFiller(unsigned start);
-	void randomizeFiller(const L2Header& header);
-
 	/** Fill the frame with the GSM idle pattern, GSM 04.06 2.2. */
 	void idleFill();
 
@@ -495,7 +490,7 @@ class L2Frame : public BitVector {
 		The L3Frame must fit in the L2Frame.
 		The primitive is DATA.
 	*/
-	L2Frame(const L2Header&, const BitVector&, bool noran=false);
+	L2Frame(const L2Header&, const BitVector&);
 
 	/**
 		Make an L2Frame from a header with no payload.
@@ -531,10 +526,7 @@ class L2Frame : public BitVector {
 	/** Set/clear the PF bit. */
 	void PF(bool wPF) { mStart[8+3]=wPF; }
 
-	/**
-		Look into the header and get the length of the payload.
-		Assumes A or B header, or B4 header with L2 pseudo length in L3.
-	*/
+	/** Look into the header and get the length of the payload. */
 	unsigned L() const { return peekField(8*2,6); }
 
 	/** Get the "more data" bit (M). */

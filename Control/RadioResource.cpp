@@ -261,7 +261,7 @@ void AccessGrantResponder(
 	// for DTM phones; haven't looked into it.
 
 	// Set the channel physical parameters from the RACH burst.
-	LCH->setPhy(RSSI,timingError,gBTS.clock().systime(when.FN()));
+	LCH->setPhy(RSSI,timingError);
 	gReports.incr("OpenBTS.GSM.RR.RACH.TA.Accepted",(int)(timingError));
 
 	// Assignment, GSM 04.08 3.3.1.1.3.1.
@@ -317,7 +317,7 @@ void abortInboundHandover(TransactionEntry* transaction, unsigned cause, GSM::Lo
 
 
 
-bool Control::SaveHandoverAccess(unsigned handoverReference, float RSSI, float timingError, const GSM::Time& timestamp)
+bool Control::SaveHandoverAccess(unsigned handoverReference, float RSSI, float timingError)
 {
 	// In this function, we are "BS2" in the ladder diagram.
 	// This is called from L1 when a handover burst arrives.
@@ -339,7 +339,7 @@ bool Control::SaveHandoverAccess(unsigned handoverReference, float RSSI, float t
 	}
 
 	LOG(INFO) << "saving handover access for " << *transaction;
-	transaction->setInboundHandover(RSSI,timingError,gBTS.clock().systime(timestamp));
+	transaction->setInboundHandover(RSSI,timingError);
 	return true;
 }
 

@@ -262,8 +262,7 @@ class TransactionEntry {
 	/** Set the inbound handover parameters on the channel; state should alread be HandoverInbound. */
 	void setInboundHandover(
 		float wRSSI,
-		float wTimingError,
-		double wTimestamp
+		float wTimingError
 			);
 
 	// This is thread-safe because mInboundPeer is only modified in the constructor.

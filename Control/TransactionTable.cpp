@@ -1068,9 +1068,9 @@ string TransactionEntry::handoverString() const
 		mSIP.RTPSession()->rtp.last_rcv_SR_ts << "," <<
 		mSIP.RTPSession()->rtp.last_rcv_SR_time.tv_sec << "," << mSIP.RTPSession()->rtp.last_rcv_SR_time.tv_usec << "," << 
 		mSIP.RTPSession()->rtp.snd_seq << "," <<
-		//mSIP.RTPSession()->rtp.last_rtcp_report_snt_r << "," <<
-		//mSIP.RTPSession()->rtp.last_rtcp_report_snt_s << "," <<
-		//mSIP.RTPSession()->rtp.rtcp_report_snt_interval << "," <<
+		mSIP.RTPSession()->rtp.last_rtcp_report_snt_r << "," <<
+		mSIP.RTPSession()->rtp.last_rtcp_report_snt_s << "," <<
+		mSIP.RTPSession()->rtp.rtcp_report_snt_interval << "," <<
 		mSIP.RTPSession()->rtp.last_rtcp_packet_count << "," <<
 		mSIP.RTPSession()->rtp.sent_payload_bytes;
 
@@ -1124,11 +1124,11 @@ void TransactionEntry::setOutboundHandover(
 }
 
 
-void TransactionEntry::setInboundHandover(float RSSI, float timingError, double timestamp)
+void TransactionEntry::setInboundHandover(float RSSI, float timingError)
 {
 	if (mRemoved) throw RemovedTransaction(mID);
 	ScopedLock lock(mLock);
-	mChannel->setPhy(RSSI,timingError,timestamp);
+	mChannel->setPhy(RSSI,timingError);
 	mInboundRSSI = RSSI;
 	mInboundTimingError = timingError;
 }

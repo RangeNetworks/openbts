@@ -809,6 +809,9 @@ int _config(string mode, int argc, char** argv, ostream& os)
 			return FAILURE;
 		}
 //	}
+	if (string(argv[1]).compare("GSM.Radio.Band") == 0) {
+		gConfig.mSchema["GSM.Radio.C0"].updateValidValues(getARFCNsString(gConfig.getNum("GSM.Radio.Band")));
+	}
 	vector<string> warnings = gConfig.crossCheck(argv[1]);
 	vector<string>::iterator warning = warnings.begin();
 	while (warning != warnings.end()) {
@@ -878,6 +881,9 @@ int rmconfig(int argc, char** argv, ostream& os)
 			return FAILURE;
 		}
 
+		if (string(argv[1]).compare("GSM.Radio.Band") == 0) {
+			gConfig.mSchema["GSM.Radio.C0"].updateValidValues(getARFCNsString(gConfig.getNum("GSM.Radio.Band")));
+		}
 		os << argv[1] << " set back to its default value" << endl;
 		vector<string> warnings = gConfig.crossCheck(argv[1]);
 		vector<string>::iterator warning = warnings.begin();
@@ -975,6 +981,7 @@ int page(int argc, char **argv, ostream& os)
 	}
 	return BAD_NUM_ARGS;
 }
+
 
 
 int testcall(int argc, char **argv, ostream& os)
@@ -1280,15 +1287,9 @@ int stats(int argc, char** argv, ostream& os)
 {
 
 	char cmd[200];
-	if (argc==2) {
-		if (strcmp(argv[1],"clear")==0) {
-				gReports.clear();
-				os << "stats table (gReporting) cleared" << endl;
-				return SUCCESS;
-		}
+	if (argc==2)
 		sprintf(cmd,"sqlite3 %s 'select name||\": \"||value||\" events over \"||((%lu-clearedtime)/60)||\" minutes\" from reporting where name like \"%%%s%%\";'",
 			gConfig.getStr("Control.Reporting.StatsTable").c_str(), time(NULL), argv[1]);
-	}
 	else if (argc==1)
 		sprintf(cmd,"sqlite3 %s 'select name||\": \"||value||\" events over \"||((%lu-clearedtime)/60)||\" minutes\" from reporting;'",
 			gConfig.getStr("Control.Reporting.StatsTable").c_str(), time(NULL));
@@ -1346,7 +1347,7 @@ void Parser::addCommands()
 	addCommand("gprs", GPRS::gprsCLI,"GPRS mode sub-command.  Type: gprs help for more");
 	addCommand("sgsn", SGSN::sgsnCLI,"SGSN mode sub-command.  Type: sgsn help for more");
 	addCommand("crashme", crashme, "force crash of OpenBTS for testing purposes");
-	addCommand("stats", stats,"[patt] OR clear -- print all, or selected, performance counters, OR clear all counters");
+	addCommand("stats", stats,"[patt] -- print all, or selected, performance statistics");
 }
 
 

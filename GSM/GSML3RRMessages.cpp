@@ -121,10 +121,6 @@ ostream& GSM::operator<<(ostream& os, L3RRMessage::MessageType val)
 			os << "Handover Complete"; break;
 		case L3RRMessage::HandoverFailure:
 			os << "Handover Failure"; break;
-		case L3RRMessage::CipheringModeCommand:
-			os << "Ciphering Mode Command"; break;
-		case L3RRMessage::CipheringModeComplete:
-			os << "Ciphering Mode Complete"; break;
 		case L3RRMessage::PhysicalInformation:
 			os << "Physical Information"; break;
 		default: os << hex << "0x" << (int)val << dec;
@@ -155,7 +151,6 @@ L3RRMessage* GSM::L3RRFactory(L3RRMessage::MessageType MTI)
 		case L3RRMessage::ApplicationInformation: return new L3ApplicationInformation();
 		case L3RRMessage::HandoverComplete: return new L3HandoverComplete();
 		case L3RRMessage::HandoverFailure: return new L3HandoverFailure();
-		case L3RRMessage::CipheringModeComplete: return new L3CipheringModeComplete();
         // Partial support just to get along with some phones.
         case L3RRMessage::GPRSSuspensionRequest: return new L3GPRSSuspensionRequest();
 		default:
@@ -466,12 +461,6 @@ void L3SystemInformationType5::writeBody(L3Frame& dest, size_t &wp) const
 	- BCCH Frequency List 10.5.2.22 M V 16 
 */
 	mBCCHFrequencyList.writeV(dest,wp);
-	wp -= 111;
-	int p = gConfig.getFloat("GSM.Cipher.RandomNeighbor") * (float)0xFFFFFF;
-	for (unsigned i = 1; i <= 111; i++) {
-		int b = ((random() & 0xFFFFFF) < p) | dest.peekField(wp, 1);
-		dest.writeField(wp, b, 1);
-	}
 }
 
 
@@ -872,39 +861,6 @@ void L3HandoverFailure::text(ostream& os) const
 	os << "cause=" << mCause;
 }
 
-int L3CipheringModeCommand::MTI() const
-{
-	return CipheringModeCommand;
-}
-
-void L3CipheringModeCommand::writeBody(L3Frame& frame, size_t& wp) const
-{
-	// reverse order of 1/2-octet fields
-	mCipheringResponse.writeV(frame,wp);
-	mCipheringModeSetting.writeV(frame,wp);
-}
-
-void L3CipheringModeCommand::text(ostream& os) const
-{
-	L3RRMessage::text(os);
-	os << "ciphering mode setting=(" << mCipheringModeSetting << ")";
-	os << " ciphering response=(" << mCipheringResponse << ")";
-}
-
-int L3CipheringModeComplete::MTI() const
-{
-	return CipheringModeComplete;
-}
-
-void L3CipheringModeComplete::parseBody(const L3Frame& frame, size_t& rp)
-{
-	// mobile equipment identity optional
-}
-
-void L3CipheringModeComplete::text(ostream& os) const
-{
-	L3RRMessage::text(os);
-}
 
 void L3PhysicalInformation::writeBody(L3Frame& frame, size_t& wp) const
 {

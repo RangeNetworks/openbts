@@ -1,0 +1,14 @@
+#!/bin/bash
+
+# This script goes into ~openbts/.
+
+#Stop asterisk if it's currently running
+sudo service asterisk status | grep -iqP "\bis running\b" && sudo service asterisk stop
+
+echo "Killing SMQueue"
+sudo killall runloop.smqueue.sh
+echo "Killing the Subscriber Registry"
+sudo killall runloop.sipauthserve.sh
+echo "Killing OpenBTS and Transceiver"
+sudo killall runloop.OpenBTS.sh
+

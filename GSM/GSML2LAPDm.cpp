@@ -65,7 +65,7 @@ void CCCHL2::writeHighSide(const GSM::L3Frame& l3)
 	assert(mDownstream);
 	assert(l3.primitive()==UNIT_DATA);
 	L2Header header(L2Length(l3.L2Length()));
-	mDownstream->writeHighSide(L2Frame(header,l3,true));
+	mDownstream->writeHighSide(L2Frame(header,l3));
 }
 
 
@@ -87,7 +87,6 @@ L2LAPDm::L2LAPDm(unsigned wC, unsigned wSAPI)
 	mIdleFrame.fillField(8*0,(mC<<1)|1,8);		// address
 	mIdleFrame.fillField(8*1,3,8);				// control
 	mIdleFrame.fillField(8*2,1,8);				// length
-	if (gConfig.getBool("GSM.Cipher.ScrambleFiller")) mIdleFrame.randomizeFiller(8*4);
 }
 
 

@@ -29,7 +29,6 @@ namespace BSSG {
 
 // GSM 08.16 describes tne NS layer.
 // GSM 08.18 sec 10 describes the PDU messages that the SGSN can send to the BSS.
-// GSM 48.018 is the updated spec with PS-HANDOVER related commands.
 // Definitions:
 // NSE - Network Service Entity.  There is one or more NSE inside the BSS for signaling.
 // NSEI == Network Service Entity Indicator

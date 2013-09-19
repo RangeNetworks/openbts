@@ -19,7 +19,6 @@
 
 #include "GSMTransfer.h"
 #include "GSML3Message.h"
-#include "Globals.h"
 
 
 using namespace std;
@@ -208,43 +207,6 @@ void L2Frame::idleFill()
 	}
 }
 
-void L2Frame::randomizeFiller(unsigned start)
-{
-	/* for debugging
-	// no filler or first filler is 0x2b
-	if (start-8 < size() && peekField(start-8,8) != 0x2b) {
-		LOG(ALERT) << *this << " " << start;
-		assert(0);
-	}
-	// reset of filler is 0x2b
-	for (unsigned i = start; i < size(); i+=8) {
-		if (peekField(i,8) != 0x2b) {
-			LOG(ALERT) << *this << " " << start << " " << i;
-			assert(0);
-		}
-	}
-	*/
-	for (unsigned i = start; i < size(); i++) {
-		settfb(i, random() & 1);
-	}
-}
-
-void L2Frame::randomizeFiller(const L2Header& header)
-{
-	switch (header.format()) {
-		case L2Header::FmtA:
-		case L2Header::FmtB:
-			randomizeFiller((header.length().L() + 4) * 8);
-			return;
-		case L2Header::FmtBbis:
-		case L2Header::FmtB4:
-			randomizeFiller((header.length().L() + 2) * 8);
-			return;
-		default:
-			return;
-	}
-}
-
 
 L2Frame::L2Frame(const BitVector& bits, Primitive prim)
 	:BitVector(23*8),mPrimitive(prim)
@@ -256,7 +218,7 @@ L2Frame::L2Frame(const BitVector& bits, Primitive prim)
 
 
 #include <stdio.h>
-L2Frame::L2Frame(const L2Header& header, const BitVector& l3, bool noran)
+L2Frame::L2Frame(const L2Header& header, const BitVector& l3)
 	:BitVector(23*8),mPrimitive(DATA)
 {
 	idleFill();
@@ -265,8 +227,6 @@ L2Frame::L2Frame(const L2Header& header, const BitVector& l3, bool noran)
 	assert((header.bitsNeeded()+l3.size())<=this->size());
 	size_t wp = header.write(*this);
 	l3.copyToSegment(*this,wp);
-	// FIXME - figure out why randomizeFiller doesn't like the "noran" headers
-	if (gConfig.getBool("GSM.Cipher.ScrambleFiller") && !noran) randomizeFiller(header);
 }
 
 
@@ -275,7 +235,6 @@ L2Frame::L2Frame(const L2Header& header)
 {
 	idleFill();
 	header.write(*this);
-	if (gConfig.getBool("GSM.Cipher.ScrambleFiller")) randomizeFiller(header);
 }
 
 
@@ -351,7 +310,6 @@ const L2Frame& GSM::L2IdleFrame()
 		idleFrame.fillField(8*0,3,8);		// address
 		idleFrame.fillField(8*1,3,8);		// control
 		idleFrame.fillField(8*2,1,8);		// length
-		if (gConfig.getBool("GSM.Cipher.ScrambleFiller")) idleFrame.randomizeFiller(8*4);
 	}
 	return idleFrame;
 }

@@ -372,10 +372,7 @@ void SACCHLogicalChannel::serviceLoop()
 		// Send alternating SI5/SI6.
 		// These L3Frames were created with the UNIT_DATA primivitive.
 		OBJLOG(DEBUG) << "sending SI5/6 on SACCH";
-		if (count%2) {
-			gBTS.regenerateSI5();
-			LogicalChannel::send(gBTS.SI5Frame());
-		}
+		if (count%2) LogicalChannel::send(gBTS.SI5Frame());
 		else LogicalChannel::send(gBTS.SI6Frame());
 		count++;
 
@@ -467,16 +464,14 @@ void *GSM::SACCHLogicalChannelServiceLoopAdapter(SACCHLogicalChannel* chan)
 
 
 // These have to go into the .cpp file to prevent an illegal forward reference.
-void LogicalChannel::setPhy(float wRSSI, float wTimingError, double wTimestamp)
-	{ assert(mSACCH); mSACCH->setPhy(wRSSI,wTimingError,wTimestamp); }
+void LogicalChannel::setPhy(float wRSSI, float wTimingError)
+	{ assert(mSACCH); mSACCH->setPhy(wRSSI,wTimingError); }
 void LogicalChannel::setPhy(const LogicalChannel& other)
 	{ assert(mSACCH); mSACCH->setPhy(*other.SACCH()); }
 float LogicalChannel::RSSI() const
 	{ assert(mSACCH); return mSACCH->RSSI(); }
 float LogicalChannel::timingError() const
 	{ assert(mSACCH); return mSACCH->timingError(); }
-double LogicalChannel::timestamp() const
-	{ assert(mSACCH); return mSACCH->timestamp(); }
 int LogicalChannel::actualMSPower() const
 	{ assert(mSACCH); return mSACCH->actualMSPower(); }
 int LogicalChannel::actualMSTiming() const

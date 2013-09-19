@@ -60,17 +60,6 @@ sqlite3* SMSCBConnectDatabase(const char* path, sqlite3 **DB)
 }
 
 
-void encode7(char mc, int &shift, unsigned int &dp, int &buf, char *thisPage)
-{
-	buf |= (mc & 0x7F) << shift--;
-	if (shift < 0) {
-		shift = 7;
-	} else {
-		thisPage[dp++] = buf & 0xFF;
-		buf = buf >> 8;
-	}
-}
-
 
 void SMSCBSendMessage(sqlite3* DB, sqlite3_stmt* stmt, GSM::CBCHLogicalChannel* CBCH)
 {
@@ -108,36 +97,18 @@ void SMSCBSendMessage(sqlite3* DB, sqlite3_stmt* stmt, GSM::CBCHLogicalChannel* 
 		// even though the input text is ASCII for now.
 		char thisPage[82];
 		unsigned dp = 0;
-		int codingScheme;
-		if (false) { // in case anybody wants to make the encoding selectable
-			codingScheme = 0x11; // UCS2
-			thisPage[dp++] = languageCode >> 8;
-			thisPage[dp++] = languageCode & 0x0ff;
-			while (dp<82 && mp<messageLen) {
-				thisPage[dp++] = 0;
-				thisPage[dp++] = messageText[mp++];
-			}
-			while (dp<82)  { thisPage[dp++] = 0; thisPage[dp++]='\r'; }
-		} else {
-			// 03.38 section 5
-			codingScheme = 0x10; // 7'
-			int buf = 0;
-			int shift = 0;
-			// The spec (above) says to put this language stuff in, but it doesn't work on my samsung galaxy y.
-			// encode7(languageCode >> 8, shift, dp, buf, thisPage);
-			// encode7(languageCode & 0xFF, shift, dp, buf, thisPage);
-			// encode7('\r', shift, dp, buf, thisPage);
-			while (dp<81 && mp<messageLen) {
-				encode7(messageText[mp++], shift, dp, buf, thisPage);
-			}
-			while (dp<81)  { encode7('\r', shift, dp, buf, thisPage); }
-			thisPage[dp++] = buf;
+		thisPage[dp++] = languageCode >> 8;
+		thisPage[dp++] = languageCode & 0x0ff;
+		while (dp<82 && mp<messageLen) {
+			thisPage[dp++] = 0;
+			thisPage[dp++] = messageText[mp++];
 		}
+		while (dp<82)  { thisPage[dp++] = 0; thisPage[dp++]='\r'; }
 		// Format the page into an L3 message.
 		GSM::L3SMSCBMessage message(
 			GSM::L3SMSCBSerialNumber(GS,messageCode,updateNumber),
 			GSM::L3SMSCBMessageIdentifier(messageID),
-			GSM::L3SMSCBDataCodingScheme(codingScheme),
+			GSM::L3SMSCBDataCodingScheme(0x11),		// UCS2
 			GSM::L3SMSCBPageParameter(page+1,numPages),
 			GSM::L3SMSCBContent(thisPage)
 		);

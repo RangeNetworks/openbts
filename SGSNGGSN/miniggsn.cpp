@@ -625,6 +625,7 @@ bool miniggsn_init()
 		tun_fd = ip_tun_open(tun_if_name,route_str);
 		if (tun_fd < 0) {
 			MGERROR("ggsn: ERROR: Could not open tun device %s",tun_if_name);
+			LOG(ALERT) << "Cound not open tun device:"<<tun_if_name;	// TEMPORARY MESSAGE
 			return false;
 		}
 	}

@@ -91,9 +91,6 @@ class TMSITable {
 	/** Set the classmark. */
 	bool classmark(const char* IMSI, const GSM::L3MobileStationClassmark2& classmark);
 
-	/** Get the preferred A5 algorithm (3, 1, or 0). */
-	int getPreferredA5Algorithm(const char* IMSI);
-
 	/** Save a RAND/SRES pair. */
 	void putAuthTokens(const char* IMSI, uint64_t upperRAND, uint64_t lowerRAND, uint32_t SRES);
 

@@ -546,7 +546,7 @@ bool ::ARFCNManager::clearHandover(unsigned TN)
 	assert(TN<8);
 	int status = sendCommand("NOHANDOVER",TN);
 	if (status!=0) {
-		LOG(WARNING) << "NOHANDOVER failed with status " << status;
+		LOG(ALERT) << "NOHANDOVER failed with status " << status;
 		return false;
 	}
 	return true;

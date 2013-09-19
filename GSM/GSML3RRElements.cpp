@@ -377,7 +377,7 @@ void L3RequestReference::writeV( L3Frame &dest, size_t &wp ) const
 
 void L3RequestReference::text(ostream& os) const
 {
-	os << hex << "RA=0x" << mRA << dec;	
+	os << "RA=" << mRA;	
 	// pat added: This is the frame number recomputed from T1p, T2, T3:
 	unsigned recomputed = 51 * ((mT3-mT2) % 26) + mT3 + 51 * 26 * mT1p;
 	os << " T=" << recomputed;
@@ -783,39 +783,6 @@ void L3HandoverReference::text(ostream& os) const
 	os << "value=" << mValue;
 }
 
-
-size_t L3CipheringModeSetting::lengthV() const
-{
-	return 0;
-}
-
-void L3CipheringModeSetting::writeV(L3Frame& frame, size_t& wp) const
-{
-	frame.writeField(wp, mCiphering? mAlgorithm-1: 0, 3);
-	frame.writeField(wp, mCiphering, 1);
-}
-
-void L3CipheringModeSetting::text(ostream& os) const
-{
-	os << "ciphering=" << mCiphering;
-	os << " algorithm=A5/" << mAlgorithm;
-}
-
-size_t L3CipheringModeResponse::lengthV() const
-{
-	return 0;
-}
-
-void L3CipheringModeResponse::writeV(L3Frame& frame, size_t& wp) const
-{
-	frame.writeField(wp, 0, 3);
-	frame.writeField(wp, mIncludeIMEISV, 1);
-}
-
-void L3CipheringModeResponse::text(ostream& os) const
-{
-	os << "includeIMEISV=" << mIncludeIMEISV;
-}
 
 void L3SynchronizationIndication::writeV(L3Frame& frame, size_t& wp) const
 {

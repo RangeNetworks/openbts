@@ -261,27 +261,6 @@ void Control::LocationUpdatingController(const L3LocationUpdatingRequest* lur, L
 		return;
 	}
 
-	// Query for classmark?
-	// This needs to happen before encryption.
-	// It can't be optional if encryption is desired.
-	if (IMSIAttach && (gConfig.getBool("GSM.Cipher.Encrypt") || gConfig.getBool("Control.LUR.QueryClassmark"))) {
-		DCCH->send(L3ClassmarkEnquiry());
-		L3Message* msg = getMessage(DCCH);
-		L3ClassmarkChange *resp = dynamic_cast<L3ClassmarkChange*>(msg);
-		if (!resp) {
-			if (msg) {
-				LOG(WARNING) << "Unexpected message " << *msg;
-				delete msg;
-			}
-			throw UnexpectedMessage();
-		}
-		LOG(INFO) << *resp;
-		const L3MobileStationClassmark2& classmark = resp->classmark();
-		if (!gTMSITable.classmark(IMSI,classmark))
-			LOG(WARNING) << "failed access to TMSITable";
-		delete msg;
-	}
-
 	// Did we get a RAND for challenge-response?
 	if (RAND.length() != 0) {
 		// Get the mobile's SRES.
@@ -318,19 +297,6 @@ void Control::LocationUpdatingController(const L3LocationUpdatingRequest* lur, L
 				DCCH->send(L3AuthenticationReject());
 				DCCH->send(L3ChannelRelease());
 				return;
-			}
-			if (gConfig.getBool("GSM.Cipher.Encrypt")) {
-				int encryptionAlgorithm = gTMSITable.getPreferredA5Algorithm(IMSI);
-				if (!encryptionAlgorithm) {
-					LOG(DEBUG) << "A5/3 and A5/1 not supported: NOT sending Ciphering Mode Command on " << *DCCH << " for " << mobileID;
-				} else if (DCCH->decryptUplink_maybe(mobileID.digits(), encryptionAlgorithm)) {
-					LOG(DEBUG) << "sending Ciphering Mode Command on " << *DCCH << " for " << mobileID;
-					DCCH->send(GSM::L3CipheringModeCommand(
-						GSM::L3CipheringModeSetting(true, encryptionAlgorithm),
-						GSM::L3CipheringModeResponse(false)));
-				} else {
-					LOG(DEBUG) << "no ki: NOT sending Ciphering Mode Command on " << *DCCH << " for " << mobileID;
-				}
 			}
 			gReports.incr("OpenBTS.GSM.MM.Authenticate.Success");
 		}
@@ -394,6 +360,25 @@ void Control::LocationUpdatingController(const L3LocationUpdatingRequest* lur, L
 				LOG(INFO) << "SR hardware update problem";
 			}
 		}
+		delete msg;
+	}
+
+	// Query for classmark?
+	if (IMSIAttach && gConfig.getBool("Control.LUR.QueryClassmark")) {
+		DCCH->send(L3ClassmarkEnquiry());
+		L3Message* msg = getMessage(DCCH);
+		L3ClassmarkChange *resp = dynamic_cast<L3ClassmarkChange*>(msg);
+		if (!resp) {
+			if (msg) {
+				LOG(WARNING) << "Unexpected message " << *msg;
+				delete msg;
+			}
+			throw UnexpectedMessage();
+		}
+		LOG(INFO) << *resp;
+		const L3MobileStationClassmark2& classmark = resp->classmark();
+		if (!gTMSITable.classmark(IMSI,classmark))
+			LOG(WARNING) << "failed access to TMSITable";
 		delete msg;
 	}
 

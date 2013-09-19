@@ -560,9 +560,6 @@ class Clock {
 
 	/** Block until the clock passes a given time. */
 	void wait(const Time&) const;
-
-	/** Return the system time associated with a given timestamp. */
-	double systime(const Time&) const;
 };
 
 

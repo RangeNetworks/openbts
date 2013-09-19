@@ -1,0 +1,36 @@
+# create the tmpfs /var/run directory
+if [ ! -e /var/run/OpenBTS ]; then
+	mkdir /var/run/OpenBTS
+fi
+if [ ! -e /var/run/rrlp ]; then
+	mkdir /var/run/rrlp
+	chmod 777 /var/run/rrlp
+fi
+
+
+# This script assumes that the following are installed in /OpenBTS:
+#  * OpenBTS
+#  * Transceiver
+#  * ezusb.ihx
+#  * fpga.rbf
+#  * runloop.sh for OpenBTS.
+
+#Start asterisk if it is not currently running
+sudo service asterisk status | grep -iqP "\bnot running\b" && sudo service asterisk start
+
+# start OpenBTS
+echo "Starting OpenBTS and Transceiver"
+cd /OpenBTS ; sudo screen -S OpenBTS -d -m ./runloop.OpenBTS.sh
+
+# This script assumes that the following are installed in /smqueue:
+#  * smqueue
+#  * smqueue.db
+#  * runloop.sh for smqueue
+
+# start smqueue
+echo "Starting SMQueue"
+cd /OpenBTS ; sudo screen -S smqueue -d -m ./runloop.smqueue.sh
+
+# start the subscriber registry
+echo "Starting the Subscriber Registry"
+cd /OpenBTS ; sudo screen -S sipauth -d -m ./runloop.sipauthserve.sh

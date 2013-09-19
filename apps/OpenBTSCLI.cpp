@@ -44,7 +44,7 @@
 #endif
 
 
-#define DEFAULT_CMD_PATH "/var/run/command"
+#define DEFAULT_CMD_PATH "/var/run/OpenBTS/command"
 #define DEFAULT_RSP_PATH "./response"
 
 

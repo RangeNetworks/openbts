@@ -266,11 +266,8 @@ void SIPInterface::drive()
 		// heroic efforts to get it to parse the www-authenticate header failed,
 		// so we'll just crowbar that sucker in.
 		char *p = strcasestr(mReadBuffer, "nonce");
-		if (p && p[-1] != 'c') { // nonce but not cnonce
-			p += 6;
-			char *q = p;
-			while (isalnum(*q)) { q++; }
-			string RAND = string(mReadBuffer, p-mReadBuffer, q-p);
+		if (p) {
+			string RAND = string(mReadBuffer, p-mReadBuffer+6, 32);
 			LOG(INFO) << "crowbar www-authenticate " << RAND;
 			osip_www_authenticate_t *auth;
 			osip_www_authenticate_init(&auth);
@@ -279,23 +276,6 @@ void SIPInterface::drive()
 			osip_www_authenticate_set_nonce(auth, osip_strdup(RAND.c_str()));
 			int k = osip_list_add (&msg->www_authenticates, auth, -1);
 			if (k < 0) LOG(ERR) << "problem adding www_authenticate";
-		}
-
-		// The parser doesn't seem to be interested in authentication info either.
-		// Get kc from there and put it in tmsi table.
-		char *pp = strcasestr(mReadBuffer, "cnonce");
-		if (pp) {
-			pp += 7;
-			char *qq = pp;
-			while (isalnum(*qq)) { qq++; }
-			string kc = string(mReadBuffer, pp-mReadBuffer, qq-pp);
-			LOG(INFO) << "storing kc in TMSI table";  // mustn't display kc in log
-			const char *imsi = osip_uri_get_username(msg->to->url);
-			if (imsi && strlen(imsi) > 0) {
-				gTMSITable.putKc(imsi+4, kc);
-			} else {
-				LOG(ERR) << "can't find imsi to store kc";
-			}
 		}
 
 		if (msg->sip_method) LOG(DEBUG) << "read method " << msg->sip_method;
@@ -531,6 +511,8 @@ bool SIPInterface::checkInvite( osip_message_t * msg)
 	}
 	LOG(DEBUG) << "callerID " << callerID << "@" << callerHost;
 
+	// HACK - Check for leading "+".
+	if (*callerID=='+') callerID++;
 
 	// Build the transaction table entry.
 	// This constructor sets TI automatically for an MT transaction.

@@ -6,9 +6,10 @@
 -- rather in the program's ConfigurationKey schema.
 --
 PRAGMA foreign_keys=OFF;
+PRAGMA journal_mode=WAL;
 BEGIN TRANSACTION;
 CREATE TABLE IF NOT EXISTS CONFIG ( KEYSTRING TEXT UNIQUE NOT NULL, VALUESTRING TEXT, STATIC INTEGER DEFAULT 0, OPTIONAL INTEGER DEFAULT 0, COMMENTS TEXT DEFAULT '');
-INSERT OR IGNORE INTO "CONFIG" VALUES('CLI.SocketPath','/var/run/command',0,0,'Path for Unix domain datagram socket used for the OpenBTS console interface.');
+INSERT OR IGNORE INTO "CONFIG" VALUES('CLI.SocketPath','/var/run/OpenBTS/command',0,0,'Path for Unix domain datagram socket used for the OpenBTS console interface.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('Control.Call.QueryRRLP.Early','0',0,0,'1=enabled, 0=disabled - Query every MS for its location via RRLP during the setup of a call.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('Control.Call.QueryRRLP.Late','0',0,0,'1=enabled, 0=disabled - Query every MS for its location via RRLP during the teardown of a call.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('Control.GSMTAP.GPRS','0',0,0,'1=enabled, 0=disabled - Capture GPRS signaling and traffic at L1/L2 interface via GSMTAP.');
@@ -33,13 +34,13 @@ INSERT OR IGNORE INTO "CONFIG" VALUES('Control.LUR.WhiteListing.Message','Your h
 INSERT OR IGNORE INTO "CONFIG" VALUES('Control.LUR.WhiteListing.RejectCause','0x04',0,0,'Reject cause for handset not in the whitelist, when whitelisting is enforced.  Reject causes come from GSM 04.08 10.5.3.6.  Reject cause 0x04, IMSI not in VLR, is usually the right one.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('Control.LUR.WhiteListing.ShortCode','1000',0,0,'The return address for the whitelisting notificiation message.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('Control.NumSQLTries','3',0,0,'Number of times to retry SQL queries before declaring a database access failure.');
-INSERT OR IGNORE INTO "CONFIG" VALUES('Control.Reporting.PhysStatusTable','/var/run/ChannelTable.db',1,0,'File path for channel status reporting database.  Static.');
+INSERT OR IGNORE INTO "CONFIG" VALUES('Control.Reporting.PhysStatusTable','/var/run/OpenBTS/ChannelTable.db',1,0,'File path for channel status reporting database.  Static.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('Control.Reporting.StatsTable','/var/log/OpenBTSStats.db',1,0,'File path for statistics reporting database.  Static.');
-INSERT OR IGNORE INTO "CONFIG" VALUES('Control.Reporting.TMSITable','/var/run/TMSITable.db',1,0,'File path for TMSITable database.  Static.');
-INSERT OR IGNORE INTO "CONFIG" VALUES('Control.Reporting.TransactionTable','/var/run/TransactionTable.db',1,0,'File path for transaction table database.  Static.');
+INSERT OR IGNORE INTO "CONFIG" VALUES('Control.Reporting.TMSITable','/var/run/OpenBTS/TMSITable.db',1,0,'File path for TMSITable database.  Static.');
+INSERT OR IGNORE INTO "CONFIG" VALUES('Control.Reporting.TransactionTable','/var/run/OpenBTS/TransactionTable.db',1,0,'File path for transaction table database.  Static.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('Control.SACCHTimeout.BumpDown','1',0,0,'Decrease the RSSI by this amount to induce more power in the MS each time we fail to receive a response from it.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('Control.SMS.QueryRRLP','0',0,0,'1=enabled, 0=disabled - Query every MS for its location via RRLP during an SMS.');
-INSERT OR IGNORE INTO "CONFIG" VALUES('Control.SMSCB.Table','',1,0,'File path for SMSCB scheduling database.  By default, this feature is disabled.  To enable, specify a file path for the database e.g. /var/run/SMSCB.db.  To disable again, execute "unconfig Control.SMSCB.Table".  Static.');
+INSERT OR IGNORE INTO "CONFIG" VALUES('Control.SMSCB.Table','',1,0,'File path for SMSCB scheduling database.  By default, this feature is disabled.  To enable, specify a file path for the database e.g. /var/run/OpenBTS/SMSCB.db.  To disable again, execute "unconfig Control.SMSCB.Table".  Static.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('Control.TestCall.AutomaticModeChange','0',0,0,'1=enabled, 0=disabled - Automatically change the channel mode of a TCH/FACCH from signaling-only to speech-V1 before starting the fuzzing interface.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('Control.TestCall.LocalPort','24020',0,0,'Port number part of source for L3 payloads received from the handset in fuzzing interface.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('Control.TestCall.PollTime','100',0,0,'Polling time of the fuzzing interface in milliseconds.');
@@ -52,7 +53,7 @@ INSERT OR IGNORE INTO "CONFIG" VALUES('GGSN.Firewall.Enable','1',1,0,'0=no firew
 INSERT OR IGNORE INTO "CONFIG" VALUES('GGSN.IP.MaxPacketSize','1520',1,0,'Maximum size of an IP packet.  Should normally be 1520.  Static.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('GGSN.IP.ReuseTimeout','180',1,0,'How long IP addresses are reserved after a session ends.  Static.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('GGSN.IP.TossDuplicatePackets','0',1,0,'1=enabled, 0=disabled - Toss duplicate TCP/IP packets to prevent unnecessary traffic on the radio.  Static.');
-INSERT OR IGNORE INTO "CONFIG" VALUES('GGSN.Logfile.Name','/var/log/openbts-ggsn.log',1,0,'If specified, internet traffic is logged to this file e.g. ggsn.log  Static.');
+INSERT OR IGNORE INTO "CONFIG" VALUES('GGSN.Logfile.Name','',1,0,'If specified, internet traffic is logged to this file e.g. ggsn.log  Static.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('GGSN.MS.IP.Base','192.168.99.1',1,0,'Base IP address assigned to MS.  Static.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('GGSN.MS.IP.MaxCount','254',1,0,'Number of IP addresses to use for MS.  Static.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('GGSN.MS.IP.Route','',1,0,'A route address to be used for downstream clients.  By default, OpenBTS manufactures this value from the GGSN.MS.IP.Base assuming a 24 bit mask.  To override, specify a route address in the form xxx.xxx.xxx.xxx/yy.  The address must encompass all MS IP addresses.  To use the auto-generated value again, execute "unconfig GGSN.MS.IP.Route".  Static.');
@@ -76,7 +77,7 @@ INSERT OR IGNORE INTO "CONFIG" VALUES('GPRS.Counters.TbfRelease','5',0,0,'Maximu
 INSERT OR IGNORE INTO "CONFIG" VALUES('GPRS.Debug','0',0,0,'1=enabled, 0=disabled - Toggle GPRS debugging.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('GPRS.Downlink.KeepAlive','300',0,0,'How often to send keep-alive messages for persistent TBFs in milliseconds; must be long enough to avoid simultaneous in-flight duplicates, and short enough that MS gets one every 5 seconds.  GSM 5.08 10.2.2 indicates MS must get a block every 360ms');
 INSERT OR IGNORE INTO "CONFIG" VALUES('GPRS.Downlink.Persist','0',0,0,'After completion, downlink TBFs are held open for this time in milliseconds.  If non-zero, must be greater than GPRS.Downlink.KeepAlive.');
-INSERT OR IGNORE INTO "CONFIG" VALUES('GPRS.Enable','0',0,0,'1=enabled, 0=disabled - If enabled, GPRS service is advertised in the C0T0 beacon, and GPRS service may be started on demand.  See also GPRS.Channels.*.');
+INSERT OR IGNORE INTO "CONFIG" VALUES('GPRS.Enable','1',0,0,'1=enabled, 0=disabled - If enabled, GPRS service is advertised in the C0T0 beacon, and GPRS service may be started on demand.  See also GPRS.Channels.*.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('GPRS.LocalTLLI.Enable','1',0,0,'1=enabled, 0=disabled - Enable recognition of local TLLI');
 INSERT OR IGNORE INTO "CONFIG" VALUES('GPRS.MS.KeepExpiredCount','20',0,0,'How many expired MS structs to retain; they can be viewed with gprs list ms -x');
 INSERT OR IGNORE INTO "CONFIG" VALUES('GPRS.MS.Power.Alpha','10',0,0,'MS power control parameter, unitless, in steps of 0.1, so a parameter of 5 is an alpha value of 0.5.  Determines sensitivity of handset to variations in downlink RSSI.  Valid range is 0...10 for alpha values of 0...1.0.  See GSM 05.08 10.2.1.');
@@ -121,10 +122,6 @@ INSERT OR IGNORE INTO "CONFIG" VALUES('GSM.Channels.C1sFirst','0',1,0,'1=enabled
 INSERT OR IGNORE INTO "CONFIG" VALUES('GSM.Channels.NumC1s','7',1,0,'Number of Combination-I timeslots to configure.  The C-I slot carries a single full-rate TCH, used for speech calling.  Static.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('GSM.Channels.NumC7s','0',1,0,'Number of Combination-VII timeslots to configure.  The C-VII slot carries 8 SDCCHs, useful to handle high registration loads or SMS.  If C0T0 is C-IV, which it always is in C2.9 and earlier,, you must have at least one C-VII also.  Static.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('GSM.Channels.SDCCHReserve','0',0,0,'Number of SDCCHs to reserve for non-LUR operations. This can be used to force LUR transactions into a lower priority.');
-INSERT OR IGNORE INTO "CONFIG" VALUES('GSM.Cipher.CCHBER','0',0,0,'Probability of a bit getting toggled in a control channel burst for cracking protection.');
-INSERT OR IGNORE INTO "CONFIG" VALUES('GSM.Cipher.Encrypt','0',0,0,'1=enabled, 0=disabled - Encrypt traffic between phone and OpenBTS.');
-INSERT OR IGNORE INTO "CONFIG" VALUES('GSM.Cipher.RandomNeighbor','0',0,0,'Probability of a random neighbor being added to SI5 for cracking protection.');
-INSERT OR IGNORE INTO "CONFIG" VALUES('GSM.Cipher.ScrambleFiller','0',0,0,'1=enabled, 0=disabled - Scramble filler in layer 2 for cracking protection.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('GSM.Control.GPRSMaxIgnore','5',0,0,'Ignore GPRS messages on GSM control channels.  Value is number of consecutive messages to ignore.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('GSM.Handover.FailureHoldoff','5',0,0,'The number of seconds to wait before attempting another handover with a given neighbor BTS.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('GSM.Handover.LocalRSSIMin','-80',0,0,'Do not handover if downlink RSSI is above this level (in dBm), regardless of power difference.');
@@ -183,7 +180,7 @@ INSERT OR IGNORE INTO "CONFIG" VALUES('Log.Alarms.Max','20',0,0,'Maximum number 
 INSERT OR IGNORE INTO "CONFIG" VALUES('Log.File','',0,0,'Path to use for textfile based logging.  By default, this feature is disabled.  To enable, specify an absolute path to the file you wish to use, eg: /tmp/my-debug.log.  To disable again, execute "unconfig Log.File".');
 INSERT OR IGNORE INTO "CONFIG" VALUES('Log.Level','NOTICE',0,0,'Default logging level when no other level is defined for a file.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('Peering.Neighbor.RefreshAge','60000',0,0,'Milliseconds before refreshing parameters from a neighbor.');
-INSERT OR IGNORE INTO "CONFIG" VALUES('Peering.NeighborTable.Path','/var/run/NeighborTable.db',1,0,'File path for neighbor information database.  Static.');
+INSERT OR IGNORE INTO "CONFIG" VALUES('Peering.NeighborTable.Path','/var/run/OpenBTS/NeighborTable.db',1,0,'File path for neighbor information database.  Static.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('Peering.Port','16001',1,0,'The UDP port used by the peer interface for handover.  Static.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('Peering.ResendCount','5',0,0,'Number of tries to send message over the peer interface before giving up');
 INSERT OR IGNORE INTO "CONFIG" VALUES('Peering.ResendTimeout','100',0,0,'Milliseconds before resending a message on the peer interface');

@@ -876,49 +876,6 @@ class L3HandoverReference : public L3ProtocolElement
 	unsigned value() const { return mValue; }
 };
 
-/** GSM 04.08 10.5.2.9 */
-class L3CipheringModeSetting : public L3ProtocolElement
-{
-	protected:
-
-	bool mCiphering;
-	int mAlgorithm;  // algorithm is A5/mAlgorithm
-
-	public:
-
-	L3CipheringModeSetting(bool wCiphering, int wAlgorithm)
-		:mCiphering(wCiphering), mAlgorithm(wAlgorithm)
-	{
-		// assert(wAlgorithm >= 1 && wAlgorithm <= 7);
-	}
-
-	size_t lengthV() const;
-	void writeV(L3Frame&, size_t& wp) const;
-	void parseV( const L3Frame&, size_t&, size_t) { abort(); }
-	void parseV(const L3Frame&, size_t&) { abort(); }
-	void text(std::ostream&) const;
-};
-
-/** GSM 04.08 10.5.2.10 */
-class L3CipheringModeResponse : public L3ProtocolElement
-{
-	protected:
-
-	bool mIncludeIMEISV;
-
-	public:
-
-	L3CipheringModeResponse(bool wIncludeIMEISV)
-		:mIncludeIMEISV(wIncludeIMEISV)
-	{ }
-
-	size_t lengthV() const;
-	void writeV(L3Frame&, size_t& wp) const;
-	void parseV( const L3Frame&, size_t&, size_t) { abort(); }
-	void parseV(const L3Frame&, size_t&) { abort(); }
-	void text(std::ostream&) const;
-};
-
 /** GSM 04.08 10.5.2.39 */
 class L3SynchronizationIndication : public L3ProtocolElement
 {

@@ -55,8 +55,7 @@ static const char* createTMSITable = {
 		"RANDLOWER INTEGER, "			// authentication token
 		"SRES INTEGER, "				// authentication token
 		"DEG_LAT FLOAT, "				// RRLP result
-		"DEG_LONG FLOAT, "				// RRLP result
-		"kc varchar(33) default '' "
+		"DEG_LONG FLOAT "				// RRLP result
 	")"
 };
 
@@ -259,31 +258,6 @@ bool TMSITable::classmark(const char* IMSI, const GSM::L3MobileStationClassmark2
 		A5Bits,(unsigned)time(NULL),classmark.powerClass(),IMSI);
 	return sqlite3_command(mDB,query);
 }
-
-
-
-int TMSITable::getPreferredA5Algorithm(const char* IMSI)
-{
-	char query[200];
-	sprintf(query, "SELECT A5_SUPPORT from TMSI_TABLE WHERE IMSI=\"%s\"", IMSI);
-	sqlite3_stmt *stmt;
-	if (sqlite3_prepare_statement(mDB,&stmt,query)) {
-		LOG(ERR) << "sqlite3_prepare_statement failed for " << query;
-		return 0;
-	}
-	if (sqlite3_run_query(mDB,stmt)!=SQLITE_ROW) {
-		// Returning false here just means the IMSI is not there yet.
-		sqlite3_finalize(stmt);
-		return 0;
-	}
-	int cm = sqlite3_column_int(stmt,0);
-	sqlite3_finalize(stmt);
-	if (cm&1) return 3;
-	// if (cm&2) return 2; not supported
-	if (cm&4) return 1;
-	return 0;
-}
-
 
 
 void TMSITable::putAuthTokens(const char* IMSI, uint64_t upperRAND, uint64_t lowerRAND, uint32_t SRES)

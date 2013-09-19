@@ -191,12 +191,6 @@ class GSMConfig {
 	void regenerateBeacon();
 
 	/**
-		SI5 is generated separately because it may get random
-		neighbors added each time it's sent.
-	*/
-	void regenerateSI5();
-
-	/**
 		Hold off on channel allocations; don't answer RACH.
 		@param val true to hold, false to clear hold
 	*/

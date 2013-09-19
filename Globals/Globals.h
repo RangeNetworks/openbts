@@ -1,4 +1,3 @@
-//#define RN_DEVELOPER_MODE 1
 /**@file Global system parameters. */
 /*
 * Copyright 2008, 2009 Free Software Foundation, Inc.
@@ -68,6 +67,9 @@ extern TransceiverManager gTRX;
 void gResetWatchdog();
 size_t gWatchdogRemaining();
 bool gWatchdogExpired();
+
+/** Build valid ARFCN string. */
+extern std::string getARFCNsString(unsigned);
 
 extern ReportingTable gReports;
 #endif
