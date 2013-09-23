@@ -7,7 +7,7 @@ Build-Depends: build-essential, debhelper (>= 7), libosip2-dev, pkg-config, auto
 Standards-Version: 3.7.3
 
 Package: openbts-public
-Version: P3.1TRUNK
+Version: rP3.1.3
 Section: comm
 Priority: optional
 Architecture: i386

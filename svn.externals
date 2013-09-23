@@ -1,4 +1,4 @@
-SR http://wush.net/svn/range/software/public/subscriberRegistry/branches/P3.1
-CommonLibs http://wush.net/svn/range/software/public/CommonLibs/branches/P3.1
-sqlite3 http://wush.net/svn/range/software/public/sqlite3/branches/P3.1
+CommonLibs https://wush.net/svn/range/software/public/CommonLibs/tags/rP3.1.3
+sqlite3 https://wush.net/svn/range/software/public/sqlite3/tags/rP3.1.3
+SR https://wush.net/svn/range/software/public/subscriberRegistry/tags/rP3.1.3
 
