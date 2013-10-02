@@ -2103,14 +2103,14 @@ ConfigurationKeyMap getConfigurationKeys()
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
-	tmp = new ConfigurationKey("GSM.Radio.RxGain","47",
+	tmp = new ConfigurationKey("GSM.Radio.RxGain","0",
 		"dB",
 		ConfigurationKey::FACTORY,
 		ConfigurationKey::VALRANGE,
-		"25:75",// educated guess
+		"0:75",// educated guess
 		true,
 		"Receiver gain setting in dB.  "
-			"Ideal value is dictated by the hardware; 47 dB for RAD1.  "
+			"Ideal value is dictated by the hardware; 47 dB for RAD1, less for USRPs  "
 			"This database parameter is static but the receiver gain can be modified in real time with the CLI rxgain command."
 	);
 	map[tmp->getName()] = *tmp;

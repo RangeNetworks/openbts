@@ -171,7 +171,7 @@ INSERT OR IGNORE INTO "CONFIG" VALUES('GSM.Radio.PowerManager.Period','6000',0,0
 INSERT OR IGNORE INTO "CONFIG" VALUES('GSM.Radio.PowerManager.SamplePeriod','2000',0,0,'Sample period for the output power control loopm in milliseconds.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('GSM.Radio.PowerManager.TargetT3122','5000',0,0,'Target value for T3122, the random access hold-off timer, for the power control loop.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('GSM.Radio.RSSITarget','-50',0,0,'Target uplink RSSI for MS power control loop, in dB wrt to A/D full scale.  Should be 6-10 dB above the noise floor.');
-INSERT OR IGNORE INTO "CONFIG" VALUES('GSM.Radio.RxGain','47',1,0,'Receiver gain setting in dB.  Ideal value is dictated by the hardware; 47 dB for RAD1.  This database parameter is static but the receiver gain can be modified in real time with the CLI rxgain command.  Static.');
+INSERT OR IGNORE INTO "CONFIG" VALUES('GSM.Radio.RxGain','0',1,0,'Receiver gain setting in dB.  Ideal value is dictated by the hardware; 47 dB for RAD1, less for USRP.  This database parameter is static but the receiver gain can be modified in real time with the CLI rxgain command.  Static.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('GSM.ShowCountry','0',0,0,'1=enabled, 0=disabled - Tell the phone to show the country name based on the MCC.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('GSM.Timer.T3103','5000',1,0,'Handover timeout in milliseconds, GSM 04.08 11.1.2.  This is the timeout for a handset to sieze a channel during handover.  Static.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('GSM.Timer.T3105','50',1,0,'Milliseconds for handset to respond to physical information. GSM 04.08 11.1.2.  Static.');
