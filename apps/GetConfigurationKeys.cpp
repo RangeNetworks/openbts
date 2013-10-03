@@ -537,7 +537,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		"minutes",
 		ConfigurationKey::DEVELOPER,
 		ConfigurationKey::VALRANGE,
-		"45:75",// educated guess
+		"0:6000",// educated guess
 		false,
 		"Number of minutes before the radio watchdog expires and OpenBTS is restarted."
 	);
