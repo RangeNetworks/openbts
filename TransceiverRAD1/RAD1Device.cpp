@@ -618,6 +618,7 @@ bool RAD1Device::updateAlignment(TIMESTAMP timestamp)
 
 bool RAD1Device::setVCTCXO(unsigned int freq_cal) {
   m_uRx->writeAuxDac(2,freq_cal << 4);
+  return true;
 }
 
 #ifndef SWLOOPBACK 

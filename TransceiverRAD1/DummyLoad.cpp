@@ -46,6 +46,7 @@ using namespace std;
 int DummyLoad::loadBurst(short *wDummyBurst, int len) {
   dummyBurst = wDummyBurst;
   dummyBurstSz = len;
+  return 0;
 }
 
 

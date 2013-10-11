@@ -59,7 +59,7 @@ const char* gOpenBTSWelcome =
 	"\n"
 	"\nThis program comes with ABSOLUTELY NO WARRANTY.\n"
 	"\nUse of this software may be subject to other legal restrictions,\n"
-	"including patent licsensing and radio spectrum licensing.\n"
+	"including patent licensing and radio spectrum licensing.\n"
 	"All users of this software are expected to comply with applicable\n"
 	"regulations and laws.  See the LEGAL file in the source code for\n"
 	"more information.\n"
