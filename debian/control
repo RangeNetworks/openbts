@@ -14,5 +14,5 @@ Section: comm
 Priority: optional
 Architecture: any
 Essential: no
-Depends: sqlite3 (>= 3.7), libosip2-4, libusb-1.0-0, libortp8 (<= 0.20), libglib2.0-0, libgl1-mesa-glx, libc6, libasound2, pkg-config, libpcre3, gawk, screen
+Depends: sqlite3 (>= 3.7), libosip2-4, libusb-1.0-0, libortp8, libglib2.0-0, libgl1-mesa-glx, libc6, libasound2, pkg-config, libpcre3, gawk, screen
 Description: OpenBTS Public software.
