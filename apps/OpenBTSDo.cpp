@@ -34,7 +34,7 @@
 #include <limits.h>
 
 
-#define DEFAULT_CMD_PATH "/var/run/OpenBTS/command"
+#define DEFAULT_CMD_PATH "/var/run/command"
 
 int main(int argc, char *argv[])
 {
