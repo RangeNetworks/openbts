@@ -131,7 +131,7 @@ pid_t gTransceiverPid = 0;
 void startTransceiver()
 {
 	// kill any stray transceiver process
-	system("killall transceiver");
+	if (system("killall transceiver 2>/dev/null")) {}
 
 	// Start the transceiver binary, if the path is defined.
 	// If the path is not defined, the transceiver must be started by some other process.
@@ -384,7 +384,8 @@ int main(int argc, char *argv[])
 	LOG(INFO) << "checking transceiver";
 	//gTRX.ARFCN(0)->powerOn();
 	//sleep(gConfig.getNum("TRX.Timeout.Start"));
-	bool haveTRX = gTRX.ARFCN(0)->powerOn(false);
+	//bool haveTRX = gTRX.ARFCN(0)->powerOn(false); // (pat) Dont power on the radio before initing it, particularly SETTSC below; radio can crash.
+	bool haveTRX = gTRX.ARFCN(0)->powerOff();
 
 	Thread transceiverThread;
 	if (!haveTRX) {
@@ -620,7 +621,7 @@ int main(int argc, char *argv[])
 	const char* sockpath = gConfig.getStr("CLI.SocketPath").c_str();
 	char rmcmd[strlen(sockpath)+5];
 	sprintf(rmcmd,"rm -f %s",sockpath);
-	system(rmcmd);
+	if (system(rmcmd)) {}
 	strcpy(cmdSockName.sun_path,sockpath);
 	LOG(INFO) "binding CLI datagram socket at " << sockpath;
 	if (bind(sock, (struct sockaddr *) &cmdSockName, sizeof(struct sockaddr_un))) {
