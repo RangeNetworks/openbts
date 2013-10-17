@@ -521,9 +521,6 @@ bool uhd_device::parse_dev_type()
 
 int uhd_device::open(const std::string &args)
 {
-	// Register msg handler
-	uhd::msg::register_handler(&uhd_msg_handler);
-
 	// Find UHD devices
 	uhd::device_addr_t addr(args);
 	uhd::device_addrs_t dev_addrs = uhd::device::find(addr);
@@ -643,6 +640,9 @@ bool uhd_device::start()
 	}
 
 	setPriority();
+
+	// Register msg handler
+	uhd::msg::register_handler(&uhd_msg_handler);
 
 	// Start asynchronous event (underrun check) loop
 	async_event_thrd.start((void * (*)(void*))async_event_loop, (void*)this);
