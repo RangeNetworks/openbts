@@ -119,8 +119,6 @@ private:
   /** send messages over the clock socket */
   void writeClockInterface(void);
 
-  signalVector *gsmPulse;              ///< the GSM shaping pulse for modulation
-
   int mSPS;                            ///< number of samples per GSM symbol
 
   bool mOn;			       ///< flag to indicate that transceiver is powered on
@@ -163,6 +161,7 @@ public:
 
   /** start the Transceiver */
   void start();
+  bool init();
 
   /** attach the radioInterface receive FIFO */
   void receiveFIFO(VectorFIFO *wFIFO) { mReceiveFIFO = wFIFO;}

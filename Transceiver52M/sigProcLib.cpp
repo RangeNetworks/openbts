@@ -56,8 +56,27 @@ typedef struct {
   complex      gain;
 } CorrelationSequence;
 
+/*
+ * Gaussian and empty modulation pulses
+ */
+struct PulseSequence {
+  PulseSequence() : gaussian(NULL), empty(NULL)
+  {
+  }
+
+  ~PulseSequence()
+  {
+    delete gaussian;
+    delete empty;
+  }
+
+  signalVector *gaussian;
+  signalVector *empty;
+};
+
 CorrelationSequence *gMidambles[] = {NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL};
 CorrelationSequence *gRACHSequence = NULL;
+PulseSequence *GSMPulse = NULL;
 
 void sigProcLibDestroy(void) {
   if (GMSKRotation) {
@@ -232,6 +251,7 @@ void sigProcLibSetup(int sps)
 {
   initTrigTables();
   initGMSKRotationTables(sps);
+  generateGSMPulse(sps, 2);
 }
 
 void GMSKRotate(signalVector &x) {
@@ -437,25 +457,36 @@ signalVector* convolve(const signalVector *a,
 }
 
 
-signalVector* generateGSMPulse(int sps, int symbolLength)
+void generateGSMPulse(int sps, int symbolLength)
 {
+  int len;
+  float arg, center;
 
-  int numSamples = sps * symbolLength + 1;
-  signalVector *x = new signalVector(numSamples);
-  signalVector::iterator xP = x->begin();
-  int centerPoint = (numSamples-1)/2;
-  for (int i = 0; i < numSamples; i++) {
-    float arg = (float) (i - centerPoint) / (float) sps;
-    *xP++ = 0.96*exp(-1.1380*arg*arg-0.527*arg*arg*arg*arg); // GSM pulse approx.
+  delete GSMPulse;
+
+  /* Store a single tap filter used for correlation sequence generation */
+  GSMPulse = new PulseSequence();
+  GSMPulse->empty = new signalVector(1);
+  GSMPulse->empty->isRealOnly(true);
+  *(GSMPulse->empty->begin()) = 1.0f;
+
+  /* GSM pulse approximation */
+  GSMPulse->gaussian = new signalVector(len);
+  GSMPulse->gaussian->isRealOnly(true);
+  signalVector::iterator xP = GSMPulse->gaussian->begin();
+
+  center = (float) (len - 1.0) / 2.0;
+
+  for (int i = 0; i < len; i++) {
+    arg = ((float) i - center) / (float) sps;
+    *xP++ = 0.96 * exp(-1.1380 * arg * arg -
+                        0.527 * arg * arg * arg * arg);
   }
 
-  float avgAbsval = sqrtf(vectorNorm2(*x) / sps);
-  xP = x->begin();
-  for (int i = 0; i < numSamples; i++) 
+  float avgAbsval = sqrtf(vectorNorm2(*GSMPulse->gaussian)/sps);
+  xP = GSMPulse->gaussian->begin();
+  for (int i = 0; i < len; i++) 
     *xP++ /= avgAbsval;
-  x->isRealOnly(true);
-  x->setSymmetry(ABSSYM);
-  return x;
 }
 
 signalVector* frequencyShift(signalVector *y,
@@ -562,36 +593,22 @@ bool vectorSlicer(signalVector *x)
   return true;
 }
   
-signalVector *modulateBurst(const BitVector &wBurst,
-			    const signalVector &gsmPulse,
-			    int guardPeriodLength,
-			    int sps)
+signalVector *modulateBurst(const BitVector &wBurst, int guardPeriodLength,
+			    int sps, bool emptyPulse)
 {
+  int burstLen;
+  signalVector *pulse, modBurst;
+  signalVector::iterator modBurstItr;
 
-  //static complex staticBurst[157];
+  if (emptyPulse)
+    pulse = GSMPulse->empty;
+  else
+    pulse = GSMPulse->gaussian;
 
-  int burstSize = sps * (wBurst.size() + guardPeriodLength);
-  //signalVector modBurst((complex *) staticBurst,0,burstSize);
-  signalVector modBurst(burstSize);// = new signalVector(burstSize);
-  modBurst.isRealOnly(true);
-  //memset(staticBurst,0,sizeof(complex)*burstSize);
-  modBurst.fill(0.0);
-  signalVector::iterator modBurstItr = modBurst.begin();
+  burstLen = sps * (wBurst.size() + guardPeriodLength);
+  modBurst = signalVector(burstLen);
+  modBurstItr = modBurst.begin();
 
-#if 0 
-  // if wBurst is already differentially decoded
-  *modBurstItr = 2.0*(wBurst[0] & 0x01)-1.0;
-  signalVector::iterator prevVal = modBurstItr;
-  for (unsigned int i = 1; i < wBurst.size(); i++) {
-    modBurstItr += sps;
-    if (wBurst[i] & 0x01) 
-      *modBurstItr = *prevVal * complex(0.0,1.0);
-    else
-      *modBurstItr = *prevVal * complex(0.0,-1.0);
-    prevVal = modBurstItr;
-  }
-#else
-  // if wBurst are the raw bits
   for (unsigned int i = 0; i < wBurst.size(); i++) {
     *modBurstItr = 2.0*(wBurst[i] & 0x01)-1.0;
     modBurstItr += sps;
@@ -600,16 +617,13 @@ signalVector *modulateBurst(const BitVector &wBurst,
   // shift up pi/2
   // ignore starting phase, since spec allows for discontinuous phase
   GMSKRotate(modBurst);
-#endif
+
   modBurst.isRealOnly(false);
 
   // filter w/ pulse shape
-  signalVector *shapedBurst = convolve(&modBurst,&gsmPulse,NULL,NO_DELAY);
+  signalVector *shapedBurst = convolve(&modBurst, pulse, NULL, NO_DELAY);
 
-  //delete modBurst;
-  
   return shapedBurst;
-
 }
 
 float sinc(float x) 
@@ -835,11 +849,8 @@ void offsetVector(signalVector &x,
   }
 }
 
-bool generateMidamble(signalVector &gsmPulse,
-		      int sps,
-		      int TSC)
+bool generateMidamble(int sps, int TSC)
 {
-
   if ((TSC < 0) || (TSC > 7)) 
     return false;
 
@@ -848,18 +859,13 @@ bool generateMidamble(signalVector &gsmPulse,
     if (gMidambles[TSC]->sequenceReversedConjugated!=NULL)  delete gMidambles[TSC]->sequenceReversedConjugated;
   }
 
-  signalVector emptyPulse(1); 
-  *(emptyPulse.begin()) = 1.0;
-
   // only use middle 16 bits of each TSC
   signalVector *middleMidamble = modulateBurst(gTrainingSequence[TSC].segment(5,16),
-					 emptyPulse,
 					 0,
-					 sps);
+					 sps, true);
   signalVector *midamble = modulateBurst(gTrainingSequence[TSC],
-                                         gsmPulse,
                                          0,
-                                         sps);
+                                         sps, false);
   
   if (midamble == NULL) return false;
   if (middleMidamble == NULL) return false;
@@ -893,17 +899,14 @@ bool generateMidamble(signalVector &gsmPulse,
   return true;
 }
 
-bool generateRACHSequence(signalVector &gsmPulse,
-			  int sps)
+bool generateRACHSequence(int sps)
 {
-  
   if (gRACHSequence) {
     if (gRACHSequence->sequence!=NULL) delete gRACHSequence->sequence;
     if (gRACHSequence->sequenceReversedConjugated!=NULL) delete gRACHSequence->sequenceReversedConjugated;
   }
 
   signalVector *RACHSeq = modulateBurst(gRACHSynchSequence,
-					gsmPulse,
 					0,
 					sps);
 
@@ -1134,12 +1137,8 @@ signalVector *decimateVector(signalVector &wVector,
 }
 
 
-SoftVector *demodulateBurst(signalVector &rxBurst,
-			 const signalVector &gsmPulse,
-			 int sps,
-			 complex channel,
-			 float TOA) 
-
+SoftVector *demodulateBurst(signalVector &rxBurst, int sps,
+                            complex channel, float TOA) 
 {
   scaleVector(rxBurst,((complex) 1.0)/channel);
   delayVector(rxBurst,-TOA);

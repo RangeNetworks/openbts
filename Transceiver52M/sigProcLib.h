@@ -128,7 +128,7 @@ signalVector* convolve(const signalVector *a,
 	@param symbolLength The size of the pulse.
 	@return The GSM pulse.
 */
-signalVector* generateGSMPulse(int sps, int symbolLength);
+void generateGSMPulse(int sps, int symbolLength);
 
 /** 
         Frequency shift a vector.
@@ -165,9 +165,8 @@ bool vectorSlicer(signalVector *x);
 
 /** GMSK modulate a GSM burst of bits */
 signalVector *modulateBurst(const BitVector &wBurst,
-			    const signalVector &gsmPulse,
 			    int guardPeriodLength,
-			    int sps);
+			    int sps, bool emptyPulse = false);
 
 /** Sinc function */
 float sinc(float x);
@@ -232,15 +231,14 @@ void offsetVector(signalVector &x,
         @param TSC The training sequence [0..7]
         @return Success.
 */
-bool generateMidamble(signalVector &gsmPulse, int sps, int tsc);
+bool generateMidamble(int sps, int tsc);
 /**
         Generate a modulated RACH sequence, stored within the library.
         @param gsmPulse The GSM pulse used for modulation.
         @param sps The number of samples per GSM symbol.
         @return Success.
 */
-bool generateRACHSequence(signalVector &gsmPulse,
-			  int sps);
+bool generateRACHSequence(int sps);
 
 /**
         Energy detector, checks to see if received burst energy is above a threshold.
@@ -313,11 +311,8 @@ signalVector *decimateVector(signalVector &wVector,
         @param TOA The time-of-arrival of the received burst.
         @return The demodulated bit sequence.
 */
-SoftVector *demodulateBurst(signalVector &rxBurst,
-			 const signalVector &gsmPulse,
-			 int sps,
-			 complex channel,
-			 float TOA);
+SoftVector *demodulateBurst(signalVector &rxBurst, int sps,
+                            complex channel, float TOA);
 
 /**
         Creates a simple Kaiser-windowed low-pass FIR filter.

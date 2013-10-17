@@ -55,14 +55,11 @@ Transceiver::Transceiver(int wBasePort,
 	 mControlSocket(wBasePort+1,TRXAddress,wBasePort+101),
 	 mClockSocket(wBasePort,TRXAddress,wBasePort+100)
 {
-  //GSM::Time startTime(0,0);
-  //GSM::Time startTime(gHyperframe/2 - 4*216*60,0);
   GSM::Time startTime(random() % gHyperframe,0);
 
   mFIFOServiceLoopThread = new Thread(32768);  ///< thread to push bursts into transmit FIFO
   mControlServiceLoopThread = new Thread(32768);       ///< thread to process control messages from GSM core
   mTransmitPriorityQueueServiceLoopThread = new Thread(32768);///< thread to process transmit bursts from GSM core
-
 
   mSPS = wSPS;
   mRadioInterface = wRadioInterface;
@@ -73,31 +70,8 @@ Transceiver::Transceiver(int wBasePort,
   mRadioInterface->getClock()->set(startTime);
   mMaxExpectedDelay = 0;
 
-  // generate pulse and setup up signal processing library
-  gsmPulse = generateGSMPulse(2, mSPS);
-  LOG(DEBUG) << "gsmPulse: " << *gsmPulse;
-  sigProcLibSetup(mSPS);
-
   txFullScale = mRadioInterface->fullScaleInputValue();
   rxFullScale = mRadioInterface->fullScaleOutputValue();
-
-  // initialize filler tables with dummy bursts, initialize other per-timeslot variables
-  for (int i = 0; i < 8; i++) {
-    signalVector* modBurst = modulateBurst(gDummyBurst,*gsmPulse,
-					   8 + (i % 4 == 0),
-					   mSPS);
-    scaleVector(*modBurst,txFullScale);
-    fillerModulus[i]=26;
-    for (int j = 0; j < 102; j++) {
-      fillerTable[j][i] = new signalVector(*modBurst);
-    }
-    delete modBurst;
-    mChanType[i] = NONE;
-    channelResponse[i] = NULL;
-    DFEForward[i] = NULL;
-    DFEFeedback[i] = NULL;
-    channelEstimateTime[i] = startTime;
-  }
 
   mOn = false;
   mTxFreq = 0.0;
@@ -108,20 +82,55 @@ Transceiver::Transceiver(int wBasePort,
 
 }
 
+
 Transceiver::~Transceiver()
 {
-  delete gsmPulse;
   sigProcLibDestroy();
   mTransmitPriorityQueue.clear();
 }
-  
+
+bool Transceiver::init()
+{
+  if (!sigProcLibSetup(mSPS)) {
+    LOG(ALERT) << "Failed to initialize signal processing library";
+    return false;
+  }
+
+  // initialize filler tables with dummy bursts
+  for (int i = 0; i < 8; i++) {
+    signalVector* modBurst = modulateBurst(gDummyBurst,
+					   8 + (i % 4 == 0),
+					   mSPS);
+    if (!modBurst) {
+      sigProcLibDestroy();
+      LOG(ALERT) << "Failed to initialize filler table";
+      return false;
+    }
+
+    scaleVector(*modBurst,txFullScale);
+    fillerModulus[i]=26;
+    for (int j = 0; j < 102; j++) {
+      fillerTable[j][i] = new signalVector(*modBurst);
+    }
+
+    delete modBurst;
+    mChanType[i] = NONE;
+    channelResponse[i] = NULL;
+    DFEForward[i] = NULL;
+    DFEFeedback[i] = NULL;
+    channelEstimateTime[i] = mTransmitDeadlineClock;
+  }
+
+  return true;
+}
+ 
 radioVector *Transceiver::fixRadioVector(BitVector &burst,
 				 int RSSI,
 				 GSM::Time &wTime)
 {
 
   // modulate and stick into queue 
-  signalVector* modBurst = modulateBurst(burst,*gsmPulse,
+  signalVector* modBurst = modulateBurst(burst,
 					 8 + (wTime.TN() % 4 == 0),
 					 mSPS);
   scaleVector(*modBurst,txFullScale * pow(10,-RSSI/10));
@@ -136,10 +145,7 @@ radioVector *Transceiver::fixRadioVector(BitVector &burst,
 #ifdef TRANSMIT_LOGGING
 void Transceiver::unModulateVector(signalVector wVector) 
 {
-  SoftVector *burst = demodulateBurst(wVector,
-				   *gsmPulse,
-				   mSPS,
-				   1.0,0.0);
+  SoftVector *burst = demodulateBurst(wVector, mSPS, 1.0, 0.0);
   LOG(DEBUG) << "LOGGED BURST: " << *burst;
 
 /*
@@ -437,7 +443,6 @@ SoftVector *Transceiver::pullRadioVector(GSM::Time &wTime,
   if ((rxBurst) && (success)) {
     if ((corrType==RACH) || (!needDFE)) {
       burst = demodulateBurst(*vectorBurst,
-			      *gsmPulse,
 			      mSPS,
 			      amplitude,TOA);
     }
@@ -519,7 +524,7 @@ void Transceiver::driveControl()
         // Prepare for thread start
         mPower = -20;
         mRadioInterface->start();
-        generateRACHSequence(*gsmPulse, mSPS);
+        generateRACHSequence(mSPS);
 
         // Start radio interface threads.
         mFIFOServiceLoopThread->start((void * (*)(void*))FIFOServiceLoopAdapter,(void*) this);
@@ -611,8 +616,8 @@ void Transceiver::driveControl()
       sprintf(response,"RSP SETTSC 1 %d",TSC);
     else {
       mTSC = TSC;
-      generateMidamble(*gsmPulse, mSPS, TSC);
-      sprintf(response,"RSP SETTSC 0 %d",TSC);
+      generateMidamble(mSPS, TSC);
+      sprintf(response,"RSP SETTSC 0 %d", TSC);
     }
   }
   else if (strcmp(command,"HANDOVER")==0) {
