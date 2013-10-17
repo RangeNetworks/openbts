@@ -118,8 +118,10 @@ bool RadioInterface::tuneRx(double freq)
 void RadioInterface::start()
 {
   LOG(INFO) << "starting radio interface...";
+#ifdef USRP1
   mAlignRadioServiceLoopThread.start((void * (*)(void*))AlignRadioServiceLoopAdapter,
                                      (void*)this);
+#endif
   writeTimestamp = mRadio->initialWriteTimestamp();
   readTimestamp = mRadio->initialReadTimestamp();
   mRadio->start(); 
@@ -134,6 +136,7 @@ void RadioInterface::start()
 
 }
 
+#ifdef USRP1
 void *AlignRadioServiceLoopAdapter(RadioInterface *radioInterface)
 {
   while (1) {
@@ -147,6 +150,7 @@ void RadioInterface::alignRadio() {
   sleep(60);
   mRadio->updateAlignment(writeTimestamp+ (TIMESTAMP) 10000);
 }
+#endif
 
 void RadioInterface::driveTransmitRadio(signalVector &radioBurst, bool zeroBurst) {
 
@@ -216,14 +220,6 @@ bool RadioInterface::isUnderrun()
   underrun = false;
 
   return retVal;
-}
-
-void RadioInterface::attach(RadioDevice *wRadio, int wRadioOversampling)
-{
-  if (!mOn) {
-    mRadio = wRadio;
-    mRadioOversampling = SAMPSPERSYM;
-  }
 }
 
 double RadioInterface::setRxGain(double dB)
