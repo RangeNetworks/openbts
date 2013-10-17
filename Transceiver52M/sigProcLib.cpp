@@ -1213,8 +1213,8 @@ static int detectBurst(signalVector &burst,
  *
  * Correlation window parameters:
  *   target: Tail bits + RACH length (reduced from 41 to a multiple of 4)
- *   head: Search 8 symbols before target 
- *   tail: Search 8 symbols after target
+ *   head: Search 4 symbols before target 
+ *   tail: Search 10 symbols after target
  */
 int detectRACHBurst(signalVector &rxBurst,
 		    float thresh,
@@ -1232,8 +1232,8 @@ int detectRACHBurst(signalVector &rxBurst,
     return -1;
 
   target = 8 + 40;
-  head = 8;
-  tail = head;
+  head = 4;
+  tail = 10;
 
   start = (target - head) * sps - 1;
   len = (head + tail) * sps;
@@ -1266,8 +1266,8 @@ int detectRACHBurst(signalVector &rxBurst,
  *
  * Correlation window parameters:
  *   target: Tail + data + mid-midamble + 1/2 remaining midamblebits
- *   head: Search 8 symbols before target
- *   tail: Search 8 symbols + maximum expected delay
+ *   head: Search 4 symbols before target
+ *   tail: Search 4 symbols + maximum expected delay
  */
 int analyzeTrafficBurst(signalVector &rxBurst, unsigned tsc, float thresh,
                         int sps, complex *amp, float *toa, unsigned max_toa,
@@ -1283,8 +1283,8 @@ int analyzeTrafficBurst(signalVector &rxBurst, unsigned tsc, float thresh,
     return -1;
 
   target = 3 + 58 + 16 + 5;
-  head = 8;
-  tail = head + max_toa;
+  head = 4;
+  tail = 4 + max_toa;
 
   start = (target - head) * sps - 1;
   len = (head + tail) * sps;
