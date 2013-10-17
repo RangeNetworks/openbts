@@ -109,7 +109,7 @@ int testConfig(const char *filename)
 
 int main(int argc, char *argv[])
 {
-  int trxPort, fail = 0;
+  int trxPort, radioType, extref = 0, fail = 0;
   std::string deviceArgs, logLevel, trxAddr;
   RadioDevice *usrp = NULL;
   RadioInterface *radio = NULL;
@@ -139,12 +139,21 @@ int main(int argc, char *argv[])
   logLevel = gConfig.getStr("Log.Level");
   trxPort = gConfig.getNum("TRX.Port");
   trxAddr = gConfig.getStr("TRX.IP");
+
+  if (gConfig.defines("TRX.Reference"))
+    extref = gConfig.getNum("TRX.Reference");
+
+  if (extref)
+    std::cout << "Using external clock reference" << std::endl;
+  else
+    std::cout << "Using internal clock reference" << std::endl;
+
   gLogInit("transceiver", logLevel.c_str(), LOG_LOCAL7);
 
   srandom(time(NULL));
 
   usrp = RadioDevice::make(SPS);
-  int radioType = usrp->open(deviceArgs);
+  radioType = usrp->open(deviceArgs, extref);
   if (radioType < 0) {
     LOG(ALERT) << "Transceiver exiting..." << std::endl;
     return EXIT_FAILURE;

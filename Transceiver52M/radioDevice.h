@@ -39,7 +39,7 @@ class RadioDevice {
   static RadioDevice *make(int sps, bool skipRx = false);
 
   /** Initialize the USRP */
-  virtual int open(const std::string &args)=0;
+  virtual int open(const std::string &args = "", bool extref = false)=0;
 
   /** Start the USRP */
   virtual bool start()=0;

@@ -214,7 +214,7 @@ public:
 	uhd_device(int sps, bool skip_rx);
 	~uhd_device();
 
-	int open(const std::string &args);
+	int open(const std::string &args, bool extref);
 	bool start();
 	bool stop();
 	void restart(uhd::time_spec_t ts);
@@ -519,7 +519,7 @@ bool uhd_device::parse_dev_type()
 	return true;
 }
 
-int uhd_device::open(const std::string &args)
+int uhd_device::open(const std::string &args, bool extref)
 {
 	// Find UHD devices
 	uhd::device_addr_t addr(args);
@@ -542,9 +542,9 @@ int uhd_device::open(const std::string &args)
 	if (!parse_dev_type())
 		return -1;
 
-#ifdef EXTREF
-	set_ref_clk(true);
-#endif
+	if (extref)
+		set_ref_clk(true);
+
 	// Create TX and RX streamers
 	uhd::stream_args_t stream_args("sc16");
 	tx_stream = usrp_dev->get_tx_stream(stream_args);

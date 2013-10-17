@@ -70,11 +70,6 @@ AC_ARG_WITH(singledb, [
         [enable single daughterboard use on USRP1])
 ])
 
-AC_ARG_WITH(extref, [
-    AS_HELP_STRING([--with-extref],
-        [enable external reference on UHD devices])
-])
-
 AS_IF([test "x$with_usrp1" = "xyes"], [
     PKG_CHECK_MODULES(USRP, usrp >= 3.3)
     # Find and define supported SIMD extensions
@@ -85,10 +80,6 @@ AS_IF([test "x$with_uhd" = "xyes"],[
     PKG_CHECK_MODULES(UHD, uhd >= 003.004.000)
     AC_DEFINE(USE_UHD, 1, Define to 1 if using UHD)
     AX_EXT
-])
-
-AS_IF([test "x$with_extref" = "xyes"], [
-    AC_DEFINE(EXTREF, 1, Define to 1 for external reference)
 ])
 
 AS_IF([test "x$with_singledb" = "xyes"], [

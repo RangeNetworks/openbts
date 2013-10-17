@@ -90,7 +90,7 @@ USRPDevice::USRPDevice(int sps, bool skipRx)
 #endif
 }
 
-int USRPDevice::open(const std::string &)
+int USRPDevice::open(const std::string &, bool)
 {
   writeLock.unlock();
 
