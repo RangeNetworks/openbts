@@ -39,7 +39,15 @@ extern "C" {
 /* Resampling parameters for 100 MHz clocking */
 #define RESAMP_INRATE			52
 #define RESAMP_OUTRATE			75
-#define RESAMP_FILT_LEN			16
+
+/*
+ * Resampling filter bandwidth scaling factor
+ *   This narrows the filter cutoff relative to the output bandwidth
+ *   of the polyphase resampler. At 4 samples-per-symbol using the
+ *   2 pulse Laurent GMSK approximation gives us below 0.5 degrees
+ *   RMS phase error at the resampler output.
+ */
+#define RESAMP_TX4_FILTER		0.45
 
 #define INCHUNK				(RESAMP_INRATE * 4)
 #define OUTCHUNK			(RESAMP_OUTRATE * 4)
@@ -92,13 +100,8 @@ bool RadioInterfaceResamp::init()
 
 	close();
 
-	/*
-	 * With oversampling, restrict bandwidth to 150% of base rate. This also
-	 * provides last ditch bandwith limiting if the pulse shaping filter is
-	 * insufficient.
-	 */
-	if (sps > 1)
-		cutoff = 1.5 / sps;
+	if (mSPSTx == 4)
+		cutoff = RESAMP_TX4_FILTER;
 
 	dnsampler = new Resampler(RESAMP_INRATE, RESAMP_OUTRATE);
 	if (!dnsampler->init(cutoff)) {
