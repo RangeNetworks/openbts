@@ -56,7 +56,8 @@ private:
   VectorFIFO*  mTransmitFIFO;     ///< radioInterface FIFO of transmit bursts 
   VectorFIFO*  mReceiveFIFO;      ///< radioInterface FIFO of receive bursts 
 
-  Thread *mFIFOServiceLoopThread;  ///< thread to push/pull bursts into transmit/receive FIFO
+  Thread *mRxServiceLoopThread;   ///< thread to pull bursts into receive FIFO
+  Thread *mTxServiceLoopThread;   ///< thread to push bursts into transmit FIFO
   Thread *mControlServiceLoopThread;       ///< thread to process control messages from GSM core
   Thread *mTransmitPriorityQueueServiceLoopThread;///< thread to process transmit bursts from GSM core
 
@@ -193,7 +194,9 @@ protected:
   */
   bool driveTransmitPriorityQueue();
 
-  friend void *FIFOServiceLoopAdapter(Transceiver *);
+  friend void *RxServiceLoopAdapter(Transceiver *);
+
+  friend void *TxServiceLoopAdapter(Transceiver *);
 
   friend void *ControlServiceLoopAdapter(Transceiver *);
 
@@ -206,8 +209,9 @@ protected:
 
 };
 
-/** FIFO thread loop */
-void *FIFOServiceLoopAdapter(Transceiver *);
+/** Main drive threads */
+void *RxServiceLoopAdapter(Transceiver *);
+void *TxServiceLoopAdapter(Transceiver *);
 
 /** control message handler thread loop */
 void *ControlServiceLoopAdapter(Transceiver *);

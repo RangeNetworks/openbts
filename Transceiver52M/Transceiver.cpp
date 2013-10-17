@@ -57,7 +57,8 @@ Transceiver::Transceiver(int wBasePort,
 {
   GSM::Time startTime(random() % gHyperframe,0);
 
-  mFIFOServiceLoopThread = new Thread(32768);  ///< thread to push bursts into transmit FIFO
+  mRxServiceLoopThread = new Thread(32768);
+  mTxServiceLoopThread = new Thread(32768);
   mControlServiceLoopThread = new Thread(32768);       ///< thread to process control messages from GSM core
   mTransmitPriorityQueueServiceLoopThread = new Thread(32768);///< thread to process transmit bursts from GSM core
 
@@ -527,7 +528,8 @@ void Transceiver::driveControl()
         mRadioInterface->start();
 
         // Start radio interface threads.
-        mFIFOServiceLoopThread->start((void * (*)(void*))FIFOServiceLoopAdapter,(void*) this);
+        mTxServiceLoopThread->start((void * (*)(void*))TxServiceLoopAdapter,(void*) this);
+        mRxServiceLoopThread->start((void * (*)(void*))RxServiceLoopAdapter,(void*) this);
         mTransmitPriorityQueueServiceLoopThread->start((void * (*)(void*))TransmitPriorityQueueServiceLoopAdapter,(void*) this);
         writeClockInterface();
 
@@ -836,11 +838,9 @@ void Transceiver::driveTransmitFIFO()
       pushRadioVector(mTransmitDeadlineClock);
       mTransmitDeadlineClock.incTN();
     }
-    
   }
-  // FIXME -- This should not be a hard spin.
-  // But any delay here causes us to throw omni_thread_fatal.
-  //else radioClock->wait();
+
+  radioClock->wait();
 }
 
 
@@ -857,17 +857,22 @@ void Transceiver::writeClockInterface()
 
   mLastClockUpdateTime = mTransmitDeadlineClock;
 
-}   
-  
+}
 
-
-
-void *FIFOServiceLoopAdapter(Transceiver *transceiver)
+void *RxServiceLoopAdapter(Transceiver *transceiver)
 {
   transceiver->setPriority();
 
   while (1) {
     transceiver->driveReceiveFIFO();
+    pthread_testcancel();
+  }
+  return NULL;
+}
+
+void *TxServiceLoopAdapter(Transceiver *transceiver)
+{
+  while (1) {
     transceiver->driveTransmitFIFO();
     pthread_testcancel();
   }
