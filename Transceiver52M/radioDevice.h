@@ -29,7 +29,7 @@ class RadioDevice {
 
   public:
   /* Available transport bus types */
-  enum busType { USB, NET };
+  enum TxWindowType { TX_WINDOW_USRP1, TX_WINDOW_FIXED };
 
   static RadioDevice *make(double desiredSampleRate, bool skipRx = false);
 
@@ -42,8 +42,8 @@ class RadioDevice {
   /** Stop the USRP */
   virtual bool stop()=0;
 
-  /** Get the bus type */
-  virtual enum busType getBus()=0;
+  /** Get the Tx window type */
+  virtual enum TxWindowType getWindowType()=0;
 
   /** Enable thread priority */
   virtual void setPriority()=0;

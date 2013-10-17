@@ -806,7 +806,7 @@ void Transceiver::driveTransmitFIFO()
     while (radioClock->get() + mTransmitLatency > mTransmitDeadlineClock) {
       // if underrun, then we're not providing bursts to radio/USRP fast
       //   enough.  Need to increase latency by one GSM frame.
-      if (mRadioInterface->getBus() == RadioDevice::USB) {
+      if (mRadioInterface->getWindowType() == RadioDevice::TX_WINDOW_USRP1) {
         if (mRadioInterface->isUnderrun()) {
           // only update latency at the defined frame interval
           if (radioClock->get() > mLatencyUpdateTime + GSM::Time(USB_LATENCY_INTRVL)) {

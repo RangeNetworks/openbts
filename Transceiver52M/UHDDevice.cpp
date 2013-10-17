@@ -32,8 +32,14 @@
 #include "config.h"
 #endif
 
-#define U1_DEFAULT_CLK_RT 64e6
-#define U2_DEFAULT_CLK_RT 100e6 
+#define B100_CLK_RT 52e6 
+
+enum uhd_dev_type {
+	USRP1,
+	USRP2,
+	B100,
+	NUM_USRP_TYPES,
+};
 
 /*
     master_clk_rt     - Master clock frequency - ignored if host resampling is
@@ -156,7 +162,7 @@ public:
 	bool stop();
 	void restart(uhd::time_spec_t ts);
 	void setPriority();
-	enum busType getBus() { return bus; }
+	enum TxWindowType getWindowType() { return tx_window; }
 
 	int readSamples(short *buf, int len, bool *overrun, 
 			TIMESTAMP timestamp, bool *underrun, unsigned *RSSI);
@@ -206,7 +212,8 @@ private:
 	uhd::usrp::multi_usrp::sptr usrp_dev;
 	uhd::tx_streamer::sptr tx_stream;
 	uhd::rx_streamer::sptr rx_stream;
-	enum busType bus;
+	enum TxWindowType tx_window;
+	enum uhd_dev_type dev_type;
 
 	double desired_smpl_rt, actual_smpl_rt;
 
@@ -229,7 +236,8 @@ private:
 
 	void init_gains();
 	void set_ref_clk(bool ext_clk);
-	double set_rates(double rate);
+	int set_master_clk(double rate);
+	int set_rates(double rate);
 	bool parse_dev_type();
 	bool flush_recv(size_t num_pkts);
 	int check_rx_md_err(uhd::rx_metadata_t &md, ssize_t num_smpls);
@@ -318,45 +326,46 @@ void uhd_device::set_ref_clk(bool ext_clk)
 	return;
 }
 
-double uhd_device::set_rates(double rate)
+int uhd_device::set_master_clk(double clk_rate)
 {
-	double actual_rt, actual_clk_rt;
-
-#ifndef RESAMPLE
-	// Make sure we can set the master clock rate on this device
-	actual_clk_rt = usrp_dev->get_master_clock_rate();
-	if (actual_clk_rt > U1_DEFAULT_CLK_RT) {
-		LOG(ALERT) << "Cannot set clock rate on this device";
-		LOG(ALERT) << "Please compile with host resampling support";
-		return -1.0;
-	}
+	double actual_clk_rt;
 
 	// Set master clock rate
-	usrp_dev->set_master_clock_rate(master_clk_rt);
+	usrp_dev->set_master_clock_rate(clk_rate);
 	actual_clk_rt = usrp_dev->get_master_clock_rate();
 
-	if (actual_clk_rt != master_clk_rt) {
+	if (actual_clk_rt != clk_rate) {
 		LOG(ALERT) << "Failed to set master clock rate";
 		LOG(ALERT) << "Actual clock rate " << actual_clk_rt;
-		return -1.0;
+		return -1;
 	}
-#endif
+
+	return 0;
+}
+
+int uhd_device::set_rates(double rate)
+{
+	// B100 is the only device where we set FPGA clocking
+	if (dev_type == B100) {
+		if (set_master_clk(B100_CLK_RT) < 0)
+			return -1;
+	}
 
 	// Set sample rates
 	usrp_dev->set_tx_rate(rate);
 	usrp_dev->set_rx_rate(rate);
-	actual_rt = usrp_dev->get_tx_rate();
+	actual_smpl_rt = usrp_dev->get_tx_rate();
 
-	if (actual_rt != rate) {
+	if (actual_smpl_rt != rate) {
 		LOG(ALERT) << "Actual sample rate differs from desired rate";
-		return -1.0;
+		return -1;
 	}
-	if (usrp_dev->get_rx_rate() != actual_rt) {
+	if (usrp_dev->get_rx_rate() != actual_smpl_rt) {
 		LOG(ALERT) << "Transmit and receive sample rates do not match";
 		return -1.0;
 	}
 
-	return actual_rt;
+	return 0;
 }
 
 double uhd_device::setTxGain(double db)
@@ -381,7 +390,7 @@ double uhd_device::setRxGain(double db)
 
 /*
     Parse the UHD device tree and mboard name to find out what device we're
-    dealing with. We need the bus type so that the transceiver knows how to
+    dealing with. We need the window type so that the transceiver knows how to
     deal with the transport latency. Reject the USRP1 because UHD doesn't
     support timestamped samples with it.
  */
@@ -402,17 +411,23 @@ bool uhd_device::parse_dev_type()
 	if (usrp1_str != std::string::npos) {
 		LOG(ALERT) << "USRP1 is not supported using the UHD driver";
 		LOG(ALERT) << "Please compile with GNU Radio libusrp support";
+		dev_type = USRP1;
 		return false;
 	}
 
 	if ((b100_str1 != std::string::npos) || (b100_str2 != std::string::npos)) {
-		bus = USB;
-		LOG(INFO) << "Using USB bus for " << dev_str;
+		tx_window = TX_WINDOW_USRP1;
+		LOG(INFO) << "Using USRP1 type transmit window for "
+			  << dev_str << " " << mboard_str;
+		dev_type = B100;
+		return true;
 	} else {
-		bus = NET;
-		LOG(INFO) << "Using network bus for " << dev_str;
+		dev_type = USRP2;
 	}
 
+	tx_window = TX_WINDOW_FIXED;
+	LOG(INFO) << "Using fixed transmit window for "
+		  << dev_str << " " << mboard_str;
 	return true;
 }
 
@@ -455,8 +470,7 @@ bool uhd_device::open(const std::string &args)
 	rx_spp = rx_stream->get_max_num_samps();
 
 	// Set rates
-	actual_smpl_rt = set_rates(desired_smpl_rt);
-	if (actual_smpl_rt < 0)
+	if (set_rates(desired_smpl_rt) < 0)
 		return false;
 
 	// Create receive buffer
