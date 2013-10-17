@@ -242,11 +242,21 @@ void initGMSKRotationTables(int sps)
   }
 }
 
-void sigProcLibSetup(int sps)
+bool sigProcLibSetup(int sps)
 {
+  if ((sps != 0) && (sps != 2) && (sps != 4))
+    return false;
+
   initTrigTables();
   initGMSKRotationTables(sps);
   generateGSMPulse(sps, 2);
+
+  if (!generateRACHSequence(sps)) {
+    sigProcLibDestroy();
+    return false;
+  }
+
+  return true;
 }
 
 void GMSKRotate(signalVector &x) {

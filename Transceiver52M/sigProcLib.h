@@ -103,7 +103,7 @@ float vectorNorm2(const signalVector &x);
 float vectorPower(const signalVector &x);
 
 /** Setup the signal processing library */
-void sigProcLibSetup(int sps);
+bool sigProcLibSetup(int sps);
 
 /** Destroy the signal processing library */
 void sigProcLibDestroy(void);

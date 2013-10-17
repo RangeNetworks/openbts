@@ -161,6 +161,9 @@ int main(int argc, char *argv[])
 
   Transceiver *trx = new Transceiver(trxPort, trxAddr.c_str(),
                                      SAMPSPERSYM, GSM::Time(3,0), radio);
+  if (!trx->init()) {
+    LOG(ALERT) << "Failed to initialize transceiver";
+  }
   trx->receiveFIFO(radio->receiveFIFO());
   trx->start();
 
