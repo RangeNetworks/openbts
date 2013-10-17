@@ -104,46 +104,15 @@ int main(int argc, char *argv[])
 
   Transceiver *trx = new Transceiver(gConfig.getNum("TRX.Port"),gConfig.getStr("TRX.IP").c_str(),SAMPSPERSYM,GSM::Time(3,0),radio);
   trx->receiveFIFO(radio->receiveFIFO());
-/*
-  signalVector *gsmPulse = generateGSMPulse(2,1);
-  BitVector normalBurstSeg = "0000101010100111110010101010010110101110011000111001101010000";
-  BitVector normalBurst(BitVector(normalBurstSeg,gTrainingSequence[0]),normalBurstSeg);
-  signalVector *modBurst = modulateBurst(normalBurst,*gsmPulse,8,1);
-  signalVector *modBurst9 = modulateBurst(normalBurst,*gsmPulse,9,1);
-  signalVector *interpolationFilter = createLPF(0.6/mOversamplingRate,6*mOversamplingRate,1);
-  signalVector totalBurst1(*modBurst,*modBurst9);
-  signalVector totalBurst2(*modBurst,*modBurst);
-  signalVector totalBurst(totalBurst1,totalBurst2);
-  scaleVector(totalBurst,usrp->fullScaleInputValue());
-  double beaconFreq = -1.0*(numARFCN-1)*200e3;
-  signalVector finalVec(625*mOversamplingRate);
-  for (int j = 0; j < numARFCN; j++) {
-	signalVector *frequencyShifter = new signalVector(625*mOversamplingRate);
-	frequencyShifter->fill(1.0);
-	frequencyShift(frequencyShifter,frequencyShifter,2.0*M_PI*(beaconFreq+j*400e3)/(1625.0e3/6.0*mOversamplingRate));
-  	signalVector *interpVec = polyphaseResampleVector(totalBurst,mOversamplingRate,1,interpolationFilter);
-	multVector(*interpVec,*frequencyShifter);
-	addVector(finalVec,*interpVec); 	
-  }
-  signalVector::iterator itr = finalVec.begin();
-  short finalVecShort[2*finalVec.size()];
-  short *shortItr = finalVecShort;
-  while (itr < finalVec.end()) {
-	*shortItr++ = (short) (itr->real());
-	*shortItr++ = (short) (itr->imag());
-	itr++;
-  }
-  usrp->loadBurst(finalVecShort,finalVec.size());
-*/
   trx->start();
-  //int i = 0;
-  while(!gbShutdown) { sleep(1); }//i++; if (i==60) break;}
+
+  while (!gbShutdown) {
+    sleep(1);
+  }
 
   cout << "Shutting down transceiver..." << endl;
 
-//  trx->stop();
   delete trx;
-//  delete radio;
 }
 
 ConfigurationKeyMap getConfigurationKeys()
