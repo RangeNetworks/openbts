@@ -764,44 +764,61 @@ float sinc(float x)
 
 bool delayVector(signalVector &wBurst, float delay)
 {
-  
-  int   intOffset = (int) floor(delay);
-  float fracOffset = delay - intOffset;
+  int whole, h_len = 20;
+  float frac;
+  complex *data;
+  signalVector *h, *shift;
+  signalVector::iterator itr;
 
-  // do fractional shift first, only do it for reasonable offsets
-  if (fabs(fracOffset) > 1e-2) {
-    // create sinc function
-    signalVector sincVector(21); 
-    sincVector.isRealOnly(true);
-    signalVector::iterator sincBurstItr = sincVector.end();
-    for (int i = 0; i < 21; i++) 
-      *--sincBurstItr = (complex) sinc(M_PI_F*(i-10-fracOffset));
-  
-    signalVector shiftedBurst(wBurst.size());
-    if (!convolve(&wBurst, &sincVector, &shiftedBurst, NO_DELAY))
+  whole = floor(delay);
+  frac = delay - whole;
+
+  /* Sinc interpolated fractional shift (if allowable) */
+  if (fabs(frac) > 1e-2) {
+    data = (complex *) convolve_h_alloc(h_len);
+    h = new signalVector(data, 0, h_len);
+    h->setAligned(true);
+    h->isRealOnly(true);
+
+    itr = h->end();
+    for (int i = 0; i < h_len; i++)
+      *--itr = (complex) sinc(M_PI_F * (i - h_len / 2 - frac));
+
+    shift = convolve(&wBurst, h, NULL, NO_DELAY);
+
+    delete h;
+    free(data);
+
+    if (!shift)
       return false;
-    wBurst.clone(shiftedBurst);
+
+    wBurst.clone(*shift);
+    delete shift;
   }
 
-  if (intOffset < 0) {
-    intOffset = -intOffset;
+  /* Integer sample shift */
+  if (whole < 0) {
+    whole = -whole;
     signalVector::iterator wBurstItr = wBurst.begin();
-    signalVector::iterator shiftedItr = wBurst.begin()+intOffset;
+    signalVector::iterator shiftedItr = wBurst.begin() + whole;
+
     while (shiftedItr < wBurst.end())
       *wBurstItr++ = *shiftedItr++;
     while (wBurstItr < wBurst.end())
       *wBurstItr++ = 0.0;
-  }
-  else {
-    signalVector::iterator wBurstItr = wBurst.end()-1;
-    signalVector::iterator shiftedItr = wBurst.end()-1-intOffset;
+  } else {
+    signalVector::iterator wBurstItr = wBurst.end() - 1;
+    signalVector::iterator shiftedItr = wBurst.end() - 1 - whole;
+
     while (shiftedItr >= wBurst.begin())
       *wBurstItr-- = *shiftedItr--;
     while (wBurstItr >= wBurst.begin())
       *wBurstItr-- = 0.0;
   }
+
+  return true;
 }
-  
+
 signalVector *gaussianNoise(int length, 
 			    float variance, 
 			    complex mean)
