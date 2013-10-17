@@ -48,13 +48,23 @@ static const float M_1_2PI_F = 1/M_2PI_F;
 signalVector *GMSKRotation = NULL;
 signalVector *GMSKReverseRotation = NULL;
 
-/** Static ideal RACH and midamble correlation waveforms */
-typedef struct {
+/*
+ * RACH and midamble correlation waveforms
+ */
+struct CorrelationSequence {
+  CorrelationSequence() : sequence(NULL)
+  {
+  }
+
+  ~CorrelationSequence()
+  {
+    delete sequence;
+  }
+
   signalVector *sequence;
-  signalVector *sequenceReversedConjugated;
   float        TOA;
   complex      gain;
-} CorrelationSequence;
+};
 
 /*
  * Gaussian and empty modulation pulses
@@ -78,32 +88,23 @@ CorrelationSequence *gMidambles[] = {NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL};
 CorrelationSequence *gRACHSequence = NULL;
 PulseSequence *GSMPulse = NULL;
 
-void sigProcLibDestroy(void) {
-  if (GMSKRotation) {
-    delete GMSKRotation;
-    GMSKRotation = NULL;
-  }
-  if (GMSKReverseRotation) {
-    delete GMSKReverseRotation;
-    GMSKReverseRotation = NULL;
-  }
+void sigProcLibDestroy()
+{
   for (int i = 0; i < 8; i++) {
-    if (gMidambles[i]!=NULL) {
-      if (gMidambles[i]->sequence) delete gMidambles[i]->sequence;
-      if (gMidambles[i]->sequenceReversedConjugated) delete gMidambles[i]->sequenceReversedConjugated;
-      delete gMidambles[i];
-      gMidambles[i] = NULL;
-    }
+    delete gMidambles[i];
+    gMidambles[i] = NULL;
   }
-  if (gRACHSequence) {
-    if (gRACHSequence->sequence) delete gRACHSequence->sequence;
-    if (gRACHSequence->sequenceReversedConjugated) delete gRACHSequence->sequenceReversedConjugated;
-    delete gRACHSequence;
-    gRACHSequence = NULL;
-  }
+
+  delete GMSKRotation;
+  delete GMSKReverseRotation;
+  delete gRACHSequence;
+  delete GSMPulse;
+
+  GMSKRotation = NULL;
+  GMSKReverseRotation = NULL;
+  gRACHSequence = NULL;
+  GSMPulse = NULL;
 }
-
-
 
 // dB relative to 1.0.
 // if > 1.0, then return 0 dB
@@ -849,84 +850,104 @@ void offsetVector(signalVector &x,
   }
 }
 
-bool generateMidamble(int sps, int TSC)
+bool generateMidamble(int sps, int tsc)
 {
-  if ((TSC < 0) || (TSC > 7)) 
+  bool status = true;
+  complex *data = NULL;
+  signalVector *autocorr = NULL, *midamble = NULL;
+  signalVector *midMidamble = NULL;
+
+  if ((tsc < 0) || (tsc > 7)) 
     return false;
 
-  if (gMidambles[TSC]) {
-    if (gMidambles[TSC]->sequence!=NULL) delete gMidambles[TSC]->sequence;
-    if (gMidambles[TSC]->sequenceReversedConjugated!=NULL)  delete gMidambles[TSC]->sequenceReversedConjugated;
+  delete gMidambles[tsc];
+ 
+  /* Use middle 16 bits of each TSC. Correlation sequence is not pulse shaped */
+  midMidamble = modulateBurst(gTrainingSequence[tsc].segment(5,16), 0, sps, true);
+  if (!midMidamble)
+    return false;
+
+  /* Simulated receive sequence is pulse shaped */ 
+  midamble = modulateBurst(gTrainingSequence[tsc], 0, sps, false);
+  if (!midamble) {
+    status = false;
+    goto release;
   }
-
-  // only use middle 16 bits of each TSC
-  signalVector *middleMidamble = modulateBurst(gTrainingSequence[TSC].segment(5,16),
-					 0,
-					 sps, true);
-  signalVector *midamble = modulateBurst(gTrainingSequence[TSC],
-                                         0,
-                                         sps, false);
-  
-  if (midamble == NULL) return false;
-  if (middleMidamble == NULL) return false;
-
+ 
   // NOTE: Because ideal TSC 16-bit midamble is 66 symbols into burst,
   //       the ideal TSC has an + 180 degree phase shift,
   //       due to the pi/2 frequency shift, that 
   //       needs to be accounted for.
   //       26-midamble is 61 symbols into burst, has +90 degree phase shift.
-  scaleVector(*middleMidamble,complex(-1.0,0.0));
-  scaleVector(*midamble,complex(0.0,1.0));
+  scaleVector(*midMidamble, complex(-1.0, 0.0));
+  scaleVector(*midamble, complex(0.0, 1.0));
 
-  signalVector *autocorr = correlate(midamble,middleMidamble,NULL,NO_DELAY);
-  
-  if (autocorr == NULL) return false;
+  conjugateVector(*midMidamble);
 
-  gMidambles[TSC] = new CorrelationSequence;
-  gMidambles[TSC]->sequence = middleMidamble;
-  gMidambles[TSC]->sequenceReversedConjugated = reverseConjugate(middleMidamble);
-  gMidambles[TSC]->gain = peakDetect(*autocorr,&gMidambles[TSC]->TOA,NULL);
+  autocorr = correlate(midamble, midMidamble, NULL, NO_DELAY);
+  if (!autocorr) {
+    status = false;
+    goto release;
+  }
 
-  LOG(DEBUG) << "midamble autocorr: " << *autocorr;
+  gMidambles[tsc] = new CorrelationSequence;
+  gMidambles[tsc]->sequence = midMidamble;
+  gMidambles[tsc]->gain = peakDetect(*autocorr,&gMidambles[tsc]->TOA,NULL);
 
-  LOG(DEBUG) << "TOA: " << gMidambles[TSC]->TOA;
-
-  //gMidambles[TSC]->TOA -= 5*sps;
-
+release:
   delete autocorr;
   delete midamble;
 
-  return true;
+  if (!status) {
+    delete midMidamble;
+    gMidambles[tsc] = NULL;
+  }
+
+  return status;
 }
 
 bool generateRACHSequence(int sps)
 {
-  if (gRACHSequence) {
-    if (gRACHSequence->sequence!=NULL) delete gRACHSequence->sequence;
-    if (gRACHSequence->sequenceReversedConjugated!=NULL) delete gRACHSequence->sequenceReversedConjugated;
+  bool status = true;
+  complex *data = NULL;
+  signalVector *autocorr = NULL;
+  signalVector *seq0 = NULL, *seq1 = NULL;
+
+  delete gRACHSequence;
+
+  seq0 = modulateBurst(gRACHSynchSequence, 0, sps, false);
+  if (!seq0)
+    return false;
+
+  seq1 = modulateBurst(gRACHSynchSequence.segment(0, 40), 0, sps, true);
+  if (!seq1) {
+    status = false;
+    goto release;
   }
 
-  signalVector *RACHSeq = modulateBurst(gRACHSynchSequence,
-					0,
-					sps);
+  conjugateVector(*seq1);
 
-  assert(RACHSeq);
-
-  signalVector *autocorr = correlate(RACHSeq,RACHSeq,NULL,NO_DELAY);
-
-  assert(autocorr);
+  autocorr = new signalVector(seq0->size());
+  if (!convolve(seq0, seq1, autocorr, NO_DELAY)) {
+    status = false;
+    goto release;
+  }
 
   gRACHSequence = new CorrelationSequence;
-  gRACHSequence->sequence = RACHSeq;
-  gRACHSequence->sequenceReversedConjugated = reverseConjugate(RACHSeq);
+  gRACHSequence->sequence = seq1;
   gRACHSequence->gain = peakDetect(*autocorr,&gRACHSequence->TOA,NULL);
- 
+
+release:
   delete autocorr;
+  delete seq0;
 
-  return true;
+  if (!status) {
+    delete seq1;
+    gRACHSequence = NULL;
+  }
 
+  return status;
 }
-
 				
 bool detectRACHBurst(signalVector &rxBurst,
 		     float detectThreshold,
@@ -939,7 +960,7 @@ bool detectRACHBurst(signalVector &rxBurst,
  
   //signalVector correlatedRACH(staticData,0,rxBurst.size());
   signalVector correlatedRACH(rxBurst.size());
-  correlate(&rxBurst,gRACHSequence->sequenceReversedConjugated,&correlatedRACH,NO_DELAY,true);
+  correlate(&rxBurst,gRACHSequence->sequence,&correlatedRACH,NO_DELAY,true);
 
   float meanPower;
   complex peakAmpl = peakDetect(correlatedRACH,TOA,&meanPower);
@@ -1027,14 +1048,14 @@ bool analyzeTrafficBurst(signalVector &rxBurst,
   unsigned windowLen = endIx - startIx;
   unsigned corrLen = 2*maxTOA+1;
 
-  unsigned expectedTOAPeak = (unsigned) round(gMidambles[TSC]->TOA + (gMidambles[TSC]->sequenceReversedConjugated->size()-1)/2);
+  unsigned expectedTOAPeak = (unsigned) round(gMidambles[TSC]->TOA + (gMidambles[TSC]->sequence->size()-1)/2);
 
   signalVector burstSegment(rxBurst.begin(),startIx,windowLen);
 
   //static complex staticData[200];
   //signalVector correlatedBurst(staticData,0,corrLen);
   signalVector correlatedBurst(corrLen);
-  correlate(&burstSegment, gMidambles[TSC]->sequenceReversedConjugated,
+  correlate(&burstSegment, gMidambles[TSC]->sequence,
 					    &correlatedBurst, CUSTOM,true,
 					    expectedTOAPeak-maxTOA,corrLen);
 
