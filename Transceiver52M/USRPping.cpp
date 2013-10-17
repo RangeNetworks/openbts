@@ -41,7 +41,7 @@ int main(int argc, char *argv[]) {
   else gLogInit("DEBUG");
   //if (argc>2) gSetLogFile(argv[2]);
 
-  RadioDevice *usrp = RadioDevice::make(52.0e6/192.0);
+  RadioDevice *usrp = RadioDevice::make(52.0e6/192.0, 1);
 
   usrp->open("");
 

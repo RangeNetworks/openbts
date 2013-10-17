@@ -31,7 +31,7 @@ class RadioDevice {
   /* Available transport bus types */
   enum TxWindowType { TX_WINDOW_USRP1, TX_WINDOW_FIXED };
 
-  static RadioDevice *make(double desiredSampleRate, bool skipRx = false);
+  static RadioDevice *make(double desiredSampleRate, int sps, bool skipRx = false);
 
   /** Initialize the USRP */
   virtual bool open(const std::string &args)=0;
