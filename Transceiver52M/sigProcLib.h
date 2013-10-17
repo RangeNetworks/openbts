@@ -103,7 +103,7 @@ float vectorNorm2(const signalVector &x);
 float vectorPower(const signalVector &x);
 
 /** Setup the signal processing library */
-void sigProcLibSetup(int samplesPerSymbol);
+void sigProcLibSetup(int sps);
 
 /** Destroy the signal processing library */
 void sigProcLibDestroy(void);
@@ -124,12 +124,11 @@ signalVector* convolve(const signalVector *a,
 
 /** 
 	Generate the GSM pulse. 
-	@param samplesPerSymbol The number of samples per GSM symbol.
+	@param sps The number of samples per GSM symbol.
 	@param symbolLength The size of the pulse.
 	@return The GSM pulse.
 */
-signalVector* generateGSMPulse(int samplesPerSymbol,
-			       int symbolLength);
+signalVector* generateGSMPulse(int sps, int symbolLength);
 
 /** 
         Frequency shift a vector.
@@ -168,7 +167,7 @@ bool vectorSlicer(signalVector *x);
 signalVector *modulateBurst(const BitVector &wBurst,
 			    const signalVector &gsmPulse,
 			    int guardPeriodLength,
-			    int samplesPerSymbol);
+			    int sps);
 
 /** Sinc function */
 float sinc(float x);
@@ -229,21 +228,19 @@ void offsetVector(signalVector &x,
 /**
         Generate a modulated GSM midamble, stored within the library.
         @param gsmPulse The GSM pulse used for modulation.
-        @param samplesPerSymbol The number of samples per GSM symbol.
+        @param sps The number of samples per GSM symbol.
         @param TSC The training sequence [0..7]
         @return Success.
 */
-bool generateMidamble(signalVector &gsmPulse,
-		      int samplesPerSymbol,
-		      int TSC);
+bool generateMidamble(signalVector &gsmPulse, int sps, int tsc);
 /**
         Generate a modulated RACH sequence, stored within the library.
         @param gsmPulse The GSM pulse used for modulation.
-        @param samplesPerSymbol The number of samples per GSM symbol.
+        @param sps The number of samples per GSM symbol.
         @return Success.
 */
 bool generateRACHSequence(signalVector &gsmPulse,
-			  int samplesPerSymbol);
+			  int sps);
 
 /**
         Energy detector, checks to see if received burst energy is above a threshold.
@@ -262,14 +259,14 @@ bool energyDetect(signalVector &rxBurst,
         RACH correlator/detector.
         @param rxBurst The received GSM burst of interest.
         @param detectThreshold The threshold that the received burst's post-correlator SNR is compared against to determine validity.
-        @param samplesPerSymbol The number of samples per GSM symbol.
+        @param sps The number of samples per GSM symbol.
         @param amplitude The estimated amplitude of received RACH burst.
         @param TOA The estimate time-of-arrival of received RACH burst.
         @return True if burst SNR is larger that the detectThreshold value.
 */
 bool detectRACHBurst(signalVector &rxBurst,
 		     float detectThreshold,
-		     int samplesPerSymbol,
+		     int sps,
 		     complex *amplitude,
 		     float* TOA);
 
@@ -278,7 +275,7 @@ bool detectRACHBurst(signalVector &rxBurst,
         @param rxBurst The received GSM burst of interest.
  
         @param detectThreshold The threshold that the received burst's post-correlator SNR is compared against to determine validity.
-        @param samplesPerSymbol The number of samples per GSM symbol.
+        @param sps The number of samples per GSM symbol.
         @param amplitude The estimated amplitude of received TSC burst.
         @param TOA The estimate time-of-arrival of received TSC burst.
         @param maxTOA The maximum expected time-of-arrival
@@ -290,7 +287,7 @@ bool detectRACHBurst(signalVector &rxBurst,
 bool analyzeTrafficBurst(signalVector &rxBurst,
 			 unsigned TSC,
 			 float detectThreshold,
-			 int samplesPerSymbol,
+			 int sps,
 			 complex *amplitude,
 			 float *TOA,
                          unsigned maxTOA,
@@ -311,14 +308,14 @@ signalVector *decimateVector(signalVector &wVector,
         Demodulates a received burst using a soft-slicer.
 	@param rxBurst The burst to be demodulated.
         @param gsmPulse The GSM pulse.
-        @param samplesPerSymbol The number of samples per GSM symbol.
+        @param sps The number of samples per GSM symbol.
         @param channel The amplitude estimate of the received burst.
         @param TOA The time-of-arrival of the received burst.
         @return The demodulated bit sequence.
 */
 SoftVector *demodulateBurst(signalVector &rxBurst,
 			 const signalVector &gsmPulse,
-			 int samplesPerSymbol,
+			 int sps,
 			 complex channel,
 			 float TOA);
 
@@ -375,14 +372,14 @@ bool designDFE(signalVector &channelResponse,
 	Equalize/demodulate a received burst via a decision-feedback equalizer.
 	@param rxBurst The received burst to be demodulated.
 	@param TOA The time-of-arrival of the received burst.
-	@param samplesPerSymbol The number of samples per GSM symbol.
+	@param sps The number of samples per GSM symbol.
 	@param w The feed forward filter of the DFE.
 	@param b The feedback filter of the DFE.
 	@return The demodulated bit sequence.
 */
 SoftVector *equalizeBurst(signalVector &rxBurst,
 		       float TOA,
-		       int samplesPerSymbol,
+		       int sps,
 		       signalVector &w, 
 		       signalVector &b);
 

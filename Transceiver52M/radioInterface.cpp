@@ -55,7 +55,7 @@ RadioInterface::RadioInterface(RadioDevice *wRadio,
 			       GSM::Time wStartTime)
   : underrun(false), sendCursor(0), rcvCursor(0), mOn(false),
     mRadio(wRadio), receiveOffset(wReceiveOffset),
-    samplesPerSymbol(wSPS), powerScaling(1.0),
+    sps(wSPS), powerScaling(1.0),
     loadTest(false)
 {
   mClock.set(wStartTime);
@@ -150,8 +150,8 @@ void RadioInterface::start()
   mRadio->updateAlignment(writeTimestamp-10000); 
   mRadio->updateAlignment(writeTimestamp-10000);
 
-  sendBuffer = new float[2*2*INCHUNK*samplesPerSymbol];
-  rcvBuffer = new float[2*2*OUTCHUNK*samplesPerSymbol];
+  sendBuffer = new float[2*2*INCHUNK*sps];
+  rcvBuffer = new float[2*2*OUTCHUNK*sps];
  
   mOn = true;
 
@@ -202,8 +202,8 @@ void RadioInterface::driveReceiveRadio() {
   // while there's enough data in receive buffer, form received 
   //    GSM bursts and pass up to Transceiver
   // Using the 157-156-156-156 symbols per timeslot format.
-  while (rcvSz > (symbolsPerSlot + (tN % 4 == 0))*samplesPerSymbol) {
-    signalVector rxVector((symbolsPerSlot + (tN % 4 == 0))*samplesPerSymbol);
+  while (rcvSz > (symbolsPerSlot + (tN % 4 == 0)) * sps) {
+    signalVector rxVector((symbolsPerSlot + (tN % 4 == 0)) * sps);
     unRadioifyVector(rcvBuffer+readSz*2,rxVector);
     GSM::Time tmpTime = rcvClock;
     if (rcvClock.FN() >= 0) {
@@ -223,8 +223,8 @@ void RadioInterface::driveReceiveRadio() {
     rcvClock.incTN();
     //if (mReceiveFIFO.size() >= 16) mReceiveFIFO.wait(8);
     //LOG(DEBUG) << "receiveFIFO: wrote radio vector at time: " << mClock.get() << ", new size: " << mReceiveFIFO.size() ;
-    readSz += (symbolsPerSlot+(tN % 4 == 0))*samplesPerSymbol;
-    rcvSz -= (symbolsPerSlot+(tN % 4 == 0))*samplesPerSymbol;
+    readSz += (symbolsPerSlot+(tN % 4 == 0)) * sps;
+    rcvSz -= (symbolsPerSlot+(tN % 4 == 0)) * sps;
 
     tN = rcvClock.TN();
   }

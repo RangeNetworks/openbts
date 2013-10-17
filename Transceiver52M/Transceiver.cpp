@@ -48,7 +48,7 @@
 
 Transceiver::Transceiver(int wBasePort,
 			 const char *TRXAddress,
-			 int wSamplesPerSymbol,
+			 int wSPS,
 			 GSM::Time wTransmitLatency,
 			 RadioInterface *wRadioInterface)
 	:mDataSocket(wBasePort+2,TRXAddress,wBasePort+102),
@@ -64,7 +64,7 @@ Transceiver::Transceiver(int wBasePort,
   mTransmitPriorityQueueServiceLoopThread = new Thread(32768);///< thread to process transmit bursts from GSM core
 
 
-  mSamplesPerSymbol = wSamplesPerSymbol;
+  mSPS = wSPS;
   mRadioInterface = wRadioInterface;
   mTransmitLatency = wTransmitLatency;
   mTransmitDeadlineClock = startTime;
@@ -74,9 +74,9 @@ Transceiver::Transceiver(int wBasePort,
   mMaxExpectedDelay = 0;
 
   // generate pulse and setup up signal processing library
-  gsmPulse = generateGSMPulse(2,mSamplesPerSymbol);
+  gsmPulse = generateGSMPulse(2, mSPS);
   LOG(DEBUG) << "gsmPulse: " << *gsmPulse;
-  sigProcLibSetup(mSamplesPerSymbol);
+  sigProcLibSetup(mSPS);
 
   txFullScale = mRadioInterface->fullScaleInputValue();
   rxFullScale = mRadioInterface->fullScaleOutputValue();
@@ -85,7 +85,7 @@ Transceiver::Transceiver(int wBasePort,
   for (int i = 0; i < 8; i++) {
     signalVector* modBurst = modulateBurst(gDummyBurst,*gsmPulse,
 					   8 + (i % 4 == 0),
-					   mSamplesPerSymbol);
+					   mSPS);
     scaleVector(*modBurst,txFullScale);
     fillerModulus[i]=26;
     for (int j = 0; j < 102; j++) {
@@ -123,7 +123,7 @@ radioVector *Transceiver::fixRadioVector(BitVector &burst,
   // modulate and stick into queue 
   signalVector* modBurst = modulateBurst(burst,*gsmPulse,
 					 8 + (wTime.TN() % 4 == 0),
-					 mSamplesPerSymbol);
+					 mSPS);
   scaleVector(*modBurst,txFullScale * pow(10,-RSSI/10));
 
   radioVector *newVec = new radioVector(*modBurst,wTime);
@@ -138,7 +138,7 @@ void Transceiver::unModulateVector(signalVector wVector)
 {
   SoftVector *burst = demodulateBurst(wVector,
 				   *gsmPulse,
-				   mSamplesPerSymbol,
+				   mSPS,
 				   1.0,0.0);
   LOG(DEBUG) << "LOGGED BURST: " << *burst;
 
@@ -344,7 +344,7 @@ SoftVector *Transceiver::pullRadioVector(GSM::Time &wTime,
   complex amplitude = 0.0;
   float TOA = 0.0;
   float avgPwr = 0.0;
-  if (!energyDetect(*vectorBurst,20*mSamplesPerSymbol,mEnergyThreshold,&avgPwr)) {
+  if (!energyDetect(*vectorBurst, 20 * mSPS, mEnergyThreshold, &avgPwr)) {
      LOG(DEBUG) << "Estimated Energy: " << sqrt(avgPwr) << ", at time " << rxBurst->getTime();
      double framesElapsed = rxBurst->getTime()-prevFalseDetectionTime;
      if (framesElapsed > 50) {  // if we haven't had any false detections for a while, lower threshold
@@ -380,7 +380,7 @@ SoftVector *Transceiver::pullRadioVector(GSM::Time &wTime,
     success = analyzeTrafficBurst(*vectorBurst,
 				  mTSC,
 				  3.0,
-				  mSamplesPerSymbol,
+				  mSPS,
 				  &amplitude,
 				  &TOA,
 				  mMaxExpectedDelay, 
@@ -415,7 +415,7 @@ SoftVector *Transceiver::pullRadioVector(GSM::Time &wTime,
     // RACH burst
     success = detectRACHBurst(*vectorBurst,
 			      5.0,  // detection threshold
-			      mSamplesPerSymbol,
+			      mSPS,
 			      &amplitude,
 			      &TOA);
     if (success) {
@@ -438,21 +438,21 @@ SoftVector *Transceiver::pullRadioVector(GSM::Time &wTime,
     if ((corrType==RACH) || (!needDFE)) {
       burst = demodulateBurst(*vectorBurst,
 			      *gsmPulse,
-			      mSamplesPerSymbol,
+			      mSPS,
 			      amplitude,TOA);
     }
     else { // TSC
       scaleVector(*vectorBurst,complex(1.0,0.0)/amplitude);
       burst = equalizeBurst(*vectorBurst,
 			    TOA-chanRespOffset[timeslot],
-			    mSamplesPerSymbol,
+			    mSPS,
 			    *DFEForward[timeslot],
 			    *DFEFeedback[timeslot]);
     }
     wTime = rxBurst->getTime();
     RSSI = (int) floor(20.0*log10(rxFullScale/amplitude.abs()));
     LOG(DEBUG) << "RSSI: " << RSSI;
-    timingOffset = (int) round(TOA*256.0/mSamplesPerSymbol);
+    timingOffset = (int) round(TOA * 256.0 / mSPS);
   }
 
   //if (burst) LOG(DEBUG) << "burst: " << *burst << '\n';
@@ -519,7 +519,7 @@ void Transceiver::driveControl()
         // Prepare for thread start
         mPower = -20;
         mRadioInterface->start();
-        generateRACHSequence(*gsmPulse,mSamplesPerSymbol);
+        generateRACHSequence(*gsmPulse, mSPS);
 
         // Start radio interface threads.
         mFIFOServiceLoopThread->start((void * (*)(void*))FIFOServiceLoopAdapter,(void*) this);
@@ -611,7 +611,7 @@ void Transceiver::driveControl()
       sprintf(response,"RSP SETTSC 1 %d",TSC);
     else {
       mTSC = TSC;
-      generateMidamble(*gsmPulse,mSamplesPerSymbol,TSC);
+      generateMidamble(*gsmPulse, mSPS, TSC);
       sprintf(response,"RSP SETTSC 0 %d",TSC);
     }
   }

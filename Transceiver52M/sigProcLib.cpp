@@ -214,22 +214,24 @@ void initTrigTables() {
   }
 }
 
-void initGMSKRotationTables(int samplesPerSymbol) {
-  GMSKRotation = new signalVector(157*samplesPerSymbol);
-  GMSKReverseRotation = new signalVector(157*samplesPerSymbol);
+void initGMSKRotationTables(int sps)
+{
+  GMSKRotation = new signalVector(157 * sps);
+  GMSKReverseRotation = new signalVector(157 * sps);
   signalVector::iterator rotPtr = GMSKRotation->begin();
   signalVector::iterator revPtr = GMSKReverseRotation->begin();
   float phase = 0.0;
   while (rotPtr != GMSKRotation->end()) {
     *rotPtr++ = expjLookup(phase);
     *revPtr++ = expjLookup(-phase);
-    phase += M_PI_F/2.0F/(float) samplesPerSymbol;
+    phase += M_PI_F / 2.0F / (float) sps;
   }
 }
 
-void sigProcLibSetup(int samplesPerSymbol) {
+void sigProcLibSetup(int sps)
+{
   initTrigTables();
-  initGMSKRotationTables(samplesPerSymbol);
+  initGMSKRotationTables(sps);
 }
 
 void GMSKRotate(signalVector &x) {
@@ -435,20 +437,19 @@ signalVector* convolve(const signalVector *a,
 }
 
 
-signalVector* generateGSMPulse(int symbolLength,
-			       int samplesPerSymbol)
+signalVector* generateGSMPulse(int sps, int symbolLength)
 {
 
-  int numSamples = samplesPerSymbol*symbolLength + 1;
+  int numSamples = sps * symbolLength + 1;
   signalVector *x = new signalVector(numSamples);
   signalVector::iterator xP = x->begin();
   int centerPoint = (numSamples-1)/2;
   for (int i = 0; i < numSamples; i++) {
-    float arg = (float) (i-centerPoint)/(float) samplesPerSymbol;
+    float arg = (float) (i - centerPoint) / (float) sps;
     *xP++ = 0.96*exp(-1.1380*arg*arg-0.527*arg*arg*arg*arg); // GSM pulse approx.
   }
 
-  float avgAbsval = sqrtf(vectorNorm2(*x)/samplesPerSymbol);
+  float avgAbsval = sqrtf(vectorNorm2(*x) / sps);
   xP = x->begin();
   for (int i = 0; i < numSamples; i++) 
     *xP++ /= avgAbsval;
@@ -564,12 +565,12 @@ bool vectorSlicer(signalVector *x)
 signalVector *modulateBurst(const BitVector &wBurst,
 			    const signalVector &gsmPulse,
 			    int guardPeriodLength,
-			    int samplesPerSymbol)
+			    int sps)
 {
 
   //static complex staticBurst[157];
 
-  int burstSize = samplesPerSymbol*(wBurst.size()+guardPeriodLength);
+  int burstSize = sps * (wBurst.size() + guardPeriodLength);
   //signalVector modBurst((complex *) staticBurst,0,burstSize);
   signalVector modBurst(burstSize);// = new signalVector(burstSize);
   modBurst.isRealOnly(true);
@@ -582,7 +583,7 @@ signalVector *modulateBurst(const BitVector &wBurst,
   *modBurstItr = 2.0*(wBurst[0] & 0x01)-1.0;
   signalVector::iterator prevVal = modBurstItr;
   for (unsigned int i = 1; i < wBurst.size(); i++) {
-    modBurstItr += samplesPerSymbol;
+    modBurstItr += sps;
     if (wBurst[i] & 0x01) 
       *modBurstItr = *prevVal * complex(0.0,1.0);
     else
@@ -593,7 +594,7 @@ signalVector *modulateBurst(const BitVector &wBurst,
   // if wBurst are the raw bits
   for (unsigned int i = 0; i < wBurst.size(); i++) {
     *modBurstItr = 2.0*(wBurst[i] & 0x01)-1.0;
-    modBurstItr += samplesPerSymbol;
+    modBurstItr += sps;
   }
 
   // shift up pi/2
@@ -835,7 +836,7 @@ void offsetVector(signalVector &x,
 }
 
 bool generateMidamble(signalVector &gsmPulse,
-		      int samplesPerSymbol,
+		      int sps,
 		      int TSC)
 {
 
@@ -854,11 +855,11 @@ bool generateMidamble(signalVector &gsmPulse,
   signalVector *middleMidamble = modulateBurst(gTrainingSequence[TSC].segment(5,16),
 					 emptyPulse,
 					 0,
-					 samplesPerSymbol);
+					 sps);
   signalVector *midamble = modulateBurst(gTrainingSequence[TSC],
                                          gsmPulse,
                                          0,
-                                         samplesPerSymbol);
+                                         sps);
   
   if (midamble == NULL) return false;
   if (middleMidamble == NULL) return false;
@@ -884,7 +885,7 @@ bool generateMidamble(signalVector &gsmPulse,
 
   LOG(DEBUG) << "TOA: " << gMidambles[TSC]->TOA;
 
-  //gMidambles[TSC]->TOA -= 5*samplesPerSymbol;
+  //gMidambles[TSC]->TOA -= 5*sps;
 
   delete autocorr;
   delete midamble;
@@ -893,7 +894,7 @@ bool generateMidamble(signalVector &gsmPulse,
 }
 
 bool generateRACHSequence(signalVector &gsmPulse,
-			  int samplesPerSymbol)
+			  int sps)
 {
   
   if (gRACHSequence) {
@@ -904,7 +905,7 @@ bool generateRACHSequence(signalVector &gsmPulse,
   signalVector *RACHSeq = modulateBurst(gRACHSynchSequence,
 					gsmPulse,
 					0,
-					samplesPerSymbol);
+					sps);
 
   assert(RACHSeq);
 
@@ -926,7 +927,7 @@ bool generateRACHSequence(signalVector &gsmPulse,
 				
 bool detectRACHBurst(signalVector &rxBurst,
 		     float detectThreshold,
-		     int samplesPerSymbol,
+		     int sps,
 		     complex *amplitude,
 		     float* TOA)
 {
@@ -952,7 +953,7 @@ bool detectRACHBurst(signalVector &rxBurst,
   LOG(DEBUG) << "RACH corr: " << correlatedRACH;
 
   float numSamples = 0.0;
-  for (int i = 57*samplesPerSymbol; i <= 107*samplesPerSymbol;i++) {
+  for (int i = 57 * sps; i <= 107 * sps; i++) {
     if (peakPtr+i >= correlatedRACH.end())
       break;
     valleyPower += (peakPtr+i)->norm2();
@@ -970,7 +971,7 @@ bool detectRACHBurst(signalVector &rxBurst,
   LOG(DEBUG) << "RACH peakAmpl=" << peakAmpl << " RMS=" << RMS << " peakToMean=" << peakToMean;
   *amplitude = peakAmpl/(gRACHSequence->gain);
 
-  *TOA = (*TOA) - gRACHSequence->TOA - 8*samplesPerSymbol;
+  *TOA = (*TOA) - gRACHSequence->TOA - 8 * sps;
 
   LOG(DEBUG) << "RACH thresh: " << peakToMean;
 
@@ -1000,7 +1001,7 @@ bool energyDetect(signalVector &rxBurst,
 bool analyzeTrafficBurst(signalVector &rxBurst,
 			 unsigned TSC,
 			 float detectThreshold,
-			 int samplesPerSymbol,
+			 int sps,
 			 complex *amplitude,
 			 float *TOA,
 			 unsigned maxTOA,
@@ -1014,12 +1015,12 @@ bool analyzeTrafficBurst(signalVector &rxBurst,
   assert(TOA);
   assert(gMidambles[TSC]);
 
-  if (maxTOA < 3*samplesPerSymbol) maxTOA = 3*samplesPerSymbol;
+  if (maxTOA < 3*sps) maxTOA = 3*sps;
   unsigned spanTOA = maxTOA;
-  if (spanTOA < 5*samplesPerSymbol) spanTOA = 5*samplesPerSymbol;
+  if (spanTOA < 5*sps) spanTOA = 5*sps;
 
-  unsigned startIx = 66*samplesPerSymbol-spanTOA;
-  unsigned endIx = (66+16)*samplesPerSymbol+spanTOA;
+  unsigned startIx = 66*sps-spanTOA;
+  unsigned endIx = (66+16)*sps+spanTOA;
   unsigned windowLen = endIx - startIx;
   unsigned corrLen = 2*maxTOA+1;
 
@@ -1046,7 +1047,7 @@ bool analyzeTrafficBurst(signalVector &rxBurst,
   }
 
   int numRms = 0;
-  for (int i = 2*samplesPerSymbol; i <= 5*samplesPerSymbol;i++) {
+  for (int i = 2*sps; i <= 5*sps;i++) {
     if (peakPtr - i >= correlatedBurst.begin()) { 
       valleyPower += (peakPtr-i)->norm2();
       numRms++;
@@ -1079,30 +1080,36 @@ bool analyzeTrafficBurst(signalVector &rxBurst,
   LOG(DEBUG) << "autocorr: " << correlatedBurst;
   
   if (requestChannel && (peakToMean > detectThreshold)) {
-    float TOAoffset = maxTOA; //gMidambles[TSC]->TOA+(66*samplesPerSymbol-startIx);
+    float TOAoffset = maxTOA;
     delayVector(correlatedBurst,-(*TOA));
     // midamble only allows estimation of a 6-tap channel
-    signalVector channelVector(6*samplesPerSymbol);
+    signalVector chanVector(6 * sps);
     float maxEnergy = -1.0;
     int maxI = -1;
     for (int i = 0; i < 7; i++) {
-      if (TOAoffset+(i-5)*samplesPerSymbol + channelVector.size() > correlatedBurst.size()) continue;
-      if (TOAoffset+(i-5)*samplesPerSymbol < 0) continue;
-      correlatedBurst.segmentCopyTo(channelVector,(int) floor(TOAoffset+(i-5)*samplesPerSymbol),channelVector.size());
-      float energy = vectorNorm2(channelVector);
+      if (TOAoffset + (i-5) * sps + chanVector.size() > correlatedBurst.size())
+        continue;
+      if (TOAoffset + (i-5) * sps < 0)
+        continue;
+      correlatedBurst.segmentCopyTo(chanVector,
+                                    (int) floor(TOAoffset + (i - 5) * sps),
+                                    chanVector.size());
+      float energy = vectorNorm2(chanVector);
       if (energy > 0.95*maxEnergy) {
 	maxI = i;
 	maxEnergy = energy;
       }
     }
 	
-    *channelResponse = new signalVector(channelVector.size());
-    correlatedBurst.segmentCopyTo(**channelResponse,(int) floor(TOAoffset+(maxI-5)*samplesPerSymbol),(*channelResponse)->size());
-    scaleVector(**channelResponse,complex(1.0,0.0)/gMidambles[TSC]->gain);
+    *channelResponse = new signalVector(chanVector.size());
+    correlatedBurst.segmentCopyTo(**channelResponse,
+                                  (int) floor(TOAoffset + (maxI - 5) * sps),
+                                  (*channelResponse)->size());
+    scaleVector(**channelResponse, complex(1.0, 0.0) / gMidambles[TSC]->gain);
     LOG(DEBUG) << "channelResponse: " << **channelResponse;
     
     if (channelResponseOffset) 
-      *channelResponseOffset = 5*samplesPerSymbol-maxI;
+      *channelResponseOffset = 5 * sps - maxI;
       
   }
 
@@ -1129,7 +1136,7 @@ signalVector *decimateVector(signalVector &wVector,
 
 SoftVector *demodulateBurst(signalVector &rxBurst,
 			 const signalVector &gsmPulse,
-			 int samplesPerSymbol,
+			 int sps,
 			 complex channel,
 			 float TOA) 
 
@@ -1144,8 +1151,8 @@ SoftVector *demodulateBurst(signalVector &rxBurst,
   GMSKReverseRotate(*shapedBurst);
 
   // run through slicer
-  if (samplesPerSymbol > 1) {
-     signalVector *decShapedBurst = decimateVector(*shapedBurst,samplesPerSymbol);
+  if (sps > 1) {
+     signalVector *decShapedBurst = decimateVector(*shapedBurst, sps);
      shapedBurst = decShapedBurst;
   }
 
@@ -1160,7 +1167,8 @@ SoftVector *demodulateBurst(signalVector &rxBurst,
   for (; shapedItr < shapedBurst->end(); shapedItr++) 
     *burstItr++ = shapedItr->real();
 
-  if (samplesPerSymbol > 1) delete shapedBurst;
+  if (sps > 1)
+    delete shapedBurst;
 
   return burstBits;
 
@@ -1454,7 +1462,7 @@ bool designDFE(signalVector &channelResponse,
 // Assumes symbol-rate sampling!!!!
 SoftVector *equalizeBurst(signalVector &rxBurst,
 		       float TOA,
-		       int samplesPerSymbol,
+		       int sps,
 		       signalVector &w, // feedforward filter
 		       signalVector &b) // feedback filter
 {
