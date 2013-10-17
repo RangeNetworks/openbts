@@ -420,11 +420,22 @@ void generateGSMPulse(int sps, int symbolLength)
   GSMPulse->empty->isRealOnly(true);
   *(GSMPulse->empty->begin()) = 1.0f;
 
-  len = sps * symbolLength;
-  if (len < 4)
-    len = 4;
+  /*
+   * For 4 samples-per-symbol use a precomputed single pulse Laurent
+   * approximation. This should yields below 2 degrees of phase error at
+   * the modulator output. Use the existing pulse approximation for all
+   * other oversampling factors.
+   */
+  switch (sps) {
+  case 4:
+    len = 16;
+    break;
+  default:
+    len = sps * symbolLength;
+    if (len < 4)
+      len = 4;
+  }
 
-  /* GSM pulse approximation */
   GSMPulse->buffer = convolve_h_alloc(len);
   GSMPulse->gaussian = new signalVector((complex *)
                                         GSMPulse->buffer, 0, len);
@@ -433,12 +444,32 @@ void generateGSMPulse(int sps, int symbolLength)
 
   signalVector::iterator xP = GSMPulse->gaussian->begin();
 
-  center = (float) (len - 1.0) / 2.0;
+  if (sps == 4) {
+    *xP++ = 4.46348606e-03;
+    *xP++ = 2.84385729e-02;
+    *xP++ = 1.03184855e-01;
+    *xP++ = 2.56065552e-01;
+    *xP++ = 4.76375085e-01;
+    *xP++ = 7.05961177e-01;
+    *xP++ = 8.71291644e-01;
+    *xP++ = 9.29453645e-01;
+    *xP++ = 8.71291644e-01;
+    *xP++ = 7.05961177e-01;
+    *xP++ = 4.76375085e-01;
+    *xP++ = 2.56065552e-01;
+    *xP++ = 1.03184855e-01;
+    *xP++ = 2.84385729e-02;
+    *xP++ = 4.46348606e-03;
+    *xP++ = 0.0;
+  } else {
+    center = (float) (len - 1.0) / 2.0;
 
-  for (int i = 0; i < len; i++) {
-    arg = ((float) i - center) / (float) sps;
-    *xP++ = 0.96 * exp(-1.1380 * arg * arg -
-                        0.527 * arg * arg * arg * arg);
+    /* GSM pulse approximation */
+    for (int i = 0; i < len; i++) {
+      arg = ((float) i - center) / (float) sps;
+      *xP++ = 0.96 * exp(-1.1380 * arg * arg -
+			 0.527 * arg * arg * arg * arg);
+    }
   }
 
   float avgAbsval = sqrtf(vectorNorm2(*GSMPulse->gaussian)/sps);
