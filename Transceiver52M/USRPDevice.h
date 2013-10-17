@@ -21,29 +21,17 @@
 
 #include "radioDevice.h"
 
-#ifdef HAVE_LIBUSRP_3_3 // [
-#  include <usrp/usrp_standard.h>
-#  include <usrp/usrp_bytesex.h>
-#  include <usrp/usrp_prims.h>
-#else // HAVE_LIBUSRP_3_3 ][
-#  include "usrp_standard.h"
-#  include "usrp_bytesex.h"
-#  include "usrp_prims.h"
-#endif // !HAVE_LIBUSRP_3_3 ]
+#include <usrp/usrp_standard.h>
+#include <usrp/usrp_bytesex.h>
+#include <usrp/usrp_prims.h>
 #include <sys/time.h>
 #include <math.h>
 #include <string>
 #include <iostream>
 
-
-/** Define types which are not defined in libusrp-3.1 */
-#ifndef HAVE_LIBUSRP_3_2
 #include <boost/shared_ptr.hpp>
 typedef boost::shared_ptr<usrp_standard_tx> usrp_standard_tx_sptr;
 typedef boost::shared_ptr<usrp_standard_rx> usrp_standard_rx_sptr;
-#endif // HAVE_LIBUSRP_3_2
-
-
 
 /** A class to handle a USRP rev 4, with a two RFX900 daughterboards */
 class USRPDevice: public RadioDevice {

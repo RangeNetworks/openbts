@@ -76,18 +76,7 @@ AC_ARG_WITH(extref, [
 ])
 
 AS_IF([test "x$with_usrp1" = "xyes"], [
-    # Defines USRP_CFLAGS, USRP_INCLUDEDIR, and USRP_LIBS
-    PKG_CHECK_MODULES(USRP, usrp > 3.1)
-    # Check whether we have libusrp >= 3.2
-    PKG_CHECK_EXISTS(usrp >= 3.2, libusrp_3_2=yes, libusrp_3_2=no)
-    if test "x$libusrp_3_2" = "xyes";then
-        AC_DEFINE(HAVE_LIBUSRP_3_2, 1, Define to 1 if you have libusrp >= 3.2)
-    fi
-    # Check whether we have libusrp >= 3.3
-    PKG_CHECK_EXISTS(usrp >= 3.3, libusrp_3_3=yes, libusrp_3_3=no)
-    if test "x$libusrp_3_3" = "xyes";then
-        AC_DEFINE(HAVE_LIBUSRP_3_3, 1, Define to 1 if you have libusrp >= 3.3)
-    fi
+    PKG_CHECK_MODULES(USRP, usrp >= 3.3)
     # Find and define supported SIMD extensions
     AX_EXT
 ])

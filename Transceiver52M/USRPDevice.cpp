@@ -105,11 +105,9 @@ int USRPDevice::open(const std::string &)
                                         0, decimRate * sps, 1, -1,
                                         usrp_standard_rx::FPGA_MODE_NORMAL,
                                         1024, 16 * 8, rbf));
-#ifdef HAVE_LIBUSRP_3_2
     m_uRx->set_fpga_master_clock_freq(masterClockRate);
-#endif
   }
-  
+
   catch(...) {
     LOG(ALERT) << "make failed on Rx";
     m_uRx.reset();
@@ -129,11 +127,9 @@ int USRPDevice::open(const std::string &)
     m_uTx = usrp_standard_tx_sptr(usrp_standard_tx::make(
                                         0, decimRate * 2, 1, -1,
                                         1024, 16 * 8, rbf));
-#ifdef HAVE_LIBUSRP_3_2
     m_uTx->set_fpga_master_clock_freq(masterClockRate);
-#endif
   }
-  
+
   catch(...) {
     LOG(ALERT) << "make failed on Tx";
     m_uTx.reset();
