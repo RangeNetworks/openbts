@@ -29,12 +29,11 @@ bool started = false;
 
 RadioInterface::RadioInterface(RadioDevice *wRadio,
 			       int wReceiveOffset,
-			       int wRadioOversampling,
-			       int wTransceiverOversampling,
+			       int wSPS,
 			       GSM::Time wStartTime)
   : underrun(false), sendCursor(0), rcvCursor(0), mOn(false),
     mRadio(wRadio), receiveOffset(wReceiveOffset),
-    samplesPerSymbol(wRadioOversampling), powerScaling(1.0),
+    samplesPerSymbol(wSPS), powerScaling(1.0),
     loadTest(false)
 {
   mClock.set(wStartTime);

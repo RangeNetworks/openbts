@@ -52,8 +52,6 @@ private:
 
   int samplesPerSymbol;			      ///< samples per GSM symbol
   int receiveOffset;                          ///< offset b/w transmit and receive GSM timestamps, in timeslots
-  int mRadioOversampling;
-  int mTransceiverOversampling;
 
   bool mOn;				      ///< indicates radio is on
 
@@ -86,8 +84,7 @@ public:
   /** constructor */
   RadioInterface(RadioDevice* wRadio = NULL,
 		 int receiveOffset = 3,
-		 int wRadioOversampling = SAMPSPERSYM,
-		 int wTransceiverOversampling = SAMPSPERSYM,
+		 int wSPS = SAMPSPERSYM,
 		 GSM::Time wStartTime = GSM::Time(0));
     
   /** destructor */
