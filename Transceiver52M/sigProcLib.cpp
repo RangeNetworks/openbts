@@ -22,16 +22,10 @@
 
 */
 
-
-
-#define NDEBUG
-
 #include "sigProcLib.h"
 #include "GSMCommon.h"
 #include "sendLPF_961.h"
 #include "rcvLPF_651.h"
-
-#include <Logger.h>
 
 #define TABLESIZE 1024
 
@@ -974,8 +968,6 @@ bool detectRACHBurst(signalVector &rxBurst,
   }
   complex *peakPtr = correlatedRACH.begin() + (int) rint(*TOA);
 
-  LOG(DEBUG) << "RACH corr: " << correlatedRACH;
-
   float numSamples = 0.0;
   for (int i = 57 * sps; i <= 107 * sps; i++) {
     if (peakPtr+i >= correlatedRACH.end())
@@ -992,12 +984,9 @@ bool detectRACHBurst(signalVector &rxBurst,
   float RMS = sqrtf(valleyPower/(float) numSamples)+0.00001;
   float peakToMean = peakAmpl.abs()/RMS;
 
-  LOG(DEBUG) << "RACH peakAmpl=" << peakAmpl << " RMS=" << RMS << " peakToMean=" << peakToMean;
   *amplitude = peakAmpl/(gRACHSequence->gain);
 
   *TOA = (*TOA) - gRACHSequence->TOA - 8 * sps;
-
-  LOG(DEBUG) << "RACH thresh: " << peakToMean;
 
   return (peakToMean > detectThreshold);
 }
@@ -1017,7 +1006,6 @@ bool energyDetect(signalVector &rxBurst,
     windowItr+=4;
   }
   if (avgPwr) *avgPwr = energy/windowLength;
-  LOG(DEBUG) << "detected energy: " << energy/windowLength;
   return (energy/windowLength > detectThreshold*detectThreshold);
 }
   
@@ -1099,10 +1087,6 @@ bool analyzeTrafficBurst(signalVector &rxBurst,
   *amplitude = (*amplitude)/gMidambles[TSC]->gain;
   *TOA = (*TOA) - (maxTOA); 
 
-  LOG(DEBUG) << "TCH peakAmpl=" << amplitude->abs() << " RMS=" << RMS << " peakToMean=" << peakToMean << " TOA=" << *TOA;
-
-  LOG(DEBUG) << "autocorr: " << correlatedBurst;
-  
   if (requestChannel && (peakToMean > detectThreshold)) {
     float TOAoffset = maxTOA;
     delayVector(correlatedBurst,-(*TOA));
@@ -1130,7 +1114,6 @@ bool analyzeTrafficBurst(signalVector &rxBurst,
                                   (int) floor(TOAoffset + (maxI - 5) * sps),
                                   (*channelResponse)->size());
     scaleVector(**channelResponse, complex(1.0, 0.0) / gMidambles[TSC]->gain);
-    LOG(DEBUG) << "channelResponse: " << **channelResponse;
     
     if (channelResponseOffset) 
       *channelResponseOffset = 5 * sps - maxI;
@@ -1175,8 +1158,6 @@ SoftVector *demodulateBurst(signalVector &rxBurst, int sps,
      signalVector *decShapedBurst = decimateVector(*shapedBurst, sps);
      shapedBurst = decShapedBurst;
   }
-
-  LOG(DEBUG) << "shapedBurst: " << *shapedBurst;
 
   vectorSlicer(shapedBurst);
 
