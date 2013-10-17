@@ -53,18 +53,47 @@ RadioInterface::RadioInterface(RadioDevice *wRadio,
 			       int wReceiveOffset,
 			       int wSPS,
 			       GSM::Time wStartTime)
-  : underrun(false), sendCursor(0), rcvCursor(0), mOn(false),
+  : underrun(false), sendCursor(0), recvCursor(0), mOn(false),
     mRadio(wRadio), receiveOffset(wReceiveOffset),
     sps(wSPS), powerScaling(1.0),
-    loadTest(false)
+    loadTest(false), sendBuffer(NULL), recvBuffer(NULL),
+    convertRecvBuffer(NULL), convertSendBuffer(NULL)
 {
   mClock.set(wStartTime);
 }
 
+RadioInterface::~RadioInterface(void)
+{
+  close();
+}
 
-RadioInterface::~RadioInterface(void) {
-  if (rcvBuffer!=NULL) delete rcvBuffer;
-  //mReceiveFIFO.clear();
+bool RadioInterface::init()
+{
+  close();
+
+  sendBuffer = new signalVector(OUTCHUNK * 20);
+  recvBuffer = new signalVector(INCHUNK * 20);
+
+  convertSendBuffer = new short[OUTCHUNK * 2 * 20];
+  convertRecvBuffer = new short[OUTCHUNK * 2 * 2];
+
+  sendCursor = 0;
+  recvCursor = 0;
+
+  return true;
+}
+
+void RadioInterface::close()
+{
+  delete sendBuffer;
+  delete recvBuffer;
+  delete convertSendBuffer;
+  delete convertRecvBuffer;
+
+  sendBuffer = NULL;
+  recvBuffer = NULL;
+  convertRecvBuffer = NULL;
+  convertSendBuffer = NULL;
 }
 
 double RadioInterface::fullScaleInputValue(void) {
@@ -150,9 +179,6 @@ void RadioInterface::start()
   mRadio->updateAlignment(writeTimestamp-10000); 
   mRadio->updateAlignment(writeTimestamp-10000);
 
-  sendBuffer = new float[2*2*INCHUNK*sps];
-  rcvBuffer = new float[2*2*OUTCHUNK*sps];
- 
   mOn = true;
 
 }
@@ -173,11 +199,14 @@ void RadioInterface::alignRadio() {
 }
 #endif
 
-void RadioInterface::driveTransmitRadio(signalVector &radioBurst, bool zeroBurst) {
+void RadioInterface::driveTransmitRadio(signalVector &radioBurst, bool zeroBurst)
+{
+  if (!mOn)
+    return;
 
-  if (!mOn) return;
-
-  radioifyVector(radioBurst, sendBuffer + 2 * sendCursor, powerScaling, zeroBurst);
+  radioifyVector(radioBurst,
+                 (float *) (sendBuffer->begin() + sendCursor),
+                 powerScaling, zeroBurst);
 
   sendCursor += radioBurst.size();
 
@@ -195,7 +224,7 @@ void RadioInterface::driveReceiveRadio() {
   GSM::Time rcvClock = mClock.get();
   rcvClock.decTN(receiveOffset);
   unsigned tN = rcvClock.TN();
-  int rcvSz = rcvCursor;
+  int rcvSz = recvCursor;
   int readSz = 0;
   const int symbolsPerSlot = gSlotLen + 8;
 
@@ -204,7 +233,7 @@ void RadioInterface::driveReceiveRadio() {
   // Using the 157-156-156-156 symbols per timeslot format.
   while (rcvSz > (symbolsPerSlot + (tN % 4 == 0)) * sps) {
     signalVector rxVector((symbolsPerSlot + (tN % 4 == 0)) * sps);
-    unRadioifyVector(rcvBuffer+readSz*2,rxVector);
+    unRadioifyVector((float *) (recvBuffer->begin() + readSz), rxVector);
     GSM::Time tmpTime = rcvClock;
     if (rcvClock.FN() >= 0) {
       //LOG(DEBUG) << "FN: " << rcvClock.FN();
@@ -221,8 +250,6 @@ void RadioInterface::driveReceiveRadio() {
     }
     mClock.incTN(); 
     rcvClock.incTN();
-    //if (mReceiveFIFO.size() >= 16) mReceiveFIFO.wait(8);
-    //LOG(DEBUG) << "receiveFIFO: wrote radio vector at time: " << mClock.get() << ", new size: " << mReceiveFIFO.size() ;
     readSz += (symbolsPerSlot+(tN % 4 == 0)) * sps;
     rcvSz -= (symbolsPerSlot+(tN % 4 == 0)) * sps;
 
@@ -230,8 +257,11 @@ void RadioInterface::driveReceiveRadio() {
   }
 
   if (readSz > 0) {
-    rcvCursor -= readSz;
-    memmove(rcvBuffer,rcvBuffer+2*readSz,sizeof(float) * 2 * rcvCursor);
+    memmove(recvBuffer->begin(),
+            recvBuffer->begin() + readSz,
+            (recvCursor - readSz) * 2 * sizeof(float));
+
+    recvCursor -= readSz;
   }
 }
 
@@ -274,8 +304,8 @@ void RadioInterface::pullBuffer()
   underrun |= local_underrun;
   readTimestamp += (TIMESTAMP) num_rd;
 
-  shortToFloat(rcvBuffer + 2 * rcvCursor, rx_buf, num_rd);
-  rcvCursor += num_rd;
+  shortToFloat((float *) recvBuffer->begin() + recvCursor, rx_buf, num_rd);
+  recvCursor += num_rd;
 }
 
 /* Send timestamped chunk to the device with arbitrary size */ 
@@ -284,7 +314,7 @@ void RadioInterface::pushBuffer()
   if (sendCursor < INCHUNK)
     return;
 
-  floatToShort(tx_buf, sendBuffer, sendCursor);
+  floatToShort(tx_buf, (float *) sendBuffer->begin(), sendCursor);
 
   /* Write samples. Fail if we don't get what we want. */
   int num_smpls = mRadio->writeSamples(tx_buf,

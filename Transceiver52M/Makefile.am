@@ -59,6 +59,7 @@ COMMON_SOURCES = \
 
 libtransceiver_la_SOURCES = \
 	$(COMMON_SOURCES) \
+	Resampler.cpp \
 	radioInterfaceResamp.cpp
 
 noinst_PROGRAMS = \
@@ -78,6 +79,7 @@ noinst_HEADERS = \
 	DummyLoad.h \
 	rcvLPF_651.h \
 	sendLPF_961.h \
+	Resampler.h \
 	convolve.h
 
 USRPping_SOURCES = USRPping.cpp

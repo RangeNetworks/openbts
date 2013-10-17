@@ -37,12 +37,14 @@ protected:
 
   RadioDevice *mRadio;			      ///< the USRP object
  
-  float *sendBuffer;
+  signalVector *sendBuffer;
+  signalVector *recvBuffer;
   unsigned sendCursor;
+  unsigned recvCursor;
 
-  float *rcvBuffer;
-  unsigned rcvCursor;
- 
+  short *convertRecvBuffer;
+  short *convertSendBuffer;
+
   bool underrun;			      ///< indicates writes to USRP are too slow
   bool overrun;				      ///< indicates reads from USRP are too slow
   TIMESTAMP writeTimestamp;		      ///< sample timestamp of next packet written to USRP
@@ -83,6 +85,10 @@ public:
   /** start the interface */
   void start();
 
+  /** intialization */
+  virtual bool init();
+  virtual void close();
+
   /** constructor */
   RadioInterface(RadioDevice* wRadio = NULL,
 		 int receiveOffset = 3,
@@ -90,7 +96,7 @@ public:
 		 GSM::Time wStartTime = GSM::Time(0));
     
   /** destructor */
-  ~RadioInterface();
+  virtual ~RadioInterface();
 
   /** check for underrun, resets underrun value */
   bool isUnderrun();
@@ -154,6 +160,10 @@ void *AlignRadioServiceLoopAdapter(RadioInterface*);
 class RadioInterfaceResamp : public RadioInterface {
 
 private:
+  signalVector *innerSendBuffer;
+  signalVector *outerSendBuffer;
+  signalVector *innerRecvBuffer;
+  signalVector *outerRecvBuffer;
 
   void pushBuffer();
   void pullBuffer();
@@ -164,4 +174,9 @@ public:
 		       int receiveOffset = 3,
 		       int wSPS = SAMPSPERSYM,
 		       GSM::Time wStartTime = GSM::Time(0));
+
+  ~RadioInterfaceResamp();
+
+  bool init();
+  void close();
 };

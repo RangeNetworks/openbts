@@ -34,7 +34,7 @@
 
 #define B100_CLK_RT      52e6
 #define B100_BASE_RT     GSMRATE
-#define USRP2_BASE_RT    400e3
+#define USRP2_BASE_RT    390625
 #define TX_AMPL          0.3
 #define SAMPLE_BUF_SZ    (1 << 20)
 

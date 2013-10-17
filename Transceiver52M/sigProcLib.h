@@ -336,40 +336,6 @@ SoftVector *demodulateBurst(signalVector &rxBurst, int sps,
                             complex channel, float TOA);
 
 /**
-        Creates a simple Kaiser-windowed low-pass FIR filter.
-        @param cutoffFreq The digital 3dB bandwidth of the filter.
-        @param filterLen The number of taps in the filter.
-        @param gainDC The DC gain of the filter.
-        @return The desired LPF
-*/
-signalVector *createLPF(float cutoffFreq,
-			int filterLen,
-                        float gainDC = 1.0);
-
-/**
-	Change sampling rate of a vector via polyphase resampling.
-        @param wVector The vector to be resampled.
-        @param P The numerator, i.e. the amount of upsampling.
-        @param Q The denominator, i.e. the amount of downsampling.
-	@param LPF An optional low-pass filter used in the resampling process.
-	@return A vector resampled at P/Q of the original sampling rate.
-*/    
-signalVector *polyphaseResampleVector(signalVector &wVector,
-				      int P, int Q,
-				      signalVector *LPF);
-
-/**
-	Change the sampling rate of a vector via linear interpolation.
-	@param wVector The vector to be resampled.
-	@param expFactor Ratio of new sampling rate/original sampling rate.
-	@param endPoint ???
-	@return A vector resampled a expFactor*original sampling rate.
-*/
-signalVector *resampleVector(signalVector &wVector,
-			     float expFactor,
-			     complex endPoint);
-
-/**
 	Design the necessary filters for a decision-feedback equalizer.
 	@param channelResponse The multipath channel that we're mitigating.
 	@param SNRestimate The signal-to-noise estimate of the channel, a linear value

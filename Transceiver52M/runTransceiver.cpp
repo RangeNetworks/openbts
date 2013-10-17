@@ -158,6 +158,9 @@ int main(int argc, char *argv[])
     LOG(ALERT) << "Unsupported configuration";
     return EXIT_FAILURE;
   }
+  if (!radio->init()) {
+    LOG(ALERT) << "Failed to initialize radio interface";
+  }
 
   Transceiver *trx = new Transceiver(trxPort, trxAddr.c_str(),
                                      SAMPSPERSYM, GSM::Time(3,0), radio);
