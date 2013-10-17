@@ -32,8 +32,8 @@
 #include "config.h"
 #endif
 
-#define B100_CLK_RT      52e6
-#define B100_BASE_RT     GSMRATE
+#define BXXX_CLK_RT      52e6
+#define BXXX_BASE_RT     GSMRATE
 #define USRP2_BASE_RT    390625
 #define TX_AMPL          0.3
 #define SAMPLE_BUF_SZ    (1 << 20)
@@ -42,6 +42,7 @@ enum uhd_dev_type {
 	USRP1,
 	USRP2,
 	B100,
+	B200,
 	UMTRX,
 	NUM_USRP_TYPES,
 };
@@ -69,6 +70,8 @@ static struct uhd_dev_offset uhd_offsets[NUM_USRP_TYPES * 2] = {
 	{ USRP2, 4, 0.0 },
 	{ B100,  1, 9.4778e-5 },
 	{ B100,  4, 2.9418e-5 },
+	{ B200,  1, 0.0 },
+	{ B200,  4, 9.8358e-5 },
 	{ UMTRX, 1, 9.4778e-5 },
 	{ UMTRX, 4, 0.0 },
 };
@@ -105,6 +108,7 @@ static double select_rate(uhd_dev_type type, int sps)
 	case USRP2:
 		return USRP2_BASE_RT * sps;
 	case B100:
+	case B200:
 	case UMTRX:
 		return GSMRATE * sps;
 	default:
@@ -380,21 +384,23 @@ void uhd_device::set_ref_clk(bool ext_clk)
 
 int uhd_device::set_master_clk(double clk_rate)
 {
-	double actual_clk_rt;
+	double actual, offset, limit = 1.0;
 
 	try {
 		usrp_dev->set_master_clock_rate(clk_rate);
-		actual_clk_rt = usrp_dev->get_master_clock_rate();
 	} catch (const std::exception &ex) {
 		LOG(ALERT) << "UHD clock rate setting failed: " << clk_rate;
 		LOG(ALERT) << ex.what();
 		return -1;
 	}
 
-	if (actual_clk_rt != clk_rate) {
+	actual = usrp_dev->get_master_clock_rate();
+	offset = fabs(clk_rate - actual);
+
+	if (offset > limit) {
 		LOG(ALERT) << "Failed to set master clock rate";
 		LOG(ALERT) << "Requested clock rate " << clk_rate;
-		LOG(ALERT) << "Actual clock rate " << actual_clk_rt;
+		LOG(ALERT) << "Actual clock rate " << actual;
 		return -1;
 	}
 
@@ -403,12 +409,12 @@ int uhd_device::set_master_clk(double clk_rate)
 
 int uhd_device::set_rates(double rate)
 {
-	double offset_limit = 10.0;
+	double offset_limit = 1.0;
 	double tx_offset, rx_offset;
 
-	// B100 is the only device where we set FPGA clocking
-	if (dev_type == B100) {
-		if (set_master_clk(B100_CLK_RT) < 0)
+	// B100/200 are the only device where we set FPGA clocking
+	if ((dev_type == B100) || (dev_type == B200)) {
+		if (set_master_clk(BXXX_CLK_RT) < 0)
 			return -1;
 	}
 
@@ -423,11 +429,11 @@ int uhd_device::set_rates(double rate)
 	}
 	actual_smpl_rt = usrp_dev->get_tx_rate();
 
-	tx_offset = actual_smpl_rt - rate;
-	rx_offset = usrp_dev->get_rx_rate() - rate;
+	tx_offset = fabs(usrp_dev->get_tx_rate() - rate);
+	rx_offset = fabs(usrp_dev->get_rx_rate() - rate);
 	if ((tx_offset > offset_limit) || (rx_offset > offset_limit)) {
 		LOG(ALERT) << "Actual sample rate differs from desired rate";
-		LOG(ALERT) << "Tx/Rx (" << actual_smpl_rt << "/"
+		LOG(ALERT) << "Tx/Rx (" << usrp_dev->get_rx_rate() << "/"
 			   << usrp_dev->get_rx_rate() << ")";
 		return -1;
 	}
@@ -465,7 +471,7 @@ bool uhd_device::parse_dev_type()
 {
 	std::string mboard_str, dev_str;
 	uhd::property_tree::sptr prop_tree;
-	size_t usrp1_str, usrp2_str, b100_str, umtrx_str;
+	size_t usrp1_str, usrp2_str, b100_str, b200_str, umtrx_str;
 
 	prop_tree = usrp_dev->get_device()->get_tree();
 	dev_str = prop_tree->access<std::string>("/name").get();
@@ -474,6 +480,7 @@ bool uhd_device::parse_dev_type()
 	usrp1_str = dev_str.find("USRP1");
 	usrp2_str = dev_str.find("USRP2");
 	b100_str = mboard_str.find("B100");
+	b200_str = mboard_str.find("B200");
 	umtrx_str = dev_str.find("UmTRX");
 
 	if (usrp1_str != std::string::npos) {
@@ -489,12 +496,14 @@ bool uhd_device::parse_dev_type()
 			  << dev_str << " " << mboard_str;
 		dev_type = B100;
 		return true;
+	} else if (b200_str != std::string::npos) {
+		dev_type = B200;
 	} else if (usrp2_str != std::string::npos) {
 		dev_type = USRP2;
 	} else if (umtrx_str != std::string::npos) {
 		dev_type = UMTRX;
 	} else {
-		LOG(ALERT) << "Unknown UHD device type";
+		LOG(ALERT) << "Unknown UHD device type " << dev_str;
 		return false;
 	}
 
