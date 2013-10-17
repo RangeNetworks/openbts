@@ -68,7 +68,6 @@ private:
   /** format samples to USRP */ 
   int radioifyVector(signalVector &wVector,
                      float *floatVector,
-                     float scale,
                      bool zero);
 
   /** format samples from USRP */

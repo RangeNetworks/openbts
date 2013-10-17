@@ -25,29 +25,11 @@
 #include "radioInterface.h"
 #include <Logger.h>
 
+extern "C" {
+#include "convert.h"
+}
+
 bool started = false;
-
-/* Device side buffers */
-static short rx_buf[OUTCHUNK * 2 * 2];
-static short tx_buf[INCHUNK * 2 * 2];
-
-/* Complex float to short conversion */
-static void floatToShort(short *out, float *in, int num)
-{
-  for (int i = 0; i < num; i++) {
-    out[2 * i + 0] = (short) in[2 * i + 0];
-    out[2 * i + 1] = (short) in[2 * i + 1];
-  }
-}
-
-/* Complex short to float conversion */
-static void shortToFloat(float *out, short *in, int num)
-{
-  for (int i = 0; i < num; i++) {
-    out[2 * i + 0] = (float) in[2 * i + 0];
-    out[2 * i + 1] = (float) in[2 * i + 1];
-  }
-}
 
 RadioInterface::RadioInterface(RadioDevice *wRadio,
 			       int wReceiveOffset,
@@ -96,6 +78,7 @@ void RadioInterface::close()
   convertSendBuffer = NULL;
 }
 
+
 double RadioInterface::fullScaleInputValue(void) {
   return mRadio->fullScaleInputValue();
 }
@@ -120,22 +103,14 @@ void RadioInterface::setPowerAttenuation(double atten)
 
 int RadioInterface::radioifyVector(signalVector &wVector,
 				   float *retVector,
-				   float scale,
 				   bool zero)
 {
-  int i;
-  signalVector::iterator itr = wVector.begin();
-
   if (zero) {
     memset(retVector, 0, wVector.size() * 2 * sizeof(float));
     return wVector.size();
   }
 
-  for (i = 0; i < wVector.size(); i++) {
-    retVector[2 * i + 0] = itr->real() * scale;
-    retVector[2 * i + 1] = itr->imag() * scale;
-    itr++;
-  }
+  memcpy(retVector, wVector.begin(), wVector.size() * 2 * sizeof(float));
 
   return wVector.size();
 }
@@ -143,10 +118,14 @@ int RadioInterface::radioifyVector(signalVector &wVector,
 int RadioInterface::unRadioifyVector(float *floatVector,
 				     signalVector& newVector)
 {
-  int i;
   signalVector::iterator itr = newVector.begin();
 
-  for (i = 0; i < newVector.size(); i++) {
+  if (newVector.size() > recvCursor) {
+    LOG(ALERT) << "Insufficient number of samples in receive buffer";
+    return -1;
+  }
+
+  for (int i = 0; i < newVector.size(); i++) {
     *itr++ = Complex<float>(floatVector[2 * i + 0],
 			    floatVector[2 * i + 1]);
   }
@@ -205,8 +184,7 @@ void RadioInterface::driveTransmitRadio(signalVector &radioBurst, bool zeroBurst
     return;
 
   radioifyVector(radioBurst,
-                 (float *) (sendBuffer->begin() + sendCursor),
-                 powerScaling, zeroBurst);
+                 (float *) (sendBuffer->begin() + sendCursor), zeroBurst);
 
   sendCursor += radioBurst.size();
 
@@ -293,36 +271,49 @@ double RadioInterface::getRxGain()
 void RadioInterface::pullBuffer()
 {
   bool local_underrun;
+  int num_recv;
 
-  /* Read samples. Fail if we don't get what we want. */
-  int num_rd = mRadio->readSamples(rx_buf, OUTCHUNK, &overrun,
-                                   readTimestamp, &local_underrun);
+  /* Outer buffer access size is fixed */ 
+  num_recv = mRadio->readSamples(convertRecvBuffer,
+                                 OUTCHUNK,
+                                 &overrun,
+                                 readTimestamp,
+                                 &local_underrun);
+  if (num_recv != OUTCHUNK) {
+          LOG(ALERT) << "Receive error " << num_recv;
+          return;
+  }
 
-  LOG(DEBUG) << "Rx read " << num_rd << " samples from device";
-  assert(num_rd == OUTCHUNK);
+  convert_short_float((float *) (recvBuffer->begin() + recvCursor),
+                      convertRecvBuffer, 2 * OUTCHUNK);
 
   underrun |= local_underrun;
-  readTimestamp += (TIMESTAMP) num_rd;
+  readTimestamp += num_recv;
 
-  shortToFloat((float *) recvBuffer->begin() + recvCursor, rx_buf, num_rd);
-  recvCursor += num_rd;
+  recvCursor += num_recv;
 }
 
 /* Send timestamped chunk to the device with arbitrary size */ 
 void RadioInterface::pushBuffer()
 {
+  int num_sent;
+
   if (sendCursor < INCHUNK)
     return;
 
-  floatToShort(tx_buf, (float *) sendBuffer->begin(), sendCursor);
+  convert_float_short(convertSendBuffer,
+                      (float *) sendBuffer->begin(),
+                      powerScaling, 2 * sendCursor);
 
-  /* Write samples. Fail if we don't get what we want. */
-  int num_smpls = mRadio->writeSamples(tx_buf,
-                                       sendCursor,
-                                       &underrun,
-                                       writeTimestamp);
-  assert(num_smpls == sendCursor);
+  /* Send the all samples in the send buffer */ 
+  num_sent = mRadio->writeSamples(convertSendBuffer,
+                                  sendCursor,
+                                  &underrun,
+                                  writeTimestamp);
+  if (num_sent != sendCursor) {
+          LOG(ALERT) << "Transmit error " << num_sent;
+  }
 
-  writeTimestamp += (TIMESTAMP) num_smpls;
+  writeTimestamp += num_sent;
   sendCursor = 0;
 }

@@ -49,20 +49,6 @@ static Resampler *dnsampler = NULL;
 short *convertRecvBuffer = NULL;
 short *convertSendBuffer = NULL;
 
-/* Complex float to short conversion */
-static void floatToShort(short *out, float *in, int num)
-{
-  for (int i = 0; i < num; i++)
-    out[i] = (short) in[i];
-}
-
-/* Complex short to float conversion */
-static void shortToFloat(float *out, short *in, int num)
-{
-  for (int i = 0; i < num; i++)
-    out[i] = (float) in[i];
-}
-
 RadioInterfaceResamp::RadioInterfaceResamp(RadioDevice *wRadio,
 					   int wReceiveOffset,
 					   int wSPS,
@@ -166,8 +152,8 @@ void RadioInterfaceResamp::pullBuffer()
 		return;
 	}
 
-	shortToFloat((float *) outerRecvBuffer->begin(),
-		     convertRecvBuffer, 2 * outer_len);
+	convert_short_float((float *) outerRecvBuffer->begin(),
+			    convertRecvBuffer, 2 * outer_len);
 
 	underrun |= local_underrun;
 	readTimestamp += (TIMESTAMP) num_recv;
@@ -206,9 +192,9 @@ void RadioInterfaceResamp::pushBuffer()
 		LOG(ALERT) << "Sample rate downsampling error";
 	}
 
-	floatToShort(convertSendBuffer,
-		     (float *) outerSendBuffer->begin(),
-		     2 * outer_len);
+	convert_float_short(convertSendBuffer,
+			    (float *) outerSendBuffer->begin(),
+			    powerScaling, 2 * outer_len);
 
 	num_sent = mRadio->writeSamples(convertSendBuffer,
 					outer_len,
