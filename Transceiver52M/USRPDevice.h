@@ -60,6 +60,7 @@ private:
   usrp_subdev_spec rxSubdevSpec;
   usrp_subdev_spec txSubdevSpec;
 
+  int sps;
   double actualSampleRate;	///< the actual USRP sampling rate
   unsigned int decimRate;	///< the USRP decimation rate
 
@@ -87,7 +88,8 @@ private:
   TIMESTAMP timestampOffset;       ///< timestamp offset b/w Tx and Rx blocks
   TIMESTAMP latestWriteTimestamp;  ///< timestamp of most recent ping command
   TIMESTAMP pingTimestamp;	   ///< timestamp of most recent ping response
-  static const TIMESTAMP PINGOFFSET = 272;  ///< undetermined delay b/w ping response timestamp and true receive timestamp
+
+  long long  pingOffset;
   unsigned long hi32Timestamp;
   unsigned long lastPktTimestamp;
 

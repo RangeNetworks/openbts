@@ -66,14 +66,14 @@ struct uhd_dev_offset {
 static struct uhd_dev_offset uhd_offsets[NUM_USRP_TYPES * 2] = {
 	{ USRP1, 1, 0.0 },
 	{ USRP1, 4, 0.0 },
-	{ USRP2, 1, 5.4394e-5 },
-	{ USRP2, 4, 0.0 },
-	{ B100,  1, 9.4778e-5 },
-	{ B100,  4, 2.9418e-5 },
-	{ B200,  1, 0.0 },
-	{ B200,  4, 9.8358e-5 },
-	{ UMTRX, 1, 9.4778e-5 },
-	{ UMTRX, 4, 0.0 },
+	{ USRP2, 1, 1.1815e-4 },
+	{ USRP2, 4, 7.7538e-5 },
+	{ B100,  1, 9.9692e-5 },
+	{ B100,  4, 6.5545e-5 },
+	{ B200,  1, 9.6000e-5 },
+	{ B200,  4, 6.4615e-5 },
+	{ UMTRX, 1, 9.9692e-5 },
+	{ UMTRX, 4, 7.3846e-5 },
 };
 
 static double get_dev_offset(enum uhd_dev_type type, int sps)
@@ -248,7 +248,7 @@ public:
 	double getTxFreq() { return tx_freq; }
 	double getRxFreq() { return rx_freq; }
 
-	inline double getSampleRate() { return actual_smpl_rt; }
+	inline double getSampleRate() { return tx_rate; }
 	inline double numberRead() { return rx_pkt_cnt; }
 	inline double numberWritten() { return 0; }
 
@@ -271,7 +271,7 @@ private:
 	enum uhd_dev_type dev_type;
 
 	int sps;
-	double desired_smpl_rt, actual_smpl_rt;
+	double tx_rate, rx_rate;
 
 	double tx_gain, tx_gain_min, tx_gain_max;
 	double rx_gain, rx_gain_min, rx_gain_max;
@@ -293,7 +293,7 @@ private:
 	void init_gains();
 	void set_ref_clk(bool ext_clk);
 	int set_master_clk(double rate);
-	int set_rates(double rate);
+	int set_rates(double tx_rate, double rx_rate);
 	bool parse_dev_type();
 	bool flush_recv(size_t num_pkts);
 	int check_rx_md_err(uhd::rx_metadata_t &md, ssize_t num_smpls);
@@ -407,7 +407,7 @@ int uhd_device::set_master_clk(double clk_rate)
 	return 0;
 }
 
-int uhd_device::set_rates(double rate)
+int uhd_device::set_rates(double tx_rate, double rx_rate)
 {
 	double offset_limit = 1.0;
 	double tx_offset, rx_offset;
@@ -420,21 +420,22 @@ int uhd_device::set_rates(double rate)
 
 	// Set sample rates
 	try {
-		usrp_dev->set_tx_rate(rate);
-		usrp_dev->set_rx_rate(rate);
+		usrp_dev->set_tx_rate(tx_rate);
+		usrp_dev->set_rx_rate(rx_rate);
 	} catch (const std::exception &ex) {
-		LOG(ALERT) << "UHD rate setting failed: " << rate;
+		LOG(ALERT) << "UHD rate setting failed";
 		LOG(ALERT) << ex.what();
 		return -1;
 	}
-	actual_smpl_rt = usrp_dev->get_tx_rate();
+	this->tx_rate = usrp_dev->get_tx_rate();
+	this->rx_rate = usrp_dev->get_rx_rate();
 
-	tx_offset = fabs(usrp_dev->get_tx_rate() - rate);
-	rx_offset = fabs(usrp_dev->get_rx_rate() - rate);
+	tx_offset = fabs(this->tx_rate - tx_rate);
+	rx_offset = fabs(this->rx_rate - rx_rate);
 	if ((tx_offset > offset_limit) || (rx_offset > offset_limit)) {
 		LOG(ALERT) << "Actual sample rate differs from desired rate";
-		LOG(ALERT) << "Tx/Rx (" << usrp_dev->get_rx_rate() << "/"
-			   << usrp_dev->get_rx_rate() << ")";
+		LOG(ALERT) << "Tx/Rx (" << this->tx_rate << "/"
+			   << this->rx_rate << ")";
 		return -1;
 	}
 
@@ -552,13 +553,14 @@ int uhd_device::open(const std::string &args)
 	rx_spp = rx_stream->get_max_num_samps();
 
 	// Set rates
-	desired_smpl_rt = select_rate(dev_type, sps);
-	if ((desired_smpl_rt > 0.0) && (set_rates(desired_smpl_rt) < 0))
+	double _tx_rate = select_rate(dev_type, sps);
+	double _rx_rate = _tx_rate / sps;
+	if ((_tx_rate > 0.0) && (set_rates(_tx_rate, _rx_rate) < 0))
 		return -1;
 
 	// Create receive buffer
 	size_t buf_len = SAMPLE_BUF_SZ / sizeof(uint32_t);
-	rx_smpl_buf = new smpl_buf(buf_len, actual_smpl_rt);
+	rx_smpl_buf = new smpl_buf(buf_len, rx_rate);
 
 	// Set receive chain sample offset 
 	double offset = get_dev_offset(dev_type, sps);
@@ -566,7 +568,7 @@ int uhd_device::open(const std::string &args)
 		LOG(ERR) << "Unsupported configuration, no correction applied";
 		ts_offset = 0;
 	} else  {
-		ts_offset = (TIMESTAMP) (offset * actual_smpl_rt);
+		ts_offset = (TIMESTAMP) (offset * rx_rate);
 	}
 
 	// Initialize and shadow gain values 
@@ -719,7 +721,7 @@ int uhd_device::readSamples(short *buf, int len, bool *overrun,
 	// Shift read time with respect to transmit clock
 	timestamp += ts_offset;
 
-	ts = convert_time(timestamp, actual_smpl_rt);
+	ts = convert_time(timestamp, rx_rate);
 	LOG(DEBUG) << "Requested timestamp = " << ts.get_real_secs();
 
 	// Check that timestamp is valid
@@ -788,7 +790,7 @@ int uhd_device::writeSamples(short *buf, int len, bool *underrun,
 	metadata.has_time_spec = true;
 	metadata.start_of_burst = false;
 	metadata.end_of_burst = false;
-	metadata.time_spec = convert_time(timestamp, actual_smpl_rt);
+	metadata.time_spec = convert_time(timestamp, tx_rate);
 
 	// No control packets
 	if (isControl) {

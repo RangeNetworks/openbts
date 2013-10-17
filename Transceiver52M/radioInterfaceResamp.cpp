@@ -28,14 +28,6 @@ extern "C" {
 #include "convert.h"
 }
 
-/* New chunk sizes for resampled rate */
-#ifdef INCHUNK
-  #undef INCHUNK
-#endif
-#ifdef OUTCHUNK
-  #undef OUTCHUNK
-#endif
-
 /* Resampling parameters for 100 MHz clocking */
 #define RESAMP_INRATE			52
 #define RESAMP_OUTRATE			75
@@ -104,7 +96,7 @@ bool RadioInterfaceResamp::init()
 		cutoff = RESAMP_TX4_FILTER;
 
 	dnsampler = new Resampler(RESAMP_INRATE, RESAMP_OUTRATE);
-	if (!dnsampler->init(cutoff)) {
+	if (!dnsampler->init()) {
 		LOG(ALERT) << "Rx resampler failed to initialize";
 		return false;
 	}
@@ -121,10 +113,10 @@ bool RadioInterfaceResamp::init()
 	 * and requires headroom equivalent to the filter length. Low
 	 * rate buffers are allocated in the main radio interface code.
 	 */
-	innerSendBuffer = new signalVector(INCHUNK * 20, RESAMP_FILT_LEN);
+	innerSendBuffer = new signalVector(INCHUNK * 20, upsampler->len());
 	outerSendBuffer = new signalVector(OUTCHUNK * 20);
 
-	outerRecvBuffer = new signalVector(OUTCHUNK * 2, RESAMP_FILT_LEN);
+	outerRecvBuffer = new signalVector(OUTCHUNK * 2, dnsampler->len());
 	innerRecvBuffer = new signalVector(INCHUNK * 20);
 
 	convertSendBuffer = new short[OUTCHUNK * 2 * 20];

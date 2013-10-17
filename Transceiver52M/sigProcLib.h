@@ -145,14 +145,6 @@ signalVector *convolve(const signalVector *a,
                        unsigned step = 1, int offset = 0);
 
 /** 
-	Generate the GSM pulse. 
-	@param sps The number of samples per GSM symbol.
-	@param symbolLength The size of the pulse.
-	@return The GSM pulse.
-*/
-void generateGSMPulse(int sps, int symbolLength);
-
-/** 
         Frequency shift a vector.
 	@param y The frequency shifted vector.
 	@param x The vector to-be-shifted.

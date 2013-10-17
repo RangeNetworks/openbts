@@ -63,9 +63,24 @@ USRPDevice::USRPDevice(int sps, bool skipRx)
   : skipRx(skipRx)
 {
   LOG(INFO) << "creating USRP device...";
+
+  this->sps = sps;
   decimRate = (unsigned int) round(masterClockRate/((GSMRATE) * (double) sps));
   actualSampleRate = masterClockRate/decimRate;
   rxGain = 0;
+
+  /*
+   * Undetermined delay b/w ping response timestamp and true
+   * receive timestamp. Values are empirically measured. With
+   * split sample rate Tx/Rx - 4/1 sps we need to need to
+   * compensate for advance rather than delay.
+   */
+  if (sps == 1)
+    pingOffset = 272;
+  else if (sps == 4)
+    pingOffset = 269 - 7500;
+  else
+    pingOffset = 0;
 
 #ifdef SWLOOPBACK 
   samplePeriod = 1.0e6/actualSampleRate;
@@ -86,9 +101,10 @@ int USRPDevice::open(const std::string &)
   m_uRx.reset();
   if (!skipRx) {
   try {
-    m_uRx = usrp_standard_rx_sptr(usrp_standard_rx::make(0,decimRate,1,-1,
-                                                         usrp_standard_rx::FPGA_MODE_NORMAL,
-                                                         1024,16*8,rbf));
+    m_uRx = usrp_standard_rx_sptr(usrp_standard_rx::make(
+                                        0, decimRate * sps, 1, -1,
+                                        usrp_standard_rx::FPGA_MODE_NORMAL,
+                                        1024, 16 * 8, rbf));
 #ifdef HAVE_LIBUSRP_3_2
     m_uRx->set_fpga_master_clock_freq(masterClockRate);
 #endif
@@ -110,8 +126,9 @@ int USRPDevice::open(const std::string &)
   }
 
   try {
-    m_uTx = usrp_standard_tx_sptr(usrp_standard_tx::make(0,decimRate*2,1,-1,
-                                                         1024,16*8,rbf));
+    m_uTx = usrp_standard_tx_sptr(usrp_standard_tx::make(
+                                        0, decimRate * 2, 1, -1,
+                                        1024, 16 * 8, rbf));
 #ifdef HAVE_LIBUSRP_3_2
     m_uTx->set_fpga_master_clock_freq(masterClockRate);
 #endif
@@ -341,7 +358,7 @@ int USRPDevice::readSamples(short *buf, int len, bool *overrun,
         uint32_t word2 = usrp_to_host_u32(tmpBuf[2]);
 	if ((word2 >> 16) == ((0x01 << 8) | 0x02)) {
           timestamp -= timestampOffset;
-	  timestampOffset = pktTimestamp - pingTimestamp + PINGOFFSET;
+	  timestampOffset = pktTimestamp - pingTimestamp + pingOffset;
 	  LOG(DEBUG) << "updating timestamp offset to: " << timestampOffset;
           timestamp += timestampOffset;
 	  isAligned = true;

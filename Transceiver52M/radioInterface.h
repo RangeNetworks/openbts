@@ -23,8 +23,6 @@
 
 /** samples per GSM symbol */
 #define SAMPSPERSYM 4
-#define INCHUNK    (625)
-#define OUTCHUNK   (625)
 
 /** class to interface the transceiver with the USRP */
 class RadioInterface {
@@ -36,7 +34,9 @@ protected:
   VectorFIFO  mReceiveFIFO;		      ///< FIFO that holds receive  bursts
 
   RadioDevice *mRadio;			      ///< the USRP object
- 
+
+  int mSPSTx;
+  int mSPSRx;
   signalVector *sendBuffer;
   signalVector *recvBuffer;
   unsigned sendCursor;
@@ -52,7 +52,6 @@ protected:
 
   RadioClock mClock;                          ///< the basestation clock!
 
-  int sps;                                    ///< samples per GSM symbol
   int receiveOffset;                          ///< offset b/w transmit and receive GSM timestamps, in timeslots
 
   bool mOn;				      ///< indicates radio is on

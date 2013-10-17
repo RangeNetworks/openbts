@@ -42,9 +42,11 @@ static const float M_PI_F = (float)M_PI;
 static const float M_2PI_F = (float)(2.0*M_PI);
 static const float M_1_2PI_F = 1/M_2PI_F;
 
-/** Static vectors that contain a precomputed +/- f_b/4 sinusoid */ 
-signalVector *GMSKRotation = NULL;
-signalVector *GMSKReverseRotation = NULL;
+/* Precomputed rotation vectors */
+static signalVector *GMSKRotationN = NULL;
+static signalVector *GMSKReverseRotationN = NULL;
+static signalVector *GMSKRotation1 = NULL;
+static signalVector *GMSKReverseRotation1 = NULL;
 
 /*
  * RACH and midamble correlation waveforms. Store the buffer separately
@@ -65,7 +67,7 @@ struct CorrelationSequence {
 
   signalVector *sequence;
   void         *buffer;
-  float        TOA;
+  float        toa;
   complex      gain;
 };
 
@@ -99,6 +101,7 @@ struct PulseSequence {
 CorrelationSequence *gMidambles[] = {NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL};
 CorrelationSequence *gRACHSequence = NULL;
 PulseSequence *GSMPulse = NULL;
+PulseSequence *GSMPulse1 = NULL;
 
 void sigProcLibDestroy()
 {
@@ -107,15 +110,21 @@ void sigProcLibDestroy()
     gMidambles[i] = NULL;
   }
 
-  delete GMSKRotation;
-  delete GMSKReverseRotation;
+  delete GMSKRotationN;
+  delete GMSKReverseRotationN;
+  delete GMSKRotation1;
+  delete GMSKReverseRotation1;
   delete gRACHSequence;
   delete GSMPulse;
+  delete GSMPulse1;
 
-  GMSKRotation = NULL;
-  GMSKReverseRotation = NULL;
+  GMSKRotationN = NULL;
+  GMSKRotation1 = NULL;
+  GMSKReverseRotationN = NULL;
+  GMSKReverseRotation1 = NULL;
   gRACHSequence = NULL;
   GSMPulse = NULL;
+  GSMPulse1 = NULL;
 }
 
 // dB relative to 1.0.
@@ -248,38 +257,38 @@ void initTrigTables() {
 
 void initGMSKRotationTables(int sps)
 {
-  GMSKRotation = new signalVector(157 * sps);
-  GMSKReverseRotation = new signalVector(157 * sps);
-  signalVector::iterator rotPtr = GMSKRotation->begin();
-  signalVector::iterator revPtr = GMSKReverseRotation->begin();
+  GMSKRotationN = new signalVector(157 * sps);
+  GMSKReverseRotationN = new signalVector(157 * sps);
+  signalVector::iterator rotPtr = GMSKRotationN->begin();
+  signalVector::iterator revPtr = GMSKReverseRotationN->begin();
   float phase = 0.0;
-  while (rotPtr != GMSKRotation->end()) {
+  while (rotPtr != GMSKRotationN->end()) {
     *rotPtr++ = expjLookup(phase);
     *revPtr++ = expjLookup(-phase);
     phase += M_PI_F / 2.0F / (float) sps;
   }
-}
 
-bool sigProcLibSetup(int sps)
-{
-  if ((sps != 1) && (sps != 4))
-    return false;
-
-  initTrigTables();
-  initGMSKRotationTables(sps);
-  generateGSMPulse(sps, 2);
-
-  if (!generateRACHSequence(sps)) {
-    sigProcLibDestroy();
-    return false;
+  GMSKRotation1 = new signalVector(157);
+  GMSKReverseRotation1 = new signalVector(157);
+  rotPtr = GMSKRotation1->begin();
+  revPtr = GMSKReverseRotation1->begin();
+  phase = 0.0;
+  while (rotPtr != GMSKRotation1->end()) {
+    *rotPtr++ = expjLookup(phase);
+    *revPtr++ = expjLookup(-phase);
+    phase += M_PI_F / 2.0F;
   }
-
-  return true;
 }
 
-void GMSKRotate(signalVector &x) {
-  signalVector::iterator xPtr = x.begin();
-  signalVector::iterator rotPtr = GMSKRotation->begin();
+static void GMSKRotate(signalVector &x, int sps)
+{
+  signalVector::iterator rotPtr, xPtr = x.begin();
+
+  if (sps == 1)
+    rotPtr = GMSKRotation1->begin();
+  else
+    rotPtr = GMSKRotationN->begin();
+
   if (x.isRealOnly()) {
     while (xPtr < x.end()) {
       *xPtr = *rotPtr++ * (xPtr->real());
@@ -294,9 +303,15 @@ void GMSKRotate(signalVector &x) {
   }
 }
 
-void GMSKReverseRotate(signalVector &x) {
-  signalVector::iterator xPtr= x.begin();
-  signalVector::iterator rotPtr = GMSKReverseRotation->begin();
+static void GMSKReverseRotate(signalVector &x, int sps)
+{
+  signalVector::iterator rotPtr, xPtr= x.begin();
+
+  if (sps == 1)
+    rotPtr = GMSKReverseRotation1->begin();
+  else
+    rotPtr = GMSKReverseRotationN->begin();
+
   if (x.isRealOnly()) {
     while (xPtr < x.end()) {
       *xPtr = *rotPtr++ * (xPtr->real());
@@ -412,9 +427,12 @@ signalVector *convolve(const signalVector *x,
   return y;
 }
 
-bool generateC1Pulse(int sps)
+static bool generateC1Pulse(int sps, PulseSequence *pulse)
 {
   int len;
+
+  if (!pulse)
+    return false;
 
   switch (sps) {
   case 4:
@@ -424,20 +442,20 @@ bool generateC1Pulse(int sps)
     return false;
   }
 
-  GSMPulse->c1_buffer = convolve_h_alloc(len);
-  GSMPulse->c1 = new signalVector((complex *)
-                                  GSMPulse->c1_buffer, 0, len);
-  GSMPulse->c1->isRealOnly(true);
+  pulse->c1_buffer = convolve_h_alloc(len);
+  pulse->c1 = new signalVector((complex *)
+                                  pulse->c1_buffer, 0, len);
+  pulse->c1->isRealOnly(true);
 
   /* Enable alignment for SSE usage */
-  GSMPulse->c1->setAligned(true);
+  pulse->c1->setAligned(true);
 
-  signalVector::iterator xP = GSMPulse->c1->begin();
+  signalVector::iterator xP = pulse->c1->begin();
 
   switch (sps) {
   case 4:
     /* BT = 0.30 */
-    *xP++ = 0.0; 
+    *xP++ = 0.0;
     *xP++ = 8.16373112e-03;
     *xP++ = 2.84385729e-02;
     *xP++ = 5.64158904e-02;
@@ -450,18 +468,17 @@ bool generateC1Pulse(int sps)
   return true;
 }
 
-void generateGSMPulse(int sps, int symbolLength)
+static PulseSequence *generateGSMPulse(int sps, int symbolLength)
 {
   int len;
   float arg, avg, center;
-
-  delete GSMPulse;
+  PulseSequence *pulse;
 
   /* Store a single tap filter used for correlation sequence generation */
-  GSMPulse = new PulseSequence();
-  GSMPulse->empty = new signalVector(1);
-  GSMPulse->empty->isRealOnly(true);
-  *(GSMPulse->empty->begin()) = 1.0f;
+  pulse = new PulseSequence();
+  pulse->empty = new signalVector(1);
+  pulse->empty->isRealOnly(true);
+  *(pulse->empty->begin()) = 1.0f;
 
   /*
    * For 4 samples-per-symbol use a precomputed single pulse Laurent
@@ -479,15 +496,14 @@ void generateGSMPulse(int sps, int symbolLength)
       len = 4;
   }
 
-  GSMPulse->c0_buffer = convolve_h_alloc(len);
-  GSMPulse->c0 = new signalVector((complex *)
-                                  GSMPulse->c0_buffer, 0, len);
-  GSMPulse->c0->isRealOnly(true);
+  pulse->c0_buffer = convolve_h_alloc(len);
+  pulse->c0 = new signalVector((complex *) pulse->c0_buffer, 0, len);
+  pulse->c0->isRealOnly(true);
 
   /* Enable alingnment for SSE usage */
-  GSMPulse->c0->setAligned(true);
+  pulse->c0->setAligned(true);
 
-  signalVector::iterator xP = GSMPulse->c0->begin();
+  signalVector::iterator xP = pulse->c0->begin();
 
   if (sps == 4) {
     *xP++ = 0.0;
@@ -506,7 +522,7 @@ void generateGSMPulse(int sps, int symbolLength)
     *xP++ = 1.03184855e-01;
     *xP++ = 2.84385729e-02;
     *xP++ = 4.46348606e-03;
-    generateC1Pulse(sps);
+    generateC1Pulse(sps, pulse);
   } else {
     center = (float) (len - 1.0) / 2.0;
 
@@ -517,11 +533,13 @@ void generateGSMPulse(int sps, int symbolLength)
 			 0.527 * arg * arg * arg * arg);
     }
 
-    avg = sqrtf(vectorNorm2(*GSMPulse->c0) / sps);
-    xP = GSMPulse->c0->begin();
-    for (int i = 0; i < len; i++) 
+    avg = sqrtf(vectorNorm2(*pulse->c0) / sps);
+    xP = pulse->c0->begin();
+    for (int i = 0; i < len; i++)
       *xP++ /= avg;
   }
+
+  return pulse;
 }
 
 signalVector* frequencyShift(signalVector *y,
@@ -610,7 +628,7 @@ static signalVector *rotateBurst(const BitVector &wBurst,
   signalVector *pulse, rotated, *shaped;
   signalVector::iterator itr;
 
-  pulse = GSMPulse->empty;
+  pulse = GSMPulse1->empty;
   burst_len = sps * (wBurst.size() + guardPeriodLength);
   rotated = signalVector(burst_len);
   itr = rotated.begin();
@@ -620,7 +638,7 @@ static signalVector *rotateBurst(const BitVector &wBurst,
     itr += sps;
   }
 
-  GMSKRotate(rotated);
+  GMSKRotate(rotated, sps);
   rotated.isRealOnly(false);
 
   /* Dummy filter operation */
@@ -673,7 +691,7 @@ static signalVector *modulateBurstLaurent(const BitVector &bits,
   *c0_itr = 2.0 * (0x01 & 0x01) - 1.0;
 
   /* Generate C0 phase coefficients */
-  GMSKRotate(c0_burst);
+  GMSKRotate(c0_burst, sps);
   c0_burst.isRealOnly(false);
 
   c0_itr = c0_burst.begin();
@@ -722,7 +740,11 @@ static signalVector *modulateBurstBasic(const BitVector &bits,
   signalVector *pulse, burst, *shaped;
   signalVector::iterator burst_itr;
 
-  pulse = GSMPulse->c0;
+  if (sps == 1)
+    pulse = GSMPulse1->c0;
+  else
+    pulse = GSMPulse->c0;
+
   burst_len = sps * (bits.size() + guard_len);
 
   burst = signalVector(burst_len);
@@ -735,7 +757,7 @@ static signalVector *modulateBurstBasic(const BitVector &bits,
     burst_itr += sps;
   }
 
-  GMSKRotate(burst);
+  GMSKRotate(burst, sps);
   burst.isRealOnly(false);
 
   /* Single Gaussian pulse approximation shaping */
@@ -1018,6 +1040,7 @@ void offsetVector(signalVector &x,
 bool generateMidamble(int sps, int tsc)
 {
   bool status = true;
+  float toa;
   complex *data = NULL;
   signalVector *autocorr = NULL, *midamble = NULL;
   signalVector *midMidamble = NULL, *_midMidamble = NULL;
@@ -1065,7 +1088,16 @@ bool generateMidamble(int sps, int tsc)
   gMidambles[tsc] = new CorrelationSequence;
   gMidambles[tsc]->buffer = data;
   gMidambles[tsc]->sequence = _midMidamble;
-  gMidambles[tsc]->gain = peakDetect(*autocorr,&gMidambles[tsc]->TOA, NULL);
+  gMidambles[tsc]->gain = peakDetect(*autocorr, &toa, NULL);
+
+  /* For 1 sps only
+   *     (Half of correlation length - 1) + midpoint of pulse shape + remainder
+   *     13.5 = (16 / 2 - 1) + 1.5 + (26 - 10) / 2
+   */
+  if (sps == 1)
+    gMidambles[tsc]->toa = toa - 13.5;
+  else
+    gMidambles[tsc]->toa = 0;
 
 release:
   delete autocorr;
@@ -1084,6 +1116,7 @@ release:
 bool generateRACHSequence(int sps)
 {
   bool status = true;
+  float toa;
   complex *data = NULL;
   signalVector *autocorr = NULL;
   signalVector *seq0 = NULL, *seq1 = NULL, *_seq1 = NULL;
@@ -1117,7 +1150,16 @@ bool generateRACHSequence(int sps)
   gRACHSequence = new CorrelationSequence;
   gRACHSequence->sequence = _seq1;
   gRACHSequence->buffer = data;
-  gRACHSequence->gain = peakDetect(*autocorr,&gRACHSequence->TOA, NULL);
+  gRACHSequence->gain = peakDetect(*autocorr, &toa, NULL);
+
+  /* For 1 sps only
+   *     (Half of correlation length - 1) + midpoint of pulse shaping filer
+   *     20.5 = (40 / 2 - 1) + 1.5
+   */
+  if (sps == 1)
+    gRACHSequence->toa = toa - 20.5;
+  else
+    gRACHSequence->toa = 0.0;
 
 release:
   delete autocorr;
@@ -1221,6 +1263,9 @@ static int detectBurst(signalVector &burst,
   /* Compenate for residual rotation with dual Laurent pulse */
   if (sps == 4)
     *amp = *amp * complex(0.0, 1.0);
+
+  /* Compensate for residuate time lag */
+  *toa = *toa - sync->toa;
 
   return 1;
 }
@@ -1365,7 +1410,7 @@ SoftVector *demodulateBurst(signalVector &rxBurst, int sps,
 
   // shift up by a quarter of a frequency
   // ignore starting phase, since spec allows for discontinuous phase
-  GMSKReverseRotate(*shapedBurst);
+  GMSKReverseRotate(*shapedBurst, sps);
 
   // run through slicer
   if (sps > 1) {
@@ -1508,8 +1553,8 @@ SoftVector *equalizeBurst(signalVector &rxBurst,
 
   signalVector::iterator dPtr = postForward->begin();
   signalVector::iterator dBackPtr;
-  signalVector::iterator rotPtr = GMSKRotation->begin();
-  signalVector::iterator revRotPtr = GMSKReverseRotation->begin();
+  signalVector::iterator rotPtr = GMSKRotationN->begin();
+  signalVector::iterator revRotPtr = GMSKReverseRotationN->begin();
 
   signalVector *DFEoutput = new signalVector(postForward->size());
   signalVector::iterator DFEItr = DFEoutput->begin();
@@ -1547,4 +1592,24 @@ SoftVector *equalizeBurst(signalVector &rxBurst,
   delete DFEoutput;
 
   return burstBits;
+}
+
+bool sigProcLibSetup(int sps)
+{
+  if ((sps != 1) && (sps != 4))
+    return false;
+
+  initTrigTables();
+  initGMSKRotationTables(sps);
+
+  GSMPulse1 = generateGSMPulse(1, 2);
+  if (sps > 1)
+    GSMPulse = generateGSMPulse(sps, 2);
+
+  if (!generateRACHSequence(1)) {
+    sigProcLibDestroy();
+    return false;
+  }
+
+  return true;
 }

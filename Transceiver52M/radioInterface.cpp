@@ -23,13 +23,15 @@
 */
 
 #include "radioInterface.h"
+#include "Resampler.h"
 #include <Logger.h>
 
 extern "C" {
 #include "convert.h"
 }
 
-bool started = false;
+#define INCHUNK		(625 * SAMPSPERSYM)
+#define OUTCHUNK	(625 * SAMPSPERSYM)
 
 RadioInterface::RadioInterface(RadioDevice *wRadio,
 			       int wReceiveOffset,
@@ -37,7 +39,7 @@ RadioInterface::RadioInterface(RadioDevice *wRadio,
 			       GSM::Time wStartTime)
   : underrun(false), sendCursor(0), recvCursor(0), mOn(false),
     mRadio(wRadio), receiveOffset(wReceiveOffset),
-    sps(wSPS), powerScaling(1.0),
+    mSPSTx(wSPS), mSPSRx(1), powerScaling(1.0),
     loadTest(false), sendBuffer(NULL), recvBuffer(NULL),
     convertRecvBuffer(NULL), convertSendBuffer(NULL)
 {
@@ -209,8 +211,8 @@ void RadioInterface::driveReceiveRadio() {
   // while there's enough data in receive buffer, form received 
   //    GSM bursts and pass up to Transceiver
   // Using the 157-156-156-156 symbols per timeslot format.
-  while (rcvSz > (symbolsPerSlot + (tN % 4 == 0)) * sps) {
-    signalVector rxVector((symbolsPerSlot + (tN % 4 == 0)) * sps);
+  while (rcvSz > (symbolsPerSlot + (tN % 4 == 0)) * mSPSRx) {
+    signalVector rxVector((symbolsPerSlot + (tN % 4 == 0)) * mSPSRx);
     unRadioifyVector((float *) (recvBuffer->begin() + readSz), rxVector);
     GSM::Time tmpTime = rcvClock;
     if (rcvClock.FN() >= 0) {
@@ -228,8 +230,8 @@ void RadioInterface::driveReceiveRadio() {
     }
     mClock.incTN(); 
     rcvClock.incTN();
-    readSz += (symbolsPerSlot+(tN % 4 == 0)) * sps;
-    rcvSz -= (symbolsPerSlot+(tN % 4 == 0)) * sps;
+    readSz += (symbolsPerSlot+(tN % 4 == 0)) * mSPSRx;
+    rcvSz -= (symbolsPerSlot+(tN % 4 == 0)) * mSPSRx;
 
     tN = rcvClock.TN();
   }
@@ -267,33 +269,35 @@ double RadioInterface::getRxGain()
     return -1;
 }
 
-/* Receive a timestamped chunk from the device */ 
+/* Receive a timestamped chunk from the device */
 void RadioInterface::pullBuffer()
 {
   bool local_underrun;
-  int num_recv;
+  int num_recv, len = OUTCHUNK / mSPSTx;
+  float *output;
 
-  /* Outer buffer access size is fixed */ 
+  /* Outer buffer access size is fixed */
   num_recv = mRadio->readSamples(convertRecvBuffer,
-                                 OUTCHUNK,
+                                 len,
                                  &overrun,
                                  readTimestamp,
                                  &local_underrun);
-  if (num_recv != OUTCHUNK) {
+  if (num_recv != len) {
           LOG(ALERT) << "Receive error " << num_recv;
           return;
   }
 
-  convert_short_float((float *) (recvBuffer->begin() + recvCursor),
-                      convertRecvBuffer, 2 * OUTCHUNK);
+  output = (float *) (recvBuffer->begin() + recvCursor);
+
+  convert_short_float(output, convertRecvBuffer, 2 * len);
 
   underrun |= local_underrun;
-  readTimestamp += num_recv;
 
+  readTimestamp += num_recv;
   recvCursor += num_recv;
 }
 
-/* Send timestamped chunk to the device with arbitrary size */ 
+/* Send timestamped chunk to the device with arbitrary size */
 void RadioInterface::pushBuffer()
 {
   int num_sent;

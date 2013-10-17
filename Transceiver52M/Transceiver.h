@@ -120,7 +120,8 @@ private:
   /** send messages over the clock socket */
   void writeClockInterface(void);
 
-  int mSPS;                            ///< number of samples per GSM symbol
+  int mSPSTx;                          ///< number of samples per Tx symbol
+  int mSPSRx;                          ///< number of samples per Rx symbol
 
   bool mOn;			       ///< flag to indicate that transceiver is powered on
   ChannelCombination mChanType[8];     ///< channel types for all timeslots

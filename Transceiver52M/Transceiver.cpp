@@ -53,7 +53,8 @@ Transceiver::Transceiver(int wBasePort,
 			 RadioInterface *wRadioInterface)
 	:mDataSocket(wBasePort+2,TRXAddress,wBasePort+102),
 	 mControlSocket(wBasePort+1,TRXAddress,wBasePort+101),
-	 mClockSocket(wBasePort,TRXAddress,wBasePort+100)
+	 mClockSocket(wBasePort,TRXAddress,wBasePort+100),
+	 mSPSTx(wSPS), mSPSRx(1)
 {
   GSM::Time startTime(random() % gHyperframe,0);
 
@@ -62,7 +63,6 @@ Transceiver::Transceiver(int wBasePort,
   mControlServiceLoopThread = new Thread(32768);       ///< thread to process control messages from GSM core
   mTransmitPriorityQueueServiceLoopThread = new Thread(32768);///< thread to process transmit bursts from GSM core
 
-  mSPS = wSPS;
   mRadioInterface = wRadioInterface;
   mTransmitLatency = wTransmitLatency;
   mTransmitDeadlineClock = startTime;
@@ -92,7 +92,7 @@ Transceiver::~Transceiver()
 
 bool Transceiver::init()
 {
-  if (!sigProcLibSetup(mSPS)) {
+  if (!sigProcLibSetup(mSPSTx)) {
     LOG(ALERT) << "Failed to initialize signal processing library";
     return false;
   }
@@ -101,7 +101,7 @@ bool Transceiver::init()
   for (int i = 0; i < 8; i++) {
     signalVector* modBurst = modulateBurst(gDummyBurst,
 					   8 + (i % 4 == 0),
-					   mSPS);
+					   mSPSTx);
     if (!modBurst) {
       sigProcLibDestroy();
       LOG(ALERT) << "Failed to initialize filler table";
@@ -133,7 +133,7 @@ radioVector *Transceiver::fixRadioVector(BitVector &burst,
   // modulate and stick into queue 
   signalVector* modBurst = modulateBurst(burst,
 					 8 + (wTime.TN() % 4 == 0),
-					 mSPS);
+					 mSPSTx);
   scaleVector(*modBurst,txFullScale * pow(10,-RSSI/10));
 
   radioVector *newVec = new radioVector(*modBurst,wTime);
@@ -146,7 +146,7 @@ radioVector *Transceiver::fixRadioVector(BitVector &burst,
 #ifdef TRANSMIT_LOGGING
 void Transceiver::unModulateVector(signalVector wVector) 
 {
-  SoftVector *burst = demodulateBurst(wVector, mSPS, 1.0, 0.0);
+  SoftVector *burst = demodulateBurst(wVector, mSPSTx, 1.0, 0.0);
   LOG(DEBUG) << "LOGGED BURST: " << *burst;
 
 /*
@@ -352,7 +352,7 @@ SoftVector *Transceiver::pullRadioVector(GSM::Time &wTime,
   float TOA = 0.0;
   float avgPwr = 0.0;
 #ifdef ENERGY_DETECT
-  if (!energyDetect(*vectorBurst, 20 * mSPS, mEnergyThreshold, &avgPwr)) {
+  if (!energyDetect(*vectorBurst, 20 * mSPSRx, mEnergyThreshold, &avgPwr)) {
      LOG(DEBUG) << "Estimated Energy: " << sqrt(avgPwr) << ", at time " << rxBurst->getTime();
      double framesElapsed = rxBurst->getTime()-prevFalseDetectionTime;
      if (framesElapsed > 50) {  // if we haven't had any false detections for a while, lower threshold
@@ -388,7 +388,7 @@ SoftVector *Transceiver::pullRadioVector(GSM::Time &wTime,
     success = analyzeTrafficBurst(*vectorBurst,
 				  mTSC,
 				  5.0,
-				  mSPS,
+				  mSPSRx,
 				  &amplitude,
 				  &TOA,
 				  mMaxExpectedDelay, 
@@ -421,11 +421,7 @@ SoftVector *Transceiver::pullRadioVector(GSM::Time &wTime,
   }
   else {
     // RACH burst
-    success = detectRACHBurst(*vectorBurst,
-			      6.0,
-			      mSPS,
-			      &amplitude,
-			      &TOA);
+    success = detectRACHBurst(*vectorBurst, 6.0, mSPSRx, &amplitude, &TOA);
     if (success) {
       LOG(DEBUG) << "FOUND RACH!!!!!! " << amplitude << " " << TOA;
       mEnergyThreshold -= (1.0F/10.0F);
@@ -444,22 +440,19 @@ SoftVector *Transceiver::pullRadioVector(GSM::Time &wTime,
   SoftVector *burst = NULL;
   if ((rxBurst) && (success)) {
     if ((corrType==RACH) || (!needDFE)) {
-      burst = demodulateBurst(*vectorBurst,
-			      mSPS,
-			      amplitude,TOA);
-    }
-    else { // TSC
+      burst = demodulateBurst(*vectorBurst, mSPSRx, amplitude, TOA);
+    } else {
       scaleVector(*vectorBurst,complex(1.0,0.0)/amplitude);
       burst = equalizeBurst(*vectorBurst,
 			    TOA-chanRespOffset[timeslot],
-			    mSPS,
+			    mSPSRx,
 			    *DFEForward[timeslot],
 			    *DFEFeedback[timeslot]);
     }
     wTime = rxBurst->getTime();
     RSSI = (int) floor(20.0*log10(rxFullScale/amplitude.abs()));
     LOG(DEBUG) << "RSSI: " << RSSI;
-    timingOffset = (int) round(TOA * 256.0 / mSPS);
+    timingOffset = (int) round(TOA * 256.0 / mSPSRx);
   }
 
   //if (burst) LOG(DEBUG) << "burst: " << *burst << '\n';
@@ -618,7 +611,7 @@ void Transceiver::driveControl()
       sprintf(response,"RSP SETTSC 1 %d",TSC);
     else {
       mTSC = TSC;
-      generateMidamble(mSPS, TSC);
+      generateMidamble(mSPSRx, TSC);
       sprintf(response,"RSP SETTSC 0 %d", TSC);
     }
   }
