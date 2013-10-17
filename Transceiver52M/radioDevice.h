@@ -21,6 +21,8 @@
 #include "config.h"
 #endif
 
+#define GSMRATE       1625e3/6
+
 /** a 64-bit virtual timestamp for radio data */
 typedef unsigned long long TIMESTAMP;
 
@@ -31,10 +33,13 @@ class RadioDevice {
   /* Available transport bus types */
   enum TxWindowType { TX_WINDOW_USRP1, TX_WINDOW_FIXED };
 
-  static RadioDevice *make(double desiredSampleRate, int sps, bool skipRx = false);
+  /* Radio interface types */
+  enum RadioInterfaceType { NORMAL, RESAMP };
+
+  static RadioDevice *make(int sps, bool skipRx = false);
 
   /** Initialize the USRP */
-  virtual bool open(const std::string &args)=0;
+  virtual int open(const std::string &args)=0;
 
   /** Start the USRP */
   virtual bool start()=0;

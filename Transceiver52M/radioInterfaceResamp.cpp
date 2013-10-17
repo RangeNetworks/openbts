@@ -271,8 +271,16 @@ int tx_resmpl_flt_int(short *smpls_out, float *smpls_in, int num_smpls)
 	return num_resmpl; 
 }
 
+RadioInterfaceResamp::RadioInterfaceResamp(RadioDevice *wRadio,
+					   int wReceiveOffset,
+					   int wSPS,
+					   GSM::Time wStartTime)
+	: RadioInterface(wRadio, wReceiveOffset, wSPS, wStartTime)
+{
+}
+
 /* Receive a timestamped chunk from the device */ 
-void RadioInterface::pullBuffer()
+void RadioInterfaceResamp::pullBuffer()
 {
 	int num_cv, num_rd;
 	bool local_underrun;
@@ -297,7 +305,7 @@ void RadioInterface::pullBuffer()
 }
 
 /* Send a timestamped chunk to the device */ 
-void RadioInterface::pushBuffer()
+void RadioInterfaceResamp::pushBuffer()
 {
 	int num_cv, num_wr;
 

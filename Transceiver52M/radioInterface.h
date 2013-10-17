@@ -29,7 +29,7 @@
 /** class to interface the transceiver with the USRP */
 class RadioInterface {
 
-private:
+protected:
 
   Thread mAlignRadioServiceLoopThread;	      ///< thread that synchronizes transmit and receive sections
 
@@ -61,6 +61,8 @@ private:
   int mNumARFCNs;
   signalVector *finalVec, *finalVec9;
 
+private:
+
   /** format samples to USRP */ 
   int radioifyVector(signalVector &wVector,
                      float *floatVector,
@@ -71,10 +73,10 @@ private:
   int unRadioifyVector(float *floatVector, signalVector &wVector);
 
   /** push GSM bursts into the transmit buffer */
-  void pushBuffer(void);
+  virtual void pushBuffer(void);
 
   /** pull GSM bursts from the receive buffer */
-  void pullBuffer(void);
+  virtual void pullBuffer(void);
 
 public:
 
@@ -152,3 +154,18 @@ protected:
 /** synchronization thread loop */
 void *AlignRadioServiceLoopAdapter(RadioInterface*);
 #endif
+
+class RadioInterfaceResamp : public RadioInterface {
+
+private:
+
+  void pushBuffer();
+  void pullBuffer();
+
+public:
+
+  RadioInterfaceResamp(RadioDevice* wRadio = NULL,
+		       int receiveOffset = 3,
+		       int wSPS = SAMPSPERSYM,
+		       GSM::Time wStartTime = GSM::Time(0));
+};

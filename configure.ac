@@ -69,11 +69,6 @@ AC_ARG_WITH(singledb, [
         [enable single daughterboard use on USRP1])
 ])
 
-AC_ARG_WITH(resamp, [
-    AS_HELP_STRING([--with-resamp],
-        [enable resampling for non-52MHz devices])
-])
-
 AC_ARG_WITH(extref, [
     AS_HELP_STRING([--with-extref],
         [enable external reference on UHD devices])
@@ -99,10 +94,6 @@ AS_IF([test "x$with_uhd" = "xyes"],[
     AC_DEFINE(USE_UHD, 1, Define to 1 if using UHD)
 ])
 
-AS_IF([test "x$with_resamp" = "xyes"], [
-    AC_DEFINE(RESAMPLE, 1, Define to 1 for resampling)
-])
-
 AS_IF([test "x$with_extref" = "xyes"], [
     AC_DEFINE(EXTREF, 1, Define to 1 for external reference)
 ])
@@ -111,7 +102,6 @@ AS_IF([test "x$with_singledb" = "xyes"], [
     AC_DEFINE(SINGLEDB, 1, Define to 1 for single daughterboard)
 ])
 
-AM_CONDITIONAL(RESAMPLE, [test "x$with_resamp" = "xyes"])
 AM_CONDITIONAL(UHD, [test "x$with_uhd" = "xyes"])
 AM_CONDITIONAL(USRP1, [test "x$with_usrp1" = "xyes"])
 

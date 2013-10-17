@@ -57,15 +57,9 @@ COMMON_SOURCES = \
 	Transceiver.cpp \
 	DummyLoad.cpp
 
-if RESAMPLE
 libtransceiver_la_SOURCES = \
 	$(COMMON_SOURCES) \
-	radioIOResamp.cpp
-else
-libtransceiver_la_SOURCES = \
-	$(COMMON_SOURCES) \
-	radioIO.cpp
-endif
+	radioInterfaceResamp.cpp
 
 noinst_PROGRAMS = \
 	USRPping \

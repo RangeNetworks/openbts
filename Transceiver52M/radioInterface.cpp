@@ -27,6 +27,28 @@
 
 bool started = false;
 
+/* Device side buffers */
+static short rx_buf[OUTCHUNK * 2 * 2];
+static short tx_buf[INCHUNK * 2 * 2];
+
+/* Complex float to short conversion */
+static void floatToShort(short *out, float *in, int num)
+{
+  for (int i = 0; i < num; i++) {
+    out[2 * i + 0] = (short) in[2 * i + 0];
+    out[2 * i + 1] = (short) in[2 * i + 1];
+  }
+}
+
+/* Complex short to float conversion */
+static void shortToFloat(float *out, short *in, int num)
+{
+  for (int i = 0; i < num; i++) {
+    out[2 * i + 0] = (float) in[2 * i + 0];
+    out[2 * i + 1] = (float) in[2 * i + 1];
+  }
+}
+
 RadioInterface::RadioInterface(RadioDevice *wRadio,
 			       int wReceiveOffset,
 			       int wSPS,
@@ -235,4 +257,42 @@ double RadioInterface::getRxGain()
     return mRadio->getRxGain();
   else
     return -1;
+}
+
+/* Receive a timestamped chunk from the device */ 
+void RadioInterface::pullBuffer()
+{
+  bool local_underrun;
+
+  /* Read samples. Fail if we don't get what we want. */
+  int num_rd = mRadio->readSamples(rx_buf, OUTCHUNK, &overrun,
+                                   readTimestamp, &local_underrun);
+
+  LOG(DEBUG) << "Rx read " << num_rd << " samples from device";
+  assert(num_rd == OUTCHUNK);
+
+  underrun |= local_underrun;
+  readTimestamp += (TIMESTAMP) num_rd;
+
+  shortToFloat(rcvBuffer + 2 * rcvCursor, rx_buf, num_rd);
+  rcvCursor += num_rd;
+}
+
+/* Send timestamped chunk to the device with arbitrary size */ 
+void RadioInterface::pushBuffer()
+{
+  if (sendCursor < INCHUNK)
+    return;
+
+  floatToShort(tx_buf, sendBuffer, sendCursor);
+
+  /* Write samples. Fail if we don't get what we want. */
+  int num_smpls = mRadio->writeSamples(tx_buf,
+                                       sendCursor,
+                                       &underrun,
+                                       writeTimestamp);
+  assert(num_smpls == sendCursor);
+
+  writeTimestamp += (TIMESTAMP) num_smpls;
+  sendCursor = 0;
 }

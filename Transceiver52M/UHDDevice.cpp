@@ -32,7 +32,9 @@
 #include "config.h"
 #endif
 
-#define B100_CLK_RT 52e6
+#define B100_CLK_RT      52e6
+#define B100_BASE_RT     GSMRATE
+#define USRP2_BASE_RT    400e3
 #define TX_AMPL          0.3
 #define SAMPLE_BUF_SZ    (1 << 20)
 
@@ -89,6 +91,29 @@ static double get_dev_offset(enum uhd_dev_type type, int sps)
 
 	LOG(ERR) << "Unsupported samples-per-symbols: " << sps;
 	return 0.0;	
+}
+
+/*
+ * Select sample rate based on device type and requested samples-per-symbol.
+ * The base rate is either GSM symbol rate, 270.833 kHz, or the minimum
+ * usable channel spacing of 400 kHz.
+ */ 
+static double select_rate(uhd_dev_type type, int sps)
+{
+	if ((sps != 4) && (sps != 2) && (sps != 1))
+		return -9999.99;
+
+	switch (type) {
+	case USRP2:
+		return USRP2_BASE_RT * sps;
+		break;
+	case B100:
+		return B100_BASE_RT * sps;
+		break;
+	}
+
+	LOG(ALERT) << "Unknown device type " << type;
+	return -9999.99;
 }
 
 /** Timestamp conversion
@@ -181,10 +206,10 @@ private:
 */
 class uhd_device : public RadioDevice {
 public:
-	uhd_device(double rate, int sps, bool skip_rx);
+	uhd_device(int sps, bool skip_rx);
 	~uhd_device();
 
-	bool open(const std::string &args);
+	int open(const std::string &args);
 	bool start();
 	bool stop();
 	void restart(uhd::time_spec_t ts);
@@ -306,9 +331,8 @@ void uhd_msg_handler(uhd::msg::type_t type, const std::string &msg)
 	}
 }
 
-uhd_device::uhd_device(double rate, int sps, bool skip_rx)
-	: desired_smpl_rt(rate), actual_smpl_rt(0),
-	  tx_gain(0.0), tx_gain_min(0.0), tx_gain_max(0.0),
+uhd_device::uhd_device(int sps, bool skip_rx)
+	: tx_gain(0.0), tx_gain_min(0.0), tx_gain_max(0.0),
 	  rx_gain(0.0), rx_gain_min(0.0), rx_gain_max(0.0),
 	  tx_freq(0.0), rx_freq(0.0), tx_spp(0), rx_spp(0),
 	  started(false), aligned(false), rx_pkt_cnt(0), drop_cnt(0),
@@ -374,6 +398,9 @@ int uhd_device::set_master_clk(double clk_rate)
 
 int uhd_device::set_rates(double rate)
 {
+	double offset_limit = 10.0;
+	double tx_offset, rx_offset;
+
 	// B100 is the only device where we set FPGA clocking
 	if (dev_type == B100) {
 		if (set_master_clk(B100_CLK_RT) < 0)
@@ -385,13 +412,13 @@ int uhd_device::set_rates(double rate)
 	usrp_dev->set_rx_rate(rate);
 	actual_smpl_rt = usrp_dev->get_tx_rate();
 
-	if (actual_smpl_rt != rate) {
+	tx_offset = actual_smpl_rt - rate;
+	rx_offset = usrp_dev->get_rx_rate() - rate;
+	if ((tx_offset > offset_limit) || (rx_offset > offset_limit)) {
 		LOG(ALERT) << "Actual sample rate differs from desired rate";
+		LOG(ALERT) << "Tx/Rx (" << actual_smpl_rt << "/"
+			   << usrp_dev->get_rx_rate() << ")";
 		return -1;
-	}
-	if (usrp_dev->get_rx_rate() != actual_smpl_rt) {
-		LOG(ALERT) << "Transmit and receive sample rates do not match";
-		return -1.0;
 	}
 
 	return 0;
@@ -427,15 +454,15 @@ bool uhd_device::parse_dev_type()
 {
 	std::string mboard_str, dev_str;
 	uhd::property_tree::sptr prop_tree;
-	size_t usrp1_str, usrp2_str, b100_str1, b100_str2;
+	size_t usrp1_str, usrp2_str, b100_str;
 
 	prop_tree = usrp_dev->get_device()->get_tree();
 	dev_str = prop_tree->access<std::string>("/name").get();
 	mboard_str = usrp_dev->get_mboard_name();
 
 	usrp1_str = dev_str.find("USRP1");
-	b100_str1 = dev_str.find("B-Series");
-	b100_str2 = mboard_str.find("B100");
+	usrp2_str = dev_str.find("USRP2");
+	b100_str = mboard_str.find("B100");
 
 	if (usrp1_str != std::string::npos) {
 		LOG(ALERT) << "USRP1 is not supported using the UHD driver";
@@ -444,14 +471,17 @@ bool uhd_device::parse_dev_type()
 		return false;
 	}
 
-	if ((b100_str1 != std::string::npos) || (b100_str2 != std::string::npos)) {
+	if (b100_str != std::string::npos) {
 		tx_window = TX_WINDOW_USRP1;
 		LOG(INFO) << "Using USRP1 type transmit window for "
 			  << dev_str << " " << mboard_str;
 		dev_type = B100;
 		return true;
-	} else {
+	} else if (usrp2_str != std::string::npos) {
 		dev_type = USRP2;
+	} else {
+		LOG(ALERT) << "Unknown UHD device type";
+		return false;
 	}
 
 	tx_window = TX_WINDOW_FIXED;
@@ -460,7 +490,7 @@ bool uhd_device::parse_dev_type()
 	return true;
 }
 
-bool uhd_device::open(const std::string &args)
+int uhd_device::open(const std::string &args)
 {
 	// Register msg handler
 	uhd::msg::register_handler(&uhd_msg_handler);
@@ -470,7 +500,7 @@ bool uhd_device::open(const std::string &args)
 	uhd::device_addrs_t dev_addrs = uhd::device::find(addr);
 	if (dev_addrs.size() == 0) {
 		LOG(ALERT) << "No UHD devices found with address '" << args << "'";
-		return false;
+		return -1;
 	}
 
 	// Use the first found device
@@ -479,12 +509,12 @@ bool uhd_device::open(const std::string &args)
 		usrp_dev = uhd::usrp::multi_usrp::make(dev_addrs[0]);
 	} catch(...) {
 		LOG(ALERT) << "UHD make failed, device " << dev_addrs[0].to_string();
-		return false;
+		return -1;
 	}
 
 	// Check for a valid device type and set bus type
 	if (!parse_dev_type())
-		return false;
+		return -1;
 
 #ifdef EXTREF
 	set_ref_clk(true);
@@ -499,8 +529,9 @@ bool uhd_device::open(const std::string &args)
 	rx_spp = rx_stream->get_max_num_samps();
 
 	// Set rates
+	desired_smpl_rt = select_rate(dev_type, sps);
 	if (set_rates(desired_smpl_rt) < 0)
-		return false;
+		return -1;
 
 	// Create receive buffer
 	size_t buf_len = SAMPLE_BUF_SZ / sizeof(uint32_t);
@@ -521,7 +552,10 @@ bool uhd_device::open(const std::string &args)
 	// Print configuration
 	LOG(INFO) << "\n" << usrp_dev->get_pp_string();
 
-	return true;
+	if (dev_type == USRP2)
+		return RESAMP;
+
+	return NORMAL;
 }
 
 bool uhd_device::flush_recv(size_t num_pkts)
@@ -1021,7 +1055,7 @@ std::string smpl_buf::str_code(ssize_t code)
 	}
 }
 
-RadioDevice *RadioDevice::make(double smpl_rt, int sps, bool skip_rx)
+RadioDevice *RadioDevice::make(int sps, bool skip_rx)
 {
-	return new uhd_device(smpl_rt, sps, skip_rx);
+	return new uhd_device(sps, skip_rx);
 }
