@@ -257,7 +257,7 @@ void initGMSKRotationTables(int sps)
 
 bool sigProcLibSetup(int sps)
 {
-  if ((sps != 1) && (sps != 2) && (sps != 4))
+  if ((sps != 1) && (sps != 4))
     return false;
 
   initTrigTables();
@@ -953,77 +953,36 @@ release:
   return status;
 }
 
-int detectRACHBurst(signalVector &rxBurst,
-		    float thresh,
-		    int sps,
-		    complex *amp,
-		    float *toa)
+static float computePeakRatio(signalVector *corr,
+                              int sps, float toa, complex amp)
 {
-  int start, len, num = 0;
-  float _toa, rms, par, avg = 0.0f;
-  complex _amp, *peak;
-  signalVector corr, *sync = gRACHSequence->sequence;
+  int num = 0;
+  complex *peak;
+  float rms, avg = 0.0;
 
-  if ((sps != 1) && (sps != 2) && (sps != 4))
-    return -1;
+  peak = corr->begin() + (int) rint(toa);
 
-  start = 40 * sps;
-  len = 24 * sps;
-  corr = signalVector(len);
+  /* Check for bogus results */
+  if ((toa < 0.0) || (toa > corr->size()))
+    return 0.0;
 
-  if (!convolve(&rxBurst, sync, &corr,
-                CUSTOM, start, len, sps, 0)) {
-    return -1;
-  }
-
-  _amp = fastPeakDetect(corr, &_toa);
-
-  /* Restrict peak-to-average calculations at the edges */
-  if ((_toa < 3) || (_toa > len - 3))
-    goto notfound;
-
-  peak = corr.begin() + (int) rint(_toa);
-
-  /* Compute peak-to-average ratio. Reject if we don't have enough values */ 
   for (int i = 2 * sps; i <= 5 * sps; i++) {
-    if (peak - i >= corr.begin()) {
+    if (peak - i >= corr->begin()) {
       avg += (peak - i)->norm2();
       num++;
     }
-    if (peak + i < corr.end()) {
+    if (peak + i < corr->end()) {
       avg += (peak + i)->norm2();
       num++;
     }
   }
 
   if (num < 2)
-    goto notfound;
+    return 0.0;
 
   rms = sqrtf(avg / (float) num) + 0.00001;
-  par = _amp.abs() / rms;
-  if (par < thresh)
-    goto notfound;
 
-   /* Run the full peak detection to obtain interpolated values */
-  _amp = peakDetect(corr, &_toa, NULL);
-
-  /* Subtract forward tail bits from delay */
-  if (toa)
-    *toa = _toa - 8 * sps;
-
-  /* Normalize our channel gain */
-  if (amp)
-    *amp = _amp / gRACHSequence->gain;
-
-  return 1;
-
-notfound:
-  if (amp)
-    *amp = 0.0f;
-  if (toa)
-    *toa = 0.0f;
-
-  return 0;
+  return (amp.abs()) / rms;
 }
 
 bool energyDetect(signalVector &rxBurst,
@@ -1044,94 +1003,155 @@ bool energyDetect(signalVector &rxBurst,
   return (energy/windowLength > detectThreshold*detectThreshold);
 }
 
-int analyzeTrafficBurst(signalVector &rxBurst, unsigned tsc, float thresh,
-                        int sps, complex *amp, float *toa, unsigned max_toa,
-                        bool chan_req, signalVector **chan, float *chan_offset)
+/*
+ * Detect a burst based on correlation and peak-to-average ratio
+ *
+ * For one sampler-per-symbol, perform fast peak detection (no interpolation)
+ * for initial gating. We do this because energy detection should be disabled.
+ * For higher oversampling values, we assume the energy detector is in place
+ * and we run full interpolating peak detection.
+ */
+static int detectBurst(signalVector &burst,
+                       signalVector &corr, CorrelationSequence *sync,
+                       float thresh, int sps, complex *amp, float *toa,
+                       int start, int len)
 {
-  int start, target, len, num = 0;
-  complex _amp, *peak;
-  float _toa, rms, par, avg = 0.0f;
-  signalVector corr, *sync, *_chan;
-
-  if ((tsc < 0) || (tsc > 7) || ((sps != 1) && (sps != 2) && (sps != 4)))
-    return -1;
-
-  target = 3 + 58 + 5 + 16;
-  start = (target - 8) * sps;
-  len = (8 + 8 + max_toa) * sps;
-
-  sync = gMidambles[tsc]->sequence;
-  sync = gMidambles[tsc]->sequence;
-  corr = signalVector(len);
-
-  if (!convolve(&rxBurst, sync, &corr,
+  /* Correlate */
+  if (!convolve(&burst, sync->sequence, &corr,
                 CUSTOM, start, len, sps, 0)) {
     return -1;
   }
 
-  _amp = peakDetect(corr, &_toa, NULL);
-  peak = corr.begin() + (int) rint(_toa);
+  /* Peak detection - place restrictions at correlation edges */
+  *amp = fastPeakDetect(corr, toa);
 
-  /* Check for bogus results */
-  if ((_toa < 0.0) || (_toa > corr.size()))
-    goto notfound;
+  if ((*toa < 3 * sps) || (*toa > len - 3 * sps))
+    return 0;
 
-  for (int i = 2 * sps; i <= 5 * sps; i++) {
-    if (peak - i >= corr.begin()) {
-      avg += (peak - i)->norm2();
-      num++;
-    }
-    if (peak + i < corr.end()) {
-      avg += (peak + i)->norm2();
-      num++;
-    }
+  /* Peak -to-average ratio */
+  if (computePeakRatio(&corr, sps, *toa, *amp) < thresh)
+    return 0;
+
+  /* Compute peak-to-average ratio. Reject if we don't have enough values */
+  *amp = peakDetect(corr, toa, NULL);
+
+  /* Normalize our channel gain */
+  *amp = *amp / sync->gain;
+
+  return 1;
+}
+
+/* 
+ * RACH burst detection
+ *
+ * Correlation window parameters:
+ *   target: Tail bits + RACH length (reduced from 41 to a multiple of 4)
+ *   head: Search 8 symbols before target 
+ *   tail: Search 8 symbols after target
+ */
+int detectRACHBurst(signalVector &rxBurst,
+		    float thresh,
+		    int sps,
+		    complex *amp,
+		    float *toa)
+{
+  int rc, start, target, head, tail, len;
+  float _toa;
+  complex _amp;
+  signalVector corr;
+  CorrelationSequence *sync;
+
+  if ((sps != 1) && (sps != 4))
+    return -1;
+
+  target = 8 + 40;
+  head = 8;
+  tail = head;
+
+  start = (target - head) * sps - 1;
+  len = (head + tail) * sps;
+  sync = gRACHSequence;
+  corr = signalVector(len);
+
+  rc = detectBurst(rxBurst, corr, sync,
+                   thresh, sps, &_amp, &_toa, start, len);
+  if (rc < 0) {
+    return -1;
+  } else if (!rc) {
+    if (amp)
+      *amp = 0.0f;
+    if (toa)
+      *toa = 0.0f;
+    return 0;
   }
 
-  if (num < 2)
-    goto notfound;
-
-  rms = sqrtf(avg / (float) num) + 0.00001;
-  par = (_amp.abs()) / rms;
-  if (par < thresh)
-    goto notfound;
-
-  /*
-   *  NOTE: Because ideal TSC is 66 symbols into burst,
-   *      the ideal TSC has an +/- 180 degree phase shift,
-   *      due to the pi/4 frequency shift, that 
-   *      needs to be accounted for.
-   */
+  /* Subtract forward search bits from delay */
+  if (toa)
+    *toa = _toa - head * sps;
   if (amp)
-    *amp = _amp / gMidambles[tsc]->gain;
+    *amp = _amp;
 
-  /* Delay one half of peak-centred correlation length */
-  _toa -= sps * 8;
+  return 1;
+}
 
+/* 
+ * Normal burst detection
+ *
+ * Correlation window parameters:
+ *   target: Tail + data + mid-midamble + 1/2 remaining midamblebits
+ *   head: Search 8 symbols before target
+ *   tail: Search 8 symbols + maximum expected delay
+ */
+int analyzeTrafficBurst(signalVector &rxBurst, unsigned tsc, float thresh,
+                        int sps, complex *amp, float *toa, unsigned max_toa,
+                        bool chan_req, signalVector **chan, float *chan_offset)
+{
+  int rc, start, target, head, tail, len;
+  complex _amp;
+  float _toa;
+  signalVector corr;
+  CorrelationSequence *sync;
+
+  if ((tsc < 0) || (tsc > 7) || ((sps != 1) && (sps != 4)))
+    return -1;
+
+  target = 3 + 58 + 16 + 5;
+  head = 8;
+  tail = head + max_toa;
+
+  start = (target - head) * sps - 1;
+  len = (head + tail) * sps;
+  sync = gMidambles[tsc];
+  corr = signalVector(len);
+
+  rc = detectBurst(rxBurst, corr, sync,
+                   thresh, sps, &_amp, &_toa, start, len);
+  if (rc < 0) {
+    return -1;
+  } else if (!rc) {
+    if (amp)
+      *amp = 0.0f;
+    if (toa)
+      *toa = 0.0f;
+    return 0;
+  }
+
+  /* Subtract forward search bits from delay */
+  _toa -= head * sps;
   if (toa)
     *toa = _toa;
+  if (amp)
+    *amp = _amp;
 
+  /* Equalization not currently supported */
   if (chan_req) {
-    _chan = new signalVector(6 * sps);
-
-    delayVector(corr, -_toa);
-    corr.segmentCopyTo(*_chan, target - 3, _chan->size());
-    scaleVector(*_chan, complex(1.0, 0.0) / gMidambles[tsc]->gain);
-
-    *chan = _chan;
+    *chan = new signalVector(6 * sps);
 
     if (chan_offset)
-      *chan_offset = 3.0 * sps;;
+      *chan_offset = 0.0;
   }
 
   return 1;
-
-notfound:
-  if (amp)
-    *amp = 0.0f;
-  if (toa)
-    *toa = 0.0f;
-
-  return 0;
 }
 
 signalVector *decimateVector(signalVector &wVector,
