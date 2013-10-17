@@ -36,6 +36,9 @@ extern "C" {
 #define RESAMP_100M_INRATE			52
 #define RESAMP_100M_OUTRATE			75
 
+/* Universal resampling parameters */
+#define NUMCHUNKS				24
+
 /*
  * Resampling filter bandwidth scaling factor
  *   This narrows the filter cutoff relative to the output bandwidth
@@ -116,6 +119,11 @@ bool RadioInterfaceResamp::init(int type)
 	resamp_inchunk = resamp_inrate * 4;
 	resamp_outchunk = resamp_outrate * 4;
 
+	if (resamp_inchunk  * NUMCHUNKS < 157 * mSPSTx * 2) {
+		LOG(ALERT) << "Invalid inner chunk size " << resamp_inchunk;
+		return false;
+	}
+
 	if (mSPSTx == 4)
 		cutoff = RESAMP_TX4_FILTER;
 
@@ -137,16 +145,17 @@ bool RadioInterfaceResamp::init(int type)
 	 * and requires headroom equivalent to the filter length. Low
 	 * rate buffers are allocated in the main radio interface code.
 	 */
-	innerSendBuffer = new signalVector(resamp_inchunk * 20,
-					   upsampler->len());
-	outerSendBuffer = new signalVector(resamp_outchunk * 20);
+	innerSendBuffer =
+		new signalVector(NUMCHUNKS * resamp_inchunk, upsampler->len());
+	outerSendBuffer =
+		new signalVector(NUMCHUNKS * resamp_outchunk);
+	outerRecvBuffer =
+		new signalVector(resamp_outchunk, dnsampler->len());
+	innerRecvBuffer =
+		new signalVector(NUMCHUNKS * resamp_inchunk / mSPSTx);
 
-	outerRecvBuffer = new signalVector(resamp_outchunk * 2,
-					   dnsampler->len());
-	innerRecvBuffer = new signalVector(resamp_inchunk * 20);
-
-	convertSendBuffer = new short[resamp_outchunk * 2 * 20];
-	convertRecvBuffer = new short[resamp_outchunk * 2 * 2];
+	convertSendBuffer = new short[outerSendBuffer->size() * 2];
+	convertRecvBuffer = new short[outerRecvBuffer->size() * 2];
 
 	sendBuffer = innerSendBuffer;
 	recvBuffer = innerRecvBuffer;
@@ -159,35 +168,37 @@ void RadioInterfaceResamp::pullBuffer()
 {
 	bool local_underrun;
 	int rc, num_recv;
-	int inner_len = resamp_inchunk;
-	int outer_len = resamp_outchunk;
+
+	if (recvCursor > innerRecvBuffer->size() - resamp_inchunk)
+		return;
 
 	/* Outer buffer access size is fixed */
 	num_recv = mRadio->readSamples(convertRecvBuffer,
-				       outer_len,
+				       resamp_outchunk,
 				       &overrun,
 				       readTimestamp,
 				       &local_underrun);
-	if (num_recv != outer_len) {
+	if (num_recv != resamp_outchunk) {
 		LOG(ALERT) << "Receive error " << num_recv;
 		return;
 	}
 
 	convert_short_float((float *) outerRecvBuffer->begin(),
-			    convertRecvBuffer, 2 * outer_len);
+			    convertRecvBuffer, 2 * resamp_outchunk);
 
 	underrun |= local_underrun;
-	readTimestamp += (TIMESTAMP) num_recv;
+	readTimestamp += (TIMESTAMP) resamp_outchunk;
 
 	/* Write to the end of the inner receive buffer */
-	rc = dnsampler->rotate((float *) outerRecvBuffer->begin(), outer_len,
+	rc = dnsampler->rotate((float *) outerRecvBuffer->begin(),
+			       resamp_outchunk,
 			       (float *) (innerRecvBuffer->begin() + recvCursor),
-			       inner_len);
+			       resamp_inchunk);
 	if (rc < 0) {
 		LOG(ALERT) << "Sample rate upsampling error";
 	}
 
-	recvCursor += inner_len;
+	recvCursor += resamp_inchunk;
 }
 
 /* Send a timestamped chunk to the device */
@@ -199,9 +210,10 @@ void RadioInterfaceResamp::pushBuffer()
 	if (sendCursor < resamp_inchunk)
 		return;
 
+	if (sendCursor > innerSendBuffer->size())
+		LOG(ALERT) << "Send buffer overflow";
+
 	chunks = sendCursor / resamp_inchunk;
-	if (chunks > 8)
-		chunks = 8;
 
 	inner_len = chunks * resamp_inchunk;
 	outer_len = chunks * resamp_outchunk;

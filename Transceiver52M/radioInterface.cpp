@@ -30,8 +30,8 @@ extern "C" {
 #include "convert.h"
 }
 
-#define INCHUNK		(625 * SAMPSPERSYM)
-#define OUTCHUNK	(625 * SAMPSPERSYM)
+#define CHUNK		625
+#define NUMCHUNKS	4
 
 RadioInterface::RadioInterface(RadioDevice *wRadio,
 			       int wReceiveOffset,
@@ -58,11 +58,11 @@ bool RadioInterface::init(int type)
 
   close();
 
-  sendBuffer = new signalVector(OUTCHUNK * 20);
-  recvBuffer = new signalVector(INCHUNK * 20);
+  sendBuffer = new signalVector(CHUNK * mSPSTx);
+  recvBuffer = new signalVector(NUMCHUNKS * CHUNK * mSPSRx);
 
-  convertSendBuffer = new short[OUTCHUNK * 2 * 20];
-  convertRecvBuffer = new short[OUTCHUNK * 2 * 2];
+  convertSendBuffer = new short[sendBuffer->size() * 2];
+  convertRecvBuffer = new short[recvBuffer->size() * 2];
 
   sendCursor = 0;
   recvCursor = 0;
@@ -276,23 +276,26 @@ double RadioInterface::getRxGain()
 void RadioInterface::pullBuffer()
 {
   bool local_underrun;
-  int num_recv, len = OUTCHUNK / mSPSTx;
+  int num_recv;
   float *output;
+
+  if (recvCursor > recvBuffer->size() - CHUNK)
+    return;
 
   /* Outer buffer access size is fixed */
   num_recv = mRadio->readSamples(convertRecvBuffer,
-                                 len,
+                                 CHUNK,
                                  &overrun,
                                  readTimestamp,
                                  &local_underrun);
-  if (num_recv != len) {
+  if (num_recv != CHUNK) {
           LOG(ALERT) << "Receive error " << num_recv;
           return;
   }
 
   output = (float *) (recvBuffer->begin() + recvCursor);
 
-  convert_short_float(output, convertRecvBuffer, 2 * len);
+  convert_short_float(output, convertRecvBuffer, 2 * num_recv);
 
   underrun |= local_underrun;
 
@@ -305,8 +308,11 @@ void RadioInterface::pushBuffer()
 {
   int num_sent;
 
-  if (sendCursor < INCHUNK)
+  if (sendCursor < CHUNK)
     return;
+
+  if (sendCursor > sendBuffer->size())
+    LOG(ALERT) << "Send buffer overflow";
 
   convert_float_short(convertSendBuffer,
                       (float *) sendBuffer->begin(),
