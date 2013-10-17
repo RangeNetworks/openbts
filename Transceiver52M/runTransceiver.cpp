@@ -38,6 +38,15 @@
 
 #define CONFIGDB            "/etc/OpenBTS/OpenBTS.db"
 
+/* Samples-per-symbol for downlink path
+ *     4 - Uses precision modulator (more computation, less distortion)
+ *     1 - Uses minimized modulator (less computation, more distortion)
+ *
+ *     Other values are invalid. Receive path (uplink) is always
+ *     downsampled to 1 sps
+ */
+#define SPS                 4
+
 using namespace std;
 
 ConfigurationKeyMap getConfigurationKeys();
@@ -139,7 +148,7 @@ int main(int argc, char *argv[])
 
   srandom(time(NULL));
 
-  RadioDevice *usrp = RadioDevice::make(SAMPSPERSYM);
+  RadioDevice *usrp = RadioDevice::make(SPS);
   int radioType = usrp->open(deviceArgs);
   if (radioType < 0) {
     LOG(ALERT) << "Transceiver exiting..." << std::endl;
@@ -149,21 +158,22 @@ int main(int argc, char *argv[])
   RadioInterface* radio;
   switch (radioType) {
   case RadioDevice::NORMAL:
-    radio = new RadioInterface(usrp, 3, SAMPSPERSYM, false);
+    radio = new RadioInterface(usrp, 3, SPS, false);
     break;
-  case RadioDevice::RESAMP:
-    radio = new RadioInterfaceResamp(usrp, 3, SAMPSPERSYM, false);
+  case RadioDevice::RESAMP_64M:
+  case RadioDevice::RESAMP_100M:
+    radio = new RadioInterfaceResamp(usrp, 3, SPS, false);
     break;
   default:
     LOG(ALERT) << "Unsupported configuration";
     return EXIT_FAILURE;
   }
-  if (!radio->init()) {
+  if (!radio->init(radioType)) {
     LOG(ALERT) << "Failed to initialize radio interface";
   }
 
   Transceiver *trx = new Transceiver(trxPort, trxAddr.c_str(),
-                                     SAMPSPERSYM, GSM::Time(3,0), radio);
+                                     SPS, GSM::Time(3,0), radio);
   if (!trx->init()) {
     LOG(ALERT) << "Failed to initialize transceiver";
   }

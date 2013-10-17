@@ -28,9 +28,13 @@ extern "C" {
 #include "convert.h"
 }
 
+/* Resampling parameters for 64 MHz clocking */
+#define RESAMP_64M_INRATE			65
+#define RESAMP_64M_OUTRATE			96
+
 /* Resampling parameters for 100 MHz clocking */
-#define RESAMP_INRATE			52
-#define RESAMP_OUTRATE			75
+#define RESAMP_100M_INRATE			52
+#define RESAMP_100M_OUTRATE			75
 
 /*
  * Resampling filter bandwidth scaling factor
@@ -41,11 +45,13 @@ extern "C" {
  */
 #define RESAMP_TX4_FILTER		0.45
 
-#define INCHUNK				(RESAMP_INRATE * 4)
-#define OUTCHUNK			(RESAMP_OUTRATE * 4)
-
 static Resampler *upsampler = NULL;
 static Resampler *dnsampler = NULL;
+static int resamp_inrate = 0;
+static int resamp_inchunk = 0;
+static int resamp_outrate = 0;
+static int resamp_outchunk = 0;
+
 short *convertRecvBuffer = NULL;
 short *convertSendBuffer = NULL;
 
@@ -86,22 +92,40 @@ void RadioInterfaceResamp::close()
 }
 
 /* Initialize I/O specific objects */
-bool RadioInterfaceResamp::init()
+bool RadioInterfaceResamp::init(int type)
 {
 	float cutoff = 1.0f;
 
 	close();
 
+	switch (type) {
+	case RadioDevice::RESAMP_64M:
+		resamp_inrate = RESAMP_64M_INRATE;
+		resamp_outrate = RESAMP_64M_OUTRATE;
+		break;
+	case RadioDevice::RESAMP_100M:
+		resamp_inrate = RESAMP_100M_INRATE;
+		resamp_outrate = RESAMP_100M_OUTRATE;
+		break;
+	case RadioDevice::NORMAL:
+	default:
+		LOG(ALERT) << "Invalid device configuration";
+		return false;
+	}
+
+	resamp_inchunk = resamp_inrate * 4;
+	resamp_outchunk = resamp_outrate * 4;
+
 	if (mSPSTx == 4)
 		cutoff = RESAMP_TX4_FILTER;
 
-	dnsampler = new Resampler(RESAMP_INRATE, RESAMP_OUTRATE);
+	dnsampler = new Resampler(resamp_inrate, resamp_outrate);
 	if (!dnsampler->init()) {
 		LOG(ALERT) << "Rx resampler failed to initialize";
 		return false;
 	}
 
-	upsampler = new Resampler(RESAMP_OUTRATE, RESAMP_INRATE);
+	upsampler = new Resampler(resamp_outrate, resamp_inrate);
 	if (!upsampler->init(cutoff)) {
 		LOG(ALERT) << "Tx resampler failed to initialize";
 		return false;
@@ -113,14 +137,16 @@ bool RadioInterfaceResamp::init()
 	 * and requires headroom equivalent to the filter length. Low
 	 * rate buffers are allocated in the main radio interface code.
 	 */
-	innerSendBuffer = new signalVector(INCHUNK * 20, upsampler->len());
-	outerSendBuffer = new signalVector(OUTCHUNK * 20);
+	innerSendBuffer = new signalVector(resamp_inchunk * 20,
+					   upsampler->len());
+	outerSendBuffer = new signalVector(resamp_outchunk * 20);
 
-	outerRecvBuffer = new signalVector(OUTCHUNK * 2, dnsampler->len());
-	innerRecvBuffer = new signalVector(INCHUNK * 20);
+	outerRecvBuffer = new signalVector(resamp_outchunk * 2,
+					   dnsampler->len());
+	innerRecvBuffer = new signalVector(resamp_inchunk * 20);
 
-	convertSendBuffer = new short[OUTCHUNK * 2 * 20];
-	convertRecvBuffer = new short[OUTCHUNK * 2 * 2];
+	convertSendBuffer = new short[resamp_outchunk * 2 * 20];
+	convertRecvBuffer = new short[resamp_outchunk * 2 * 2];
 
 	sendBuffer = innerSendBuffer;
 	recvBuffer = innerRecvBuffer;
@@ -133,8 +159,8 @@ void RadioInterfaceResamp::pullBuffer()
 {
 	bool local_underrun;
 	int rc, num_recv;
-	int inner_len = INCHUNK;
-	int outer_len = OUTCHUNK;
+	int inner_len = resamp_inchunk;
+	int outer_len = resamp_outchunk;
 
 	/* Outer buffer access size is fixed */
 	num_recv = mRadio->readSamples(convertRecvBuffer,
@@ -170,15 +196,15 @@ void RadioInterfaceResamp::pushBuffer()
 	int rc, chunks, num_sent;
 	int inner_len, outer_len;
 
-	if (sendCursor < INCHUNK)
+	if (sendCursor < resamp_inchunk)
 		return;
 
-	chunks = sendCursor / INCHUNK;
+	chunks = sendCursor / resamp_inchunk;
 	if (chunks > 8)
 		chunks = 8;
 
-	inner_len = chunks * INCHUNK;
-	outer_len = chunks * OUTCHUNK;
+	inner_len = chunks * resamp_inchunk;
+	outer_len = chunks * resamp_outchunk;
 
 	/* Always send from the beginning of the buffer */
 	rc = upsampler->rotate((float *) innerSendBuffer->begin(), inner_len,

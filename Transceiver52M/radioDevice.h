@@ -34,7 +34,7 @@ class RadioDevice {
   enum TxWindowType { TX_WINDOW_USRP1, TX_WINDOW_FIXED };
 
   /* Radio interface types */
-  enum RadioInterfaceType { NORMAL, RESAMP };
+  enum RadioInterfaceType { NORMAL, RESAMP_64M, RESAMP_100M };
 
   static RadioDevice *make(int sps, bool skipRx = false);
 

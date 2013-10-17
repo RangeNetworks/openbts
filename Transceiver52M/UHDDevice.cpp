@@ -32,8 +32,9 @@
 #include "config.h"
 #endif
 
-#define BXXX_CLK_RT      52e6
-#define BXXX_BASE_RT     GSMRATE
+#define B2XX_CLK_RT      52e6
+#define B2XX_BASE_RT     GSMRATE
+#define B100_BASE_RT     400000
 #define USRP2_BASE_RT    390625
 #define TX_AMPL          0.3
 #define SAMPLE_BUF_SZ    (1 << 20)
@@ -66,10 +67,10 @@ struct uhd_dev_offset {
 static struct uhd_dev_offset uhd_offsets[NUM_USRP_TYPES * 2] = {
 	{ USRP1, 1, 0.0 },
 	{ USRP1, 4, 0.0 },
-	{ USRP2, 1, 1.1815e-4 },
-	{ USRP2, 4, 7.7538e-5 },
-	{ B100,  1, 9.9692e-5 },
-	{ B100,  4, 6.5545e-5 },
+	{ USRP2, 1, 1.2184e-4 },
+	{ USRP2, 4, 8.0230e-5 },
+	{ B100,  1, 1.2104e-4 },
+	{ B100,  4, 7.9307e-5 },
 	{ B2XX,  1, 9.9692e-5 },
 	{ B2XX,  4, 6.9248e-5 },
 	{ UMTRX, 1, 9.9692e-5 },
@@ -108,6 +109,7 @@ static double select_rate(uhd_dev_type type, int sps)
 	case USRP2:
 		return USRP2_BASE_RT * sps;
 	case B100:
+		return B100_BASE_RT * sps;
 	case B2XX:
 	case UMTRX:
 		return GSMRATE * sps;
@@ -412,9 +414,9 @@ int uhd_device::set_rates(double tx_rate, double rx_rate)
 	double offset_limit = 1.0;
 	double tx_offset, rx_offset;
 
-	// B100/200 are the only device where we set FPGA clocking
-	if ((dev_type == B100) || (dev_type == B2XX)) {
-		if (set_master_clk(BXXX_CLK_RT) < 0)
+	// B2XX is the only device where we set FPGA clocking
+	if (dev_type == B2XX) {
+		if (set_master_clk(B2XX_CLK_RT) < 0)
 			return -1;
 	}
 
@@ -580,8 +582,12 @@ int uhd_device::open(const std::string &args)
 	// Print configuration
 	LOG(INFO) << "\n" << usrp_dev->get_pp_string();
 
-	if (dev_type == USRP2)
-		return RESAMP;
+	switch (dev_type) {
+	case B100:
+		return RESAMP_64M;
+	case USRP2:
+		return RESAMP_100M;
+	}
 
 	return NORMAL;
 }

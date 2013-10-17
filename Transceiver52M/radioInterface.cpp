@@ -51,8 +51,11 @@ RadioInterface::~RadioInterface(void)
   close();
 }
 
-bool RadioInterface::init()
+bool RadioInterface::init(int type)
 {
+  if (type != RadioDevice::NORMAL)
+    return false;
+
   close();
 
   sendBuffer = new signalVector(OUTCHUNK * 20);

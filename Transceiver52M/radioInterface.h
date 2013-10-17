@@ -21,9 +21,6 @@
 #include "radioVector.h"
 #include "radioClock.h"
 
-/** samples per GSM symbol */
-#define SAMPSPERSYM 4
-
 /** class to interface the transceiver with the USRP */
 class RadioInterface {
 
@@ -84,13 +81,13 @@ public:
   void start();
 
   /** intialization */
-  virtual bool init();
+  virtual bool init(int type);
   virtual void close();
 
   /** constructor */
   RadioInterface(RadioDevice* wRadio = NULL,
 		 int receiveOffset = 3,
-		 int wSPS = SAMPSPERSYM,
+		 int wSPS = 4,
 		 GSM::Time wStartTime = GSM::Time(0));
     
   /** destructor */
@@ -170,11 +167,11 @@ public:
 
   RadioInterfaceResamp(RadioDevice* wRadio = NULL,
 		       int receiveOffset = 3,
-		       int wSPS = SAMPSPERSYM,
+		       int wSPS = 4,
 		       GSM::Time wStartTime = GSM::Time(0));
 
   ~RadioInterfaceResamp();
 
-  bool init();
+  bool init(int type);
   void close();
 };
