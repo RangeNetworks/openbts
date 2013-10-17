@@ -328,7 +328,7 @@ SoftVector *Transceiver::pullRadioVector(GSM::Time &wTime,
 				      int &RSSI,
 				      int &timingOffset)
 {
-  bool needDFE = (mMaxExpectedDelay > 1);
+  bool needDFE = false;
 
   radioVector *rxBurst = (radioVector *) mReceiveFIFO->get();
 
