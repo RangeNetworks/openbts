@@ -204,6 +204,8 @@ public:
 
 private:
 	uhd::usrp::multi_usrp::sptr usrp_dev;
+	uhd::tx_streamer::sptr tx_stream;
+	uhd::rx_streamer::sptr rx_stream;
 	enum busType bus;
 
 	double desired_smpl_rt, actual_smpl_rt;
@@ -310,16 +312,8 @@ void uhd_device::init_gains()
 
 void uhd_device::set_ref_clk(bool ext_clk)
 {
-	uhd::clock_config_t clk_cfg;
-
-	clk_cfg.pps_source = uhd::clock_config_t::PPS_SMA;
-
 	if (ext_clk)
-		clk_cfg.ref_source = uhd::clock_config_t::REF_SMA;
-	else
-		clk_cfg.ref_source = uhd::clock_config_t::REF_INT;
-
-	usrp_dev->set_clock_config(clk_cfg);
+		usrp_dev->set_clock_source("external");
 
 	return;
 }
@@ -451,10 +445,14 @@ bool uhd_device::open(const std::string &args)
 #ifdef EXTREF
 	set_ref_clk(true);
 #endif
+	// Create TX and RX streamers
+	uhd::stream_args_t stream_args("sc16");
+	tx_stream = usrp_dev->get_tx_stream(stream_args);
+	rx_stream = usrp_dev->get_rx_stream(stream_args);
 
 	// Number of samples per over-the-wire packet
-	tx_spp = usrp_dev->get_device()->get_max_send_samps_per_packet();
-	rx_spp = usrp_dev->get_device()->get_max_recv_samps_per_packet();
+	tx_spp = tx_stream->get_max_num_samps();
+	rx_spp = rx_stream->get_max_num_samps();
 
 	// Set rates
 	actual_smpl_rt = set_rates(desired_smpl_rt);
@@ -488,14 +486,8 @@ bool uhd_device::flush_recv(size_t num_pkts)
 	timeout = .01;
 
 	for (size_t i = 0; i < num_pkts; i++) {
-		num_smpls = usrp_dev->get_device()->recv(
-					buff,
-					rx_spp,
-					md,
-					uhd::io_type_t::COMPLEX_INT16,
-					uhd::device::RECV_MODE_ONE_PACKET,
-					timeout);
-
+		num_smpls = rx_stream->recv(buff, rx_spp, md,
+					    timeout, true);
 		if (!num_smpls) {
 			switch (md.error_code) {
 			case uhd::rx_metadata_t::ERROR_CODE_TIMEOUT:
@@ -634,13 +626,12 @@ int uhd_device::readSamples(short *buf, int len, bool *overrun,
 
 	// Receive samples from the usrp until we have enough
 	while (rx_smpl_buf->avail_smpls(timestamp) < len) {
-		size_t num_smpls = usrp_dev->get_device()->recv(
+		size_t num_smpls = rx_stream->recv(
 					(void*)pkt_buf,
 					rx_spp,
 					metadata,
-					uhd::io_type_t::COMPLEX_INT16,
-					uhd::device::RECV_MODE_ONE_PACKET);
-
+					0.1,
+					true);
 		rx_pkt_cnt++;
 
 		// Check for errors 
@@ -718,11 +709,7 @@ int uhd_device::writeSamples(short *buf, int len, bool *underrun,
 		}
 	}
 
-	size_t num_smpls = usrp_dev->get_device()->send(buf,
-					len,
-					metadata,
-					uhd::io_type_t::COMPLEX_INT16,
-					uhd::device::SEND_MODE_FULL_BUFF);
+	size_t num_smpls = tx_stream->send(buf, len, metadata);
 
 	if (num_smpls != (unsigned) len) {
 		LOG(ALERT) << "UHD: Device send timed out";
