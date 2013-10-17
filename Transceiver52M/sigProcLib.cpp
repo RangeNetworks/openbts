@@ -75,20 +75,25 @@ struct CorrelationSequence {
  * for SSE instructions.
  */
 struct PulseSequence {
-  PulseSequence() : gaussian(NULL), empty(NULL), buffer(NULL)
+  PulseSequence() : c0(NULL), c1(NULL), empty(NULL),
+		    c0_buffer(NULL), c1_buffer(NULL)
   {
   }
 
   ~PulseSequence()
   {
-    delete gaussian;
+    delete c0;
+    delete c1;
     delete empty;
-    free(buffer);
+    free(c0_buffer);
+    free(c1_buffer);
   }
 
-  signalVector *gaussian;
+  signalVector *c0;
+  signalVector *c1;
   signalVector *empty;
-  void         *buffer;
+  void *c0_buffer;
+  void *c1_buffer;
 };
 
 CorrelationSequence *gMidambles[] = {NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL};
@@ -407,10 +412,48 @@ signalVector *convolve(const signalVector *x,
   return y;
 }
 
+bool generateC1Pulse(int sps)
+{
+  int len;
+
+  switch (sps) {
+  case 4:
+    len = 8;
+    break;
+  default:
+    return false;
+  }
+
+  GSMPulse->c1_buffer = convolve_h_alloc(len);
+  GSMPulse->c1 = new signalVector((complex *)
+                                  GSMPulse->c1_buffer, 0, len);
+  GSMPulse->c1->isRealOnly(true);
+
+  /* Enable alignment for SSE usage */
+  GSMPulse->c1->setAligned(true);
+
+  signalVector::iterator xP = GSMPulse->c1->begin();
+
+  switch (sps) {
+  case 4:
+    /* BT = 0.30 */
+    *xP++ = 0.0; 
+    *xP++ = 8.16373112e-03;
+    *xP++ = 2.84385729e-02;
+    *xP++ = 5.64158904e-02;
+    *xP++ = 7.05463553e-02;
+    *xP++ = 5.64158904e-02;
+    *xP++ = 2.84385729e-02;
+    *xP++ = 8.16373112e-03;
+  }
+
+  return true;
+}
+
 void generateGSMPulse(int sps, int symbolLength)
 {
   int len;
-  float arg, center;
+  float arg, avg, center;
 
   delete GSMPulse;
 
@@ -436,15 +479,18 @@ void generateGSMPulse(int sps, int symbolLength)
       len = 4;
   }
 
-  GSMPulse->buffer = convolve_h_alloc(len);
-  GSMPulse->gaussian = new signalVector((complex *)
-                                        GSMPulse->buffer, 0, len);
-  GSMPulse->gaussian->setAligned(true);
-  GSMPulse->gaussian->isRealOnly(true);
+  GSMPulse->c0_buffer = convolve_h_alloc(len);
+  GSMPulse->c0 = new signalVector((complex *)
+                                  GSMPulse->c0_buffer, 0, len);
+  GSMPulse->c0->isRealOnly(true);
 
-  signalVector::iterator xP = GSMPulse->gaussian->begin();
+  /* Enable alingnment for SSE usage */
+  GSMPulse->c0->setAligned(true);
+
+  signalVector::iterator xP = GSMPulse->c0->begin();
 
   if (sps == 4) {
+    *xP++ = 0.0;
     *xP++ = 4.46348606e-03;
     *xP++ = 2.84385729e-02;
     *xP++ = 1.03184855e-01;
@@ -460,7 +506,7 @@ void generateGSMPulse(int sps, int symbolLength)
     *xP++ = 1.03184855e-01;
     *xP++ = 2.84385729e-02;
     *xP++ = 4.46348606e-03;
-    *xP++ = 0.0;
+    generateC1Pulse(sps);
   } else {
     center = (float) (len - 1.0) / 2.0;
 
@@ -470,12 +516,12 @@ void generateGSMPulse(int sps, int symbolLength)
       *xP++ = 0.96 * exp(-1.1380 * arg * arg -
 			 0.527 * arg * arg * arg * arg);
     }
-  }
 
-  float avgAbsval = sqrtf(vectorNorm2(*GSMPulse->gaussian)/sps);
-  xP = GSMPulse->gaussian->begin();
-  for (int i = 0; i < len; i++) 
-    *xP++ /= avgAbsval;
+    avg = sqrtf(vectorNorm2(*GSMPulse->c0) / sps);
+    xP = GSMPulse->c0->begin();
+    for (int i = 0; i < len; i++) 
+      *xP++ /= avg;
+  }
 }
 
 signalVector* frequencyShift(signalVector *y,
@@ -557,43 +603,160 @@ bool vectorSlicer(signalVector *x)
   return true;
 }
 
+static signalVector *rotateBurst(const BitVector &wBurst,
+                                 int guardPeriodLength, int sps)
+{
+  int burst_len;
+  signalVector *pulse, rotated, *shaped;
+  signalVector::iterator itr;
+
+  pulse = GSMPulse->empty;
+  burst_len = sps * (wBurst.size() + guardPeriodLength);
+  rotated = signalVector(burst_len);
+  itr = rotated.begin();
+
+  for (unsigned i = 0; i < wBurst.size(); i++) {
+    *itr = 2.0 * (wBurst[i] & 0x01) - 1.0;
+    itr += sps;
+  }
+
+  GMSKRotate(rotated);
+  rotated.isRealOnly(false);
+
+  /* Dummy filter operation */
+  shaped = convolve(&rotated, pulse, NULL, START_ONLY);
+  if (!shaped)
+    return NULL;
+
+  return shaped;
+}
+
+static signalVector *modulateBurstLaurent(const BitVector &bits,
+					  int guard_len, int sps)
+{
+  int burst_len;
+  float phase;
+  signalVector *c0_pulse, *c1_pulse, c0_burst, c1_burst, *c0_shaped, *c1_shaped;
+  signalVector::iterator c0_itr, c1_itr;
+
+  /*
+   * Apply before and after bits to reduce phase error at burst edges.
+   * Make sure there is enough room in the burst to accomodate all bits.
+   */
+  if (guard_len < 4)
+    guard_len = 4;
+
+  c0_pulse = GSMPulse->c0;
+  c1_pulse = GSMPulse->c1;
+
+  burst_len = sps * (bits.size() + guard_len);
+
+  c0_burst = signalVector(burst_len);
+  c0_burst.isRealOnly(true);
+  c0_itr = c0_burst.begin();
+
+  c1_burst = signalVector(burst_len);
+  c1_burst.isRealOnly(true);
+  c1_itr = c1_burst.begin();
+
+  /* Padded differential start bits */
+  *c0_itr = 2.0 * (0x00 & 0x01) - 1.0;
+  c0_itr += sps;
+
+  /* Main burst bits */
+  for (unsigned i = 0; i < bits.size(); i++) {
+    *c0_itr = 2.0 * (bits[i] & 0x01) - 1.0;
+    c0_itr += sps;
+  }
+
+  /* Padded differential end bits */
+  *c0_itr = 2.0 * (0x01 & 0x01) - 1.0;
+
+  /* Generate C0 phase coefficients */
+  GMSKRotate(c0_burst);
+  c0_burst.isRealOnly(false);
+
+  c0_itr = c0_burst.begin();
+  c0_itr += sps * 2;
+  c1_itr += sps * 2;
+
+  /* Start magic */
+  phase = 2.0 * ((0x01 & 0x01) ^ (0x01 & 0x01)) - 1.0;
+  *c1_itr = *c0_itr * Complex<float>(0, phase);
+  c0_itr += sps;
+  c1_itr += sps;
+
+  /* Generate C1 phase coefficients */
+  for (unsigned i = 2; i < bits.size(); i++) {
+    phase = 2.0 * ((bits[i - 1] & 0x01) ^ (bits[i - 2] & 0x01)) - 1.0;
+    *c1_itr = *c0_itr * Complex<float>(0, phase);
+
+    c0_itr += sps;
+    c1_itr += sps;
+  }
+
+  /* End magic */
+  int i = bits.size();
+  phase = 2.0 * ((bits[i-1] & 0x01) ^ (bits[i-2] & 0x01)) - 1.0;
+  *c1_itr = *c0_itr * Complex<float>(0, phase);
+
+  /* Primary (C0) and secondary (C1) pulse shaping */
+  c0_shaped = convolve(&c0_burst, c0_pulse, NULL, START_ONLY);
+  c1_shaped = convolve(&c1_burst, c1_pulse, NULL, START_ONLY);
+
+  /* Sum shaped outputs into C0 */
+  c0_itr = c0_shaped->begin();
+  c1_itr = c1_shaped->begin();
+  for (unsigned i = 0; i < c0_shaped->size(); i++ )
+    *c0_itr++ += *c1_itr++;
+
+  delete c1_shaped;
+
+  return c0_shaped;
+}
+
+static signalVector *modulateBurstBasic(const BitVector &bits,
+					int guard_len, int sps)
+{
+  int burst_len;
+  signalVector *pulse, burst, *shaped;
+  signalVector::iterator burst_itr;
+
+  pulse = GSMPulse->c0;
+  burst_len = sps * (bits.size() + guard_len);
+
+  burst = signalVector(burst_len);
+  burst.isRealOnly(true);
+  burst_itr = burst.begin();
+
+  /* Raw bits are not differentially encoded */
+  for (unsigned i = 0; i < bits.size(); i++) {
+    *burst_itr = 2.0 * (bits[i] & 0x01) - 1.0;
+    burst_itr += sps;
+  }
+
+  GMSKRotate(burst);
+  burst.isRealOnly(false);
+
+  /* Single Gaussian pulse approximation shaping */
+  shaped = convolve(&burst, pulse, NULL, START_ONLY);
+
+  return shaped;
+}
+
 /* Assume input bits are not differentially encoded */
 signalVector *modulateBurst(const BitVector &wBurst, int guardPeriodLength,
 			    int sps, bool emptyPulse)
 {
-  int burstLen;
-  signalVector *pulse, *shapedBurst, modBurst;
-  signalVector::iterator modBurstItr;
-
   if (emptyPulse)
-    pulse = GSMPulse->empty;
+    return rotateBurst(wBurst, guardPeriodLength, sps);
+  else if (sps == 4)
+    return modulateBurstLaurent(wBurst, guardPeriodLength, sps);
   else
-    pulse = GSMPulse->gaussian;
-
-  burstLen = sps * (wBurst.size() + guardPeriodLength);
-  modBurst = signalVector(burstLen);
-  modBurstItr = modBurst.begin();
-
-  for (unsigned int i = 0; i < wBurst.size(); i++) {
-    *modBurstItr = 2.0*(wBurst[i] & 0x01)-1.0;
-    modBurstItr += sps;
-  }
-
-  // shift up pi/2
-  // ignore starting phase, since spec allows for discontinuous phase
-  GMSKRotate(modBurst);
-
-  modBurst.isRealOnly(false);
-
-  // filter w/ pulse shape
-  shapedBurst = convolve(&modBurst, pulse, NULL, START_ONLY);
-  if (!shapedBurst)
-    return NULL;
-
-  return shapedBurst;
+    return modulateBurstBasic(wBurst, guardPeriodLength, sps);
 }
 
-float sinc(float x) 
+float sinc(float x)
 {
   if ((x >= 0.01F) || (x <= -0.01F)) return (sinLookup(x)/x);
   return 1.0F;
@@ -1037,6 +1200,10 @@ static int detectBurst(signalVector &burst,
 
   /* Normalize our channel gain */
   *amp = *amp / sync->gain;
+
+  /* Compenate for residual rotation with dual Laurent pulse */
+  if (sps == 4)
+    *amp = *amp * complex(0.0, 1.0);
 
   return 1;
 }

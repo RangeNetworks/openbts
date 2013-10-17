@@ -62,18 +62,14 @@ struct uhd_dev_offset {
  * Notes:
  *   USRP1 with timestamps is not supported by UHD.
  */
-static struct uhd_dev_offset uhd_offsets[NUM_USRP_TYPES * 3] = {
+static struct uhd_dev_offset uhd_offsets[NUM_USRP_TYPES * 2] = {
 	{ USRP1, 1, 0.0 },
-	{ USRP1, 2, 0.0 },
 	{ USRP1, 4, 0.0 },
 	{ USRP2, 1, 5.4394e-5 },
-	{ USRP2, 2, 0.0 },
 	{ USRP2, 4, 0.0 },
 	{ B100,  1, 9.4778e-5 },
-	{ B100,  2, 5.1100e-5 },
 	{ B100,  4, 2.9418e-5 },
 	{ UMTRX, 1, 9.4778e-5 },
-	{ UMTRX, 2, 0.0 },
 	{ UMTRX, 4, 0.0 },
 };
 
@@ -86,25 +82,23 @@ static double get_dev_offset(enum uhd_dev_type type, int sps)
 
 	switch (sps) {
 	case 1:
-		return uhd_offsets[3 * type + 0].offset;
-	case 2:
-		return uhd_offsets[3 * type + 1].offset;
+		return uhd_offsets[2 * type + 0].offset;
 	case 4:
-		return uhd_offsets[3 * type + 2].offset;
+		return uhd_offsets[2 * type + 1].offset;
 	}
 
 	LOG(ERR) << "Unsupported samples-per-symbols: " << sps;
-	return 0.0;	
+	return 0.0;
 }
 
 /*
  * Select sample rate based on device type and requested samples-per-symbol.
  * The base rate is either GSM symbol rate, 270.833 kHz, or the minimum
  * usable channel spacing of 400 kHz.
- */ 
+ */
 static double select_rate(uhd_dev_type type, int sps)
 {
-	if ((sps != 4) && (sps != 2) && (sps != 1))
+	if ((sps != 4) && (sps != 1))
 		return -9999.99;
 
 	switch (type) {
