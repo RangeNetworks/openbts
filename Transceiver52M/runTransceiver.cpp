@@ -36,22 +36,74 @@
 #include <Logger.h>
 #include <Configuration.h>
 
+#define CONFIGDB            "/etc/OpenBTS/OpenBTS.db"
+
 using namespace std;
 
 ConfigurationKeyMap getConfigurationKeys();
-ConfigurationTable gConfig("/etc/OpenBTS/OpenBTS.db", 0, getConfigurationKeys());
+ConfigurationTable gConfig(CONFIGDB, 0, getConfigurationKeys());
 
 volatile bool gbShutdown = false;
+
 static void ctrlCHandler(int signo)
 {
    cout << "Received shutdown signal" << endl;;
    gbShutdown = true;
 }
 
+/*
+ * Attempt to open and test the database file before
+ * accessing the configuration table. We do this because
+ * the global table constructor cannot provide notification
+ * in the event of failure.
+ */
+int testConfig(const char *filename)
+{
+  int rc, val = 9999;
+  sqlite3 *db;
+  std::string test = "sadf732zdvj2";
+
+  const char *keys[3] = {
+    "Log.Level",
+    "TRX.Port",
+    "TRX.IP",
+  };
+
+  /* Try to open the database  */
+  rc = sqlite3_open(filename, &db);
+  if (rc || !db) {
+    std::cerr << "Config: Database could not be opened" << std::endl;
+    return -1;
+  } else {
+    sqlite3_close(db);
+  }
+
+  /* Attempt to set a value in the global config */
+  if (!gConfig.set(test, val)) {
+    std::cerr << "Config: Failed to set test key - "
+              << "permission to access the database?" << std::endl;
+    return -1;
+  } else {
+    gConfig.remove(test);
+  }
+
+  /* Attempt to query */
+  for (int i = 0; i < 3; i++) {
+    try {
+      gConfig.getStr(keys[i]); 
+    } catch (...) {
+      std::cerr << "Config: Failed query on " << keys[i] << std::endl;
+      return -1;
+    }
+  }
+
+  return 0; 
+}
 
 int main(int argc, char *argv[])
 {
-  std::string deviceArgs;
+  int trxPort;
+  std::string deviceArgs, logLevel, trxAddr;
 
   if (argc == 3)
   {
@@ -73,12 +125,17 @@ int main(int argc, char *argv[])
     cerr << "Couldn't install signal handler for SIGTERM" << endl;
     exit(1);
   }
+
   // Configure logger.
-  gLogInit("transceiver",gConfig.getStr("Log.Level").c_str(),LOG_LOCAL7);
+  if (testConfig(CONFIGDB) < 0) {
+    std::cerr << "Config: Database failure" << std::endl;
+    return EXIT_FAILURE;
+  }
 
-  int numARFCN=1;
-
-  LOG(NOTICE) << "starting transceiver with " << numARFCN << " ARFCNs (argc=" << argc << ")";
+  logLevel = gConfig.getStr("Log.Level");
+  trxPort = gConfig.getNum("TRX.Port");
+  trxAddr = gConfig.getStr("TRX.IP");
+  gLogInit("transceiver", logLevel.c_str(), LOG_LOCAL7);
 
   srandom(time(NULL));
 
@@ -102,7 +159,8 @@ int main(int argc, char *argv[])
     return EXIT_FAILURE;
   }
 
-  Transceiver *trx = new Transceiver(gConfig.getNum("TRX.Port"),gConfig.getStr("TRX.IP").c_str(),SAMPSPERSYM,GSM::Time(3,0),radio);
+  Transceiver *trx = new Transceiver(trxPort, trxAddr.c_str(),
+                                     SAMPSPERSYM, GSM::Time(3,0), radio);
   trx->receiveFIFO(radio->receiveFIFO());
   trx->start();
 
