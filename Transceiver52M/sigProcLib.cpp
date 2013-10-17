@@ -651,8 +651,27 @@ complex interpolatePoint(const signalVector &inSig,
   return pVal;
 }
 
-  
- 
+static complex fastPeakDetect(const signalVector &rxBurst, float *index)
+{
+  float val, max = 0.0f;
+  complex amp;
+  int _index = -1;
+
+  for (int i = 0; i < rxBurst.size(); i++) {
+    val = rxBurst[i].norm2();
+    if (val > max) {
+      max = val;
+      _index = i;
+      amp = rxBurst[i];
+    }
+  }
+
+  if (index)
+    *index = (float) _index;
+
+  return amp;
+}
+
 complex peakDetect(const signalVector &rxBurst,
 		   float *peakIndex,
 		   float *avgPwr) 
@@ -926,12 +945,15 @@ int detectRACHBurst(signalVector &rxBurst,
     return -1;
   }
 
-  _amp = peakDetect(corr, &_toa, NULL);
+  _amp = fastPeakDetect(corr, &_toa);
+
+  /* Restrict peak-to-average calculations at the edges */
   if ((_toa < 3) || (_toa > len - 3))
     goto notfound;
 
   peak = corr.begin() + (int) rint(_toa);
 
+  /* Compute peak-to-average ratio. Reject if we don't have enough values */ 
   for (int i = 2 * sps; i <= 5 * sps; i++) {
     if (peak - i >= corr.begin()) {
       avg += (peak - i)->norm2();
@@ -951,9 +973,14 @@ int detectRACHBurst(signalVector &rxBurst,
   if (par < thresh)
     goto notfound;
 
+   /* Run the full peak detection to obtain interpolated values */
+  _amp = peakDetect(corr, &_toa, NULL);
+
   /* Subtract forward tail bits from delay */
   if (toa)
     *toa = _toa - 8 * sps;
+
+  /* Normalize our channel gain */
   if (amp)
     *amp = _amp / gRACHSequence->gain;
 
