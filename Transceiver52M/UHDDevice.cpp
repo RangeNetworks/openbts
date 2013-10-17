@@ -42,7 +42,7 @@ enum uhd_dev_type {
 	USRP1,
 	USRP2,
 	B100,
-	B200,
+	B2XX,
 	UMTRX,
 	NUM_USRP_TYPES,
 };
@@ -70,8 +70,8 @@ static struct uhd_dev_offset uhd_offsets[NUM_USRP_TYPES * 2] = {
 	{ USRP2, 4, 7.7538e-5 },
 	{ B100,  1, 9.9692e-5 },
 	{ B100,  4, 6.5545e-5 },
-	{ B200,  1, 9.6000e-5 },
-	{ B200,  4, 6.4615e-5 },
+	{ B2XX,  1, 9.9692e-5 },
+	{ B2XX,  4, 6.9248e-5 },
 	{ UMTRX, 1, 9.9692e-5 },
 	{ UMTRX, 4, 7.3846e-5 },
 };
@@ -108,7 +108,7 @@ static double select_rate(uhd_dev_type type, int sps)
 	case USRP2:
 		return USRP2_BASE_RT * sps;
 	case B100:
-	case B200:
+	case B2XX:
 	case UMTRX:
 		return GSMRATE * sps;
 	default:
@@ -413,7 +413,7 @@ int uhd_device::set_rates(double tx_rate, double rx_rate)
 	double tx_offset, rx_offset;
 
 	// B100/200 are the only device where we set FPGA clocking
-	if ((dev_type == B100) || (dev_type == B200)) {
+	if ((dev_type == B100) || (dev_type == B2XX)) {
 		if (set_master_clk(BXXX_CLK_RT) < 0)
 			return -1;
 	}
@@ -472,7 +472,7 @@ bool uhd_device::parse_dev_type()
 {
 	std::string mboard_str, dev_str;
 	uhd::property_tree::sptr prop_tree;
-	size_t usrp1_str, usrp2_str, b100_str, b200_str, umtrx_str;
+	size_t usrp1_str, usrp2_str, b100_str, b200_str, b210_str, umtrx_str;
 
 	prop_tree = usrp_dev->get_device()->get_tree();
 	dev_str = prop_tree->access<std::string>("/name").get();
@@ -482,6 +482,7 @@ bool uhd_device::parse_dev_type()
 	usrp2_str = dev_str.find("USRP2");
 	b100_str = mboard_str.find("B100");
 	b200_str = mboard_str.find("B200");
+	b210_str = mboard_str.find("B210");
 	umtrx_str = dev_str.find("UmTRX");
 
 	if (usrp1_str != std::string::npos) {
@@ -498,7 +499,9 @@ bool uhd_device::parse_dev_type()
 		dev_type = B100;
 		return true;
 	} else if (b200_str != std::string::npos) {
-		dev_type = B200;
+		dev_type = B2XX;
+	} else if (b210_str != std::string::npos) {
+		dev_type = B2XX;
 	} else if (usrp2_str != std::string::npos) {
 		dev_type = USRP2;
 	} else if (umtrx_str != std::string::npos) {
