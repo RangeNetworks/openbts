@@ -75,8 +75,6 @@ RadioInterfaceResamp::~RadioInterfaceResamp()
 
 void RadioInterfaceResamp::close()
 {
-	RadioInterface::close();
-
 	delete innerSendBuffer;
 	delete outerSendBuffer;
 	delete innerRecvBuffer;
@@ -89,9 +87,13 @@ void RadioInterfaceResamp::close()
 	outerSendBuffer = NULL;
 	innerRecvBuffer = NULL;
 	outerRecvBuffer = NULL;
+	sendBuffer = NULL;
+	recvBuffer = NULL;
 
 	upsampler = NULL;
 	dnsampler = NULL;
+
+	RadioInterface::close();
 }
 
 /* Initialize I/O specific objects */
