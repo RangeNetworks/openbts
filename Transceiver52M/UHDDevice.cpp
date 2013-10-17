@@ -550,7 +550,7 @@ int uhd_device::open(const std::string &args)
 
 	// Set rates
 	desired_smpl_rt = select_rate(dev_type, sps);
-	if (set_rates(desired_smpl_rt) < 0)
+	if ((desired_smpl_rt > 0.0) && (set_rates(desired_smpl_rt) < 0))
 		return -1;
 
 	// Create receive buffer
