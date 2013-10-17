@@ -22,6 +22,7 @@ AC_INIT(openbts-public,TRUNK)
 AC_PREREQ(2.57)
 AC_CONFIG_SRCDIR([config/Makefile.am])
 AC_CONFIG_AUX_DIR([.])	
+AC_CONFIG_MACRO_DIR([config])
 AM_CONFIG_HEADER(config.h)
 
 AC_CANONICAL_BUILD
@@ -87,11 +88,14 @@ AS_IF([test "x$with_usrp1" = "xyes"], [
     if test "x$libusrp_3_3" = "xyes";then
         AC_DEFINE(HAVE_LIBUSRP_3_3, 1, Define to 1 if you have libusrp >= 3.3)
     fi
+    # Find and define supported SIMD extensions
+    AX_EXT
 ])
 
 AS_IF([test "x$with_uhd" = "xyes"],[
     PKG_CHECK_MODULES(UHD, uhd >= 003.004.000)
     AC_DEFINE(USE_UHD, 1, Define to 1 if using UHD)
+    AX_EXT
 ])
 
 AS_IF([test "x$with_extref" = "xyes"], [
@@ -104,7 +108,6 @@ AS_IF([test "x$with_singledb" = "xyes"], [
 
 AM_CONDITIONAL(UHD, [test "x$with_uhd" = "xyes"])
 AM_CONDITIONAL(USRP1, [test "x$with_usrp1" = "xyes"])
-
 
 # Defines LIBUSB_TRANSFER_CANCELLED, LIBUSB_TRANSFER_COMPLETED, LIBUSB_SUCCESS, LIBUSB_ERROR_*
 PKG_CHECK_MODULES(LIBUSB, libusb-1.0)

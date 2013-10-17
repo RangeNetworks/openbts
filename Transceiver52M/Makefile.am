@@ -23,19 +23,18 @@ include $(top_srcdir)/Makefile.common
 
 DESTDIR = 
 
+AM_CFLAGS = $(STD_DEFINES_AND_INCLUDES) -std=gnu99 -march=native
+AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES)
+AM_CXXFLAGS = -ldl -lpthread
+
 #UHD wins if both are defined
 if UHD
-AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES) $(UHD_CFLAGS)
+AM_CPPFLAGS += $(UHD_CFLAGS)
 else
 if USRP1
-AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES) $(USRP_CFLAGS)
-else
-#we should never be here, as this doesn't build if one of the above
-#doesn't exist
-AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES)
+AM_CPPFLAGS += $(USRP_CFLAGS)
 endif
 endif
-AM_CXXFLAGS = -ldl -lpthread
 
 rev2dir = $(datadir)/usrp/rev2
 rev4dir = $(datadir)/usrp/rev4
@@ -55,7 +54,8 @@ COMMON_SOURCES = \
 	radioClock.cpp \
 	sigProcLib.cpp \
 	Transceiver.cpp \
-	DummyLoad.cpp
+	DummyLoad.cpp \
+	convolve.c
 
 libtransceiver_la_SOURCES = \
 	$(COMMON_SOURCES) \
@@ -77,7 +77,8 @@ noinst_HEADERS = \
 	USRPDevice.h \
 	DummyLoad.h \
 	rcvLPF_651.h \
-	sendLPF_961.h
+	sendLPF_961.h \
+	convolve.h
 
 USRPping_SOURCES = USRPping.cpp
 USRPping_LDADD = \

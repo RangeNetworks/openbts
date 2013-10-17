@@ -30,13 +30,10 @@ enum Symmetry {
 
 /** Convolution type indicator */
 enum ConvType {
-  FULL_SPAN = 0,
-  OVERLAP_ONLY = 1,
-  START_ONLY = 2,
-  WITH_TAIL = 3,
-  NO_DELAY = 4,
-  CUSTOM = 5,
-  UNDEFINED = 255
+  START_ONLY,
+  NO_DELAY,
+  CUSTOM,
+  UNDEFINED,
 };
 
 /** the core data structure of the Transceiver */
@@ -47,13 +44,14 @@ class signalVector: public Vector<complex>
   
   Symmetry symmetry;   ///< the symmetry of the vector
   bool realOnly;       ///< true if vector is real-valued, not complex-valued
-  
+  bool aligned;
+ 
  public:
   
   /** Constructors */
   signalVector(int dSize=0, Symmetry wSymmetry = NONE):
     Vector<complex>(dSize),
-    realOnly(false)
+    realOnly(false), aligned(false)
     { 
       symmetry = wSymmetry; 
     };
@@ -61,24 +59,43 @@ class signalVector: public Vector<complex>
   signalVector(complex* wData, size_t start, 
 	       size_t span, Symmetry wSymmetry = NONE):
     Vector<complex>(NULL,wData+start,wData+start+span),
-    realOnly(false)
+    realOnly(false), aligned(false)
     { 
       symmetry = wSymmetry; 
     };
       
   signalVector(const signalVector &vec1, const signalVector &vec2):
     Vector<complex>(vec1,vec2),
-    realOnly(false)
+    realOnly(false), aligned(false)
     { 
       symmetry = vec1.symmetry; 
     };
 	
   signalVector(const signalVector &wVector):
     Vector<complex>(wVector.size()),
-    realOnly(false)
+    realOnly(false), aligned(false)
     {
       wVector.copyTo(*this); 
       symmetry = wVector.getSymmetry();
+    };
+
+  signalVector(size_t size, size_t start):
+    Vector<complex>(size + start),
+    realOnly(false), aligned(false)
+    {
+      mStart = mData + start;
+      symmetry = NONE;
+    };
+
+  signalVector(const signalVector &wVector, size_t start, size_t tail = 0):
+    Vector<complex>(start + wVector.size() + tail),
+    realOnly(false), aligned(false)
+    {
+      mStart = mData + start;
+      wVector.copyTo(*this);
+      memset(mData, 0, start * sizeof(complex));
+      memset(mStart + wVector.size(), 0, tail * sizeof(complex));
+      symmetry = NONE;
     };
 
   /** symmetry operators */
@@ -88,6 +105,10 @@ class signalVector: public Vector<complex>
   /** real-valued operators */
   bool isRealOnly() const { return realOnly;};
   void isRealOnly(bool wOnly) { realOnly = wOnly;};
+
+  /** alignment markers */
+  bool isAligned() const { return aligned; };
+  void setAligned(bool aligned) { this->aligned = aligned; };
 };
 
 /** Convert a linear number to a dB value */
@@ -113,14 +134,15 @@ void sigProcLibDestroy(void);
 	@param a,b The vectors to be convolved.
 	@param c, A preallocated vector to hold the convolution result.
 	@param spanType The type/span of the convolution.
-	@return The convolution result.
+	@return The convolution result or NULL on error.
 */
-signalVector* convolve(const signalVector *a,
-		       const signalVector *b,
-		       signalVector *c,
-		       ConvType spanType,
-		       unsigned startIx = 0,
-		       unsigned len = 0);
+signalVector *convolve(const signalVector *a,
+                       const signalVector *b,
+                       signalVector *c,
+                       ConvType spanType,
+                       int start = 0,
+                       unsigned len = 0,
+                       unsigned step = 1, int offset = 0);
 
 /** 
 	Generate the GSM pulse. 
@@ -172,8 +194,7 @@ signalVector *modulateBurst(const BitVector &wBurst,
 float sinc(float x);
 
 /** Delay a vector */
-void delayVector(signalVector &wBurst,
-		 float delay);
+bool delayVector(signalVector &wBurst, float delay);
 
 /** Add two vectors in-place */
 bool addVector(signalVector &x,
@@ -260,13 +281,13 @@ bool energyDetect(signalVector &rxBurst,
         @param sps The number of samples per GSM symbol.
         @param amplitude The estimated amplitude of received RACH burst.
         @param TOA The estimate time-of-arrival of received RACH burst.
-        @return True if burst SNR is larger that the detectThreshold value.
+        @return positive if threshold value is reached, negative on error, zero otherwise
 */
-bool detectRACHBurst(signalVector &rxBurst,
-		     float detectThreshold,
-		     int sps,
-		     complex *amplitude,
-		     float* TOA);
+int detectRACHBurst(signalVector &rxBurst,
+                    float detectThreshold,
+                    int sps,
+                    complex *amplitude,
+                    float* TOA);
 
 /**
         Normal burst correlator, detector, channel estimator.
@@ -280,18 +301,18 @@ bool detectRACHBurst(signalVector &rxBurst,
         @param requestChannel Set to true if channel estimation is desired.
         @param channelResponse The estimated channel.
         @param channelResponseOffset The time offset b/w the first sample of the channel response and the reported TOA.
-        @return True if burst SNR is larger that the detectThreshold value.
+        @return positive if threshold value is reached, negative on error, zero otherwise
 */
-bool analyzeTrafficBurst(signalVector &rxBurst,
-			 unsigned TSC,
-			 float detectThreshold,
-			 int sps,
-			 complex *amplitude,
-			 float *TOA,
-                         unsigned maxTOA,
-                         bool requestChannel = false,
-			 signalVector** channelResponse = NULL,
-			 float *channelResponseOffset = NULL);
+int analyzeTrafficBurst(signalVector &rxBurst,
+			unsigned TSC,
+			float detectThreshold,
+			int sps,
+			complex *amplitude,
+			float *TOA,
+                        unsigned maxTOA,
+                        bool requestChannel = false,
+			signalVector** channelResponse = NULL,
+			float *channelResponseOffset = NULL);
 
 /**
 	Decimate a vector.

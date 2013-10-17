@@ -22,6 +22,7 @@ include $(top_srcdir)/Makefile.common
 
 DESTDIR := 
 
+ACLOCAL_AMFLAGS = -I config
 AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES) $(USB_INCLUDES) $(WITH_INCLUDES)
 AM_CXXFLAGS = -Wall -pthread -ldl
 #AM_CXXFLAGS = -Wall -O2 -NDEBUG -pthread -ldl

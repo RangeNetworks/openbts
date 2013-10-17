@@ -27,6 +27,10 @@
 #include "sendLPF_961.h"
 #include "rcvLPF_651.h"
 
+extern "C" {
+#include "convolve.h"
+}
+
 #define TABLESIZE 1024
 
 /** Lookup tables for trigonometric approximation */
@@ -43,28 +47,35 @@ signalVector *GMSKRotation = NULL;
 signalVector *GMSKReverseRotation = NULL;
 
 /*
- * RACH and midamble correlation waveforms
+ * RACH and midamble correlation waveforms. Store the buffer separately
+ * because we need to allocate it explicitly outside of the signal vector
+ * constructor. This is because C++ (prior to C++11) is unable to natively
+ * perform 16-byte memory alignment required by many SSE instructions.
  */
 struct CorrelationSequence {
-  CorrelationSequence() : sequence(NULL)
+  CorrelationSequence() : sequence(NULL), buffer(NULL)
   {
   }
 
   ~CorrelationSequence()
   {
     delete sequence;
+    free(buffer);
   }
 
   signalVector *sequence;
+  void         *buffer;
   float        TOA;
   complex      gain;
 };
 
 /*
- * Gaussian and empty modulation pulses
+ * Gaussian and empty modulation pulses. Like the correlation sequences,
+ * store the runtime (Gaussian) buffer separately because of needed alignment
+ * for SSE instructions.
  */
 struct PulseSequence {
-  PulseSequence() : gaussian(NULL), empty(NULL)
+  PulseSequence() : gaussian(NULL), empty(NULL), buffer(NULL)
   {
   }
 
@@ -72,10 +83,12 @@ struct PulseSequence {
   {
     delete gaussian;
     delete empty;
+    free(buffer);
   }
 
   signalVector *gaussian;
   signalVector *empty;
+  void         *buffer;
 };
 
 CorrelationSequence *gMidambles[] = {NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL};
@@ -244,7 +257,7 @@ void initGMSKRotationTables(int sps)
 
 bool sigProcLibSetup(int sps)
 {
-  if ((sps != 0) && (sps != 2) && (sps != 4))
+  if ((sps != 1) && (sps != 2) && (sps != 4))
     return false;
 
   initTrigTables();
@@ -293,174 +306,106 @@ void GMSKReverseRotate(signalVector &x) {
   }
 }
 
-
-signalVector* convolve(const signalVector *a,
-		       const signalVector *b,
-		       signalVector *c,
-		       ConvType spanType,
-		       unsigned startIx,
-		       unsigned len)
+signalVector *convolve(const signalVector *x,
+                        const signalVector *h,
+                        signalVector *y,
+                        ConvType spanType, int start,
+                        unsigned len, unsigned step, int offset)
 {
-  if ((a==NULL) || (b==NULL)) return NULL; 
-  int La = a->size();
-  int Lb = b->size();
+  int rc, head = 0, tail = 0;
+  bool alloc = false, append = false;
+  const signalVector *_x = NULL;
 
-  int startIndex;
-  unsigned int outSize;
-  switch (spanType) {
-    case FULL_SPAN:
-      startIndex = 0;
-      outSize = La+Lb-1;
-      break;
-    case OVERLAP_ONLY:
-      startIndex = La;
-      outSize = abs(La-Lb)+1;
-      break;
-    case START_ONLY:
-      startIndex = 0;
-      outSize = La;
-      break;
-    case WITH_TAIL:
-      startIndex = Lb;
-      outSize = La;
-      break;
-    case NO_DELAY:
-      if (Lb % 2) 
-	startIndex = Lb/2;
-      else
-	startIndex = Lb/2-1;
-      outSize = La;
-      break;
-    case CUSTOM:
-      startIndex = startIx;
-      outSize = len;
-      break;
-    default:
-      return NULL;
-  }
-
-  
-  if (c==NULL)
-    c = new signalVector(outSize);
-  else if (c->size()!=outSize)
+  if (!x || !h)
     return NULL;
 
-  signalVector::const_iterator aStart = a->begin();
-  signalVector::const_iterator bStart = b->begin();
-  signalVector::const_iterator aEnd = a->end();
-  signalVector::const_iterator bEnd = b->end();
-  signalVector::iterator cPtr = c->begin();
-  int t = startIndex;
-  int stopIndex = startIndex + outSize;
-  switch (b->getSymmetry()) {
-  case NONE:
-    {
-      while (t < stopIndex) {
-	signalVector::const_iterator aP = aStart+t;
-	signalVector::const_iterator bP = bStart;
-	if (a->isRealOnly() && b->isRealOnly()) {
-	  float sum = 0.0;
-	  while (bP < bEnd) {
-	    if (aP < aStart) break;
-	    if (aP < aEnd) sum += (aP->real())*(bP->real());
-	    aP--;
-	    bP++;
-	  }
-	  *cPtr++ = sum;
-	}
-	else if (a->isRealOnly()) {
-	  complex sum = 0.0;
-	  while (bP < bEnd) {
-	    if (aP < aStart) break;
-	    if (aP < aEnd) sum += (*bP)*(aP->real());
-	    aP--;
-	    bP++;
-	  }
-	  *cPtr++ = sum;
-	}
-	else if (b->isRealOnly()) {
-	  complex sum = 0.0;
-	  while (bP < bEnd) {
-	    if (aP < aStart) break;
-	    if (aP < aEnd) sum += (*aP)*(bP->real());
-	    aP--;
-	    bP++;
-	  }
-	  *cPtr++ = sum;
-	}
-	else {
-	  complex sum = 0.0;
-	  while (bP < bEnd) {
-	    if (aP < aStart) break;
-	    if (aP < aEnd) sum += (*aP)*(*bP);
-	    aP--;
-	    bP++;
-	  }
-	  *cPtr++ = sum;
-	}
-	t++;
-      }
-    }
+  switch (spanType) {
+  case START_ONLY:
+    start = 0;
+    head = h->size();
+    len = x->size();
+    append = true;
     break;
-  case ABSSYM:
-    {
-      complex sum = 0.0;
-      bool isOdd = (bool) (Lb % 2);
-      if (isOdd) 
-	bEnd = bStart + (Lb+1)/2;
-      else 
-	bEnd = bStart + Lb/2;
-      while (t < stopIndex) {
-	signalVector::const_iterator aP = aStart+t;
-	signalVector::const_iterator aPsym = aP-Lb+1;
-	signalVector::const_iterator bP = bStart;
-	sum = 0.0;
-        if (!b->isRealOnly()) {
-	  while (bP < bEnd) {
-	    if (aP < aStart) break;
-	    if (aP == aPsym)
-	      sum+= (*aP)*(*bP);
-	    else if ((aP < aEnd) && (aPsym >= aStart)) 
-	      sum+= ((*aP)+(*aPsym))*(*bP);
-	    else if (aP < aEnd)
-	      sum += (*aP)*(*bP);
-	    else if (aPsym >= aStart)
-	      sum += (*aPsym)*(*bP);
-	    aP--;
-	    aPsym++;
-	    bP++;
-	  }
-        }
-        else {
-          while (bP < bEnd) {
-            if (aP < aStart) break;
-            if (aP == aPsym)
-              sum+= (*aP)*(bP->real());
-            else if ((aP < aEnd) && (aPsym >= aStart))
-              sum+= ((*aP)+(*aPsym))*(bP->real());
-            else if (aP < aEnd)
-              sum += (*aP)*(bP->real());
-            else if (aPsym >= aStart)
-              sum += (*aPsym)*(bP->real());
-            aP--;
-            aPsym++;
-            bP++;
-          }
-        }
-	*cPtr++ = sum;
-	t++;
-      }
+  case NO_DELAY:
+    start = h->size() / 2;
+    head = start;
+    tail = start;
+    len = x->size();
+    append = true;
+    break;
+  case CUSTOM:
+    if (start < h->size() - 1) {
+      head = h->size() - start;
+      append = true;
+    }
+    if (start + len > x->size()) {
+      tail = start + len - x->size();
+      append = true;
     }
     break;
   default:
     return NULL;
-    break;
   }
-    
-    
-  return c;
-}
 
+  /*
+   * Error if the output vector is too small. Create the output vector
+   * if the pointer is NULL.
+   */
+  if (y && (len > y->size()))
+    return NULL;
+  if (!y) {
+    y = new signalVector(len);
+    alloc = true;
+  }
+
+  /* Prepend or post-pend the input vector if the parameters require it */
+  if (append)
+    _x = new signalVector(*x, head, tail);
+  else
+    _x = x;
+
+  /*
+   * Four convovle types:
+   *   1. Complex-Real (aligned)
+   *   2. Complex-Complex (aligned)
+   *   3. Complex-Real (!aligned)
+   *   4. Complex-Complex (!aligned)
+   */
+  if (h->isRealOnly() && h->isAligned()) {
+    rc = convolve_real((float *) _x->begin(), _x->size(),
+                       (float *) h->begin(), h->size(),
+                       (float *) y->begin(), y->size(),
+                       start, len, step, offset);
+  } else if (!h->isRealOnly() && h->isAligned()) {
+    rc = convolve_complex((float *) _x->begin(), _x->size(),
+                          (float *) h->begin(), h->size(),
+                          (float *) y->begin(), y->size(),
+                          start, len, step, offset);
+  } else if (h->isRealOnly() && !h->isAligned()) {
+    rc = base_convolve_real((float *) _x->begin(), _x->size(),
+                            (float *) h->begin(), h->size(),
+                            (float *) y->begin(), y->size(),
+                            start, len, step, offset);
+  } else if (!h->isRealOnly() && !h->isAligned()) {
+    rc = base_convolve_complex((float *) _x->begin(), _x->size(),
+                               (float *) h->begin(), h->size(),
+                               (float *) y->begin(), y->size(),
+                               start, len, step, offset);
+  } else {
+    rc = -1;
+  }
+
+  if (append)
+    delete _x;
+
+  if (rc < 0) {
+    if (alloc)
+      delete y;
+    return NULL;
+  }
+
+  return y;
+}
 
 void generateGSMPulse(int sps, int symbolLength)
 {
@@ -475,9 +420,17 @@ void generateGSMPulse(int sps, int symbolLength)
   GSMPulse->empty->isRealOnly(true);
   *(GSMPulse->empty->begin()) = 1.0f;
 
+  len = sps * symbolLength;
+  if (len < 4)
+    len = 4;
+
   /* GSM pulse approximation */
-  GSMPulse->gaussian = new signalVector(len);
+  GSMPulse->buffer = convolve_h_alloc(len);
+  GSMPulse->gaussian = new signalVector((complex *)
+                                        GSMPulse->buffer, 0, len);
+  GSMPulse->gaussian->setAligned(true);
   GSMPulse->gaussian->isRealOnly(true);
+
   signalVector::iterator xP = GSMPulse->gaussian->begin();
 
   center = (float) (len - 1.0) / 2.0;
@@ -558,31 +511,6 @@ signalVector* reverseConjugate(signalVector *b)
     return tmp;
 }
 
-signalVector* correlate(signalVector *a,
-			signalVector *b,
-			signalVector *c,
-			ConvType spanType,
-			bool bReversedConjugated,
-		        unsigned startIx,
-			unsigned len)
-{
-  signalVector *tmp = NULL;
-
-  if (!bReversedConjugated) {
-    tmp = reverseConjugate(b);
-  }
-  else {
-    tmp = b;
-  }
-
-  c = convolve(a,tmp,c,spanType,startIx,len);
-
-  if (!bReversedConjugated) delete tmp;
-
-  return c;
-}
-
-
 /* soft output slicer */
 bool vectorSlicer(signalVector *x) 
 {
@@ -597,12 +525,13 @@ bool vectorSlicer(signalVector *x)
   }
   return true;
 }
-  
+
+/* Assume input bits are not differentially encoded */
 signalVector *modulateBurst(const BitVector &wBurst, int guardPeriodLength,
 			    int sps, bool emptyPulse)
 {
   int burstLen;
-  signalVector *pulse, modBurst;
+  signalVector *pulse, *shapedBurst, modBurst;
   signalVector::iterator modBurstItr;
 
   if (emptyPulse)
@@ -626,7 +555,9 @@ signalVector *modulateBurst(const BitVector &wBurst, int guardPeriodLength,
   modBurst.isRealOnly(false);
 
   // filter w/ pulse shape
-  signalVector *shapedBurst = convolve(&modBurst, pulse, NULL, NO_DELAY);
+  shapedBurst = convolve(&modBurst, pulse, NULL, START_ONLY);
+  if (!shapedBurst)
+    return NULL;
 
   return shapedBurst;
 }
@@ -637,24 +568,24 @@ float sinc(float x)
   return 1.0F;
 }
 
-void delayVector(signalVector &wBurst,
-		 float delay)
+bool delayVector(signalVector &wBurst, float delay)
 {
   
   int   intOffset = (int) floor(delay);
   float fracOffset = delay - intOffset;
-  
+
   // do fractional shift first, only do it for reasonable offsets
   if (fabs(fracOffset) > 1e-2) {
     // create sinc function
     signalVector sincVector(21); 
     sincVector.isRealOnly(true);
-    signalVector::iterator sincBurstItr = sincVector.begin();
+    signalVector::iterator sincBurstItr = sincVector.end();
     for (int i = 0; i < 21; i++) 
-      *sincBurstItr++ = (complex) sinc(M_PI_F*(i-10-fracOffset));
+      *--sincBurstItr = (complex) sinc(M_PI_F*(i-10-fracOffset));
   
     signalVector shiftedBurst(wBurst.size());
-    convolve(&wBurst,&sincVector,&shiftedBurst,NO_DELAY);
+    if (!convolve(&wBurst, &sincVector, &shiftedBurst, NO_DELAY))
+      return false;
     wBurst.clone(shiftedBurst);
   }
 
@@ -859,25 +790,25 @@ bool generateMidamble(int sps, int tsc)
   bool status = true;
   complex *data = NULL;
   signalVector *autocorr = NULL, *midamble = NULL;
-  signalVector *midMidamble = NULL;
+  signalVector *midMidamble = NULL, *_midMidamble = NULL;
 
-  if ((tsc < 0) || (tsc > 7)) 
+  if ((tsc < 0) || (tsc > 7))
     return false;
 
   delete gMidambles[tsc];
- 
+
   /* Use middle 16 bits of each TSC. Correlation sequence is not pulse shaped */
   midMidamble = modulateBurst(gTrainingSequence[tsc].segment(5,16), 0, sps, true);
   if (!midMidamble)
     return false;
 
-  /* Simulated receive sequence is pulse shaped */ 
+  /* Simulated receive sequence is pulse shaped */
   midamble = modulateBurst(gTrainingSequence[tsc], 0, sps, false);
   if (!midamble) {
     status = false;
     goto release;
   }
- 
+
   // NOTE: Because ideal TSC 16-bit midamble is 66 symbols into burst,
   //       the ideal TSC has an + 180 degree phase shift,
   //       due to the pi/2 frequency shift, that 
@@ -888,22 +819,32 @@ bool generateMidamble(int sps, int tsc)
 
   conjugateVector(*midMidamble);
 
-  autocorr = correlate(midamble, midMidamble, NULL, NO_DELAY);
+  /* For SSE alignment, reallocate the midamble sequence on 16-byte boundary */
+  data = (complex *) convolve_h_alloc(midMidamble->size());
+  _midMidamble = new signalVector(data, 0, midMidamble->size());
+  _midMidamble->setAligned(true);
+  memcpy(_midMidamble->begin(), midMidamble->begin(),
+	 midMidamble->size() * sizeof(complex));
+
+  autocorr = convolve(midamble, _midMidamble, NULL, NO_DELAY);
   if (!autocorr) {
     status = false;
     goto release;
   }
 
   gMidambles[tsc] = new CorrelationSequence;
-  gMidambles[tsc]->sequence = midMidamble;
-  gMidambles[tsc]->gain = peakDetect(*autocorr,&gMidambles[tsc]->TOA,NULL);
+  gMidambles[tsc]->buffer = data;
+  gMidambles[tsc]->sequence = _midMidamble;
+  gMidambles[tsc]->gain = peakDetect(*autocorr,&gMidambles[tsc]->TOA, NULL);
 
 release:
   delete autocorr;
   delete midamble;
+  delete midMidamble;
 
   if (!status) {
-    delete midMidamble;
+    delete _midMidamble;
+    free(data);
     gMidambles[tsc] = NULL;
   }
 
@@ -915,7 +856,7 @@ bool generateRACHSequence(int sps)
   bool status = true;
   complex *data = NULL;
   signalVector *autocorr = NULL;
-  signalVector *seq0 = NULL, *seq1 = NULL;
+  signalVector *seq0 = NULL, *seq1 = NULL, *_seq1 = NULL;
 
   delete gRACHSequence;
 
@@ -931,74 +872,100 @@ bool generateRACHSequence(int sps)
 
   conjugateVector(*seq1);
 
-  autocorr = new signalVector(seq0->size());
-  if (!convolve(seq0, seq1, autocorr, NO_DELAY)) {
+  /* For SSE alignment, reallocate the midamble sequence on 16-byte boundary */
+  data = (complex *) convolve_h_alloc(seq1->size());
+  _seq1 = new signalVector(data, 0, seq1->size());
+  _seq1->setAligned(true);
+  memcpy(_seq1->begin(), seq1->begin(), seq1->size() * sizeof(complex));
+
+  autocorr = convolve(seq0, _seq1, autocorr, NO_DELAY);
+  if (!autocorr) {
     status = false;
     goto release;
   }
 
   gRACHSequence = new CorrelationSequence;
-  gRACHSequence->sequence = seq1;
-  gRACHSequence->gain = peakDetect(*autocorr,&gRACHSequence->TOA,NULL);
+  gRACHSequence->sequence = _seq1;
+  gRACHSequence->buffer = data;
+  gRACHSequence->gain = peakDetect(*autocorr,&gRACHSequence->TOA, NULL);
 
 release:
   delete autocorr;
   delete seq0;
+  delete seq1;
 
   if (!status) {
-    delete seq1;
+    delete _seq1;
+    free(data);
     gRACHSequence = NULL;
   }
 
   return status;
 }
-				
-bool detectRACHBurst(signalVector &rxBurst,
-		     float detectThreshold,
-		     int sps,
-		     complex *amplitude,
-		     float* TOA)
+
+int detectRACHBurst(signalVector &rxBurst,
+		    float thresh,
+		    int sps,
+		    complex *amp,
+		    float *toa)
 {
+  int start, len, num = 0;
+  float _toa, rms, par, avg = 0.0f;
+  complex _amp, *peak;
+  signalVector corr, *sync = gRACHSequence->sequence;
 
-  //static complex staticData[500];
- 
-  //signalVector correlatedRACH(staticData,0,rxBurst.size());
-  signalVector correlatedRACH(rxBurst.size());
-  correlate(&rxBurst,gRACHSequence->sequence,&correlatedRACH,NO_DELAY,true);
+  if ((sps != 1) && (sps != 2) && (sps != 4))
+    return -1;
 
-  float meanPower;
-  complex peakAmpl = peakDetect(correlatedRACH,TOA,&meanPower);
+  start = 40 * sps;
+  len = 24 * sps;
+  corr = signalVector(len);
 
-  float valleyPower = 0.0; 
-
-  // check for bogus results
-  if ((*TOA < 0.0) || (*TOA > correlatedRACH.size())) {
-        *amplitude = 0.0;
-	return false;
-  }
-  complex *peakPtr = correlatedRACH.begin() + (int) rint(*TOA);
-
-  float numSamples = 0.0;
-  for (int i = 57 * sps; i <= 107 * sps; i++) {
-    if (peakPtr+i >= correlatedRACH.end())
-      break;
-    valleyPower += (peakPtr+i)->norm2();
-    numSamples++;
+  if (!convolve(&rxBurst, sync, &corr,
+                CUSTOM, start, len, sps, 0)) {
+    return -1;
   }
 
-  if (numSamples < 2) {
-        *amplitude = 0.0;
-        return false;
+  _amp = peakDetect(corr, &_toa, NULL);
+  if ((_toa < 3) || (_toa > len - 3))
+    goto notfound;
+
+  peak = corr.begin() + (int) rint(_toa);
+
+  for (int i = 2 * sps; i <= 5 * sps; i++) {
+    if (peak - i >= corr.begin()) {
+      avg += (peak - i)->norm2();
+      num++;
+    }
+    if (peak + i < corr.end()) {
+      avg += (peak + i)->norm2();
+      num++;
+    }
   }
 
-  float RMS = sqrtf(valleyPower/(float) numSamples)+0.00001;
-  float peakToMean = peakAmpl.abs()/RMS;
+  if (num < 2)
+    goto notfound;
 
-  *amplitude = peakAmpl/(gRACHSequence->gain);
+  rms = sqrtf(avg / (float) num) + 0.00001;
+  par = _amp.abs() / rms;
+  if (par < thresh)
+    goto notfound;
 
-  *TOA = (*TOA) - gRACHSequence->TOA - 8 * sps;
+  /* Subtract forward tail bits from delay */
+  if (toa)
+    *toa = _toa - 8 * sps;
+  if (amp)
+    *amp = _amp / gRACHSequence->gain;
 
-  return (peakToMean > detectThreshold);
+  return 1;
+
+notfound:
+  if (amp)
+    *amp = 0.0f;
+  if (toa)
+    *toa = 0.0f;
+
+  return 0;
 }
 
 bool energyDetect(signalVector &rxBurst,
@@ -1018,120 +985,95 @@ bool energyDetect(signalVector &rxBurst,
   if (avgPwr) *avgPwr = energy/windowLength;
   return (energy/windowLength > detectThreshold*detectThreshold);
 }
-  
 
-bool analyzeTrafficBurst(signalVector &rxBurst,
-			 unsigned TSC,
-			 float detectThreshold,
-			 int sps,
-			 complex *amplitude,
-			 float *TOA,
-			 unsigned maxTOA,
-                         bool requestChannel,
-                         signalVector **channelResponse,
-			 float *channelResponseOffset) 
+int analyzeTrafficBurst(signalVector &rxBurst, unsigned tsc, float thresh,
+                        int sps, complex *amp, float *toa, unsigned max_toa,
+                        bool chan_req, signalVector **chan, float *chan_offset)
 {
+  int start, target, len, num = 0;
+  complex _amp, *peak;
+  float _toa, rms, par, avg = 0.0f;
+  signalVector corr, *sync, *_chan;
 
-  assert(TSC<8);
-  assert(amplitude);
-  assert(TOA);
-  assert(gMidambles[TSC]);
+  if ((tsc < 0) || (tsc > 7) || ((sps != 1) && (sps != 2) && (sps != 4)))
+    return -1;
 
-  if (maxTOA < 3*sps) maxTOA = 3*sps;
-  unsigned spanTOA = maxTOA;
-  if (spanTOA < 5*sps) spanTOA = 5*sps;
+  target = 3 + 58 + 5 + 16;
+  start = (target - 8) * sps;
+  len = (8 + 8 + max_toa) * sps;
 
-  unsigned startIx = 66*sps-spanTOA;
-  unsigned endIx = (66+16)*sps+spanTOA;
-  unsigned windowLen = endIx - startIx;
-  unsigned corrLen = 2*maxTOA+1;
+  sync = gMidambles[tsc]->sequence;
+  sync = gMidambles[tsc]->sequence;
+  corr = signalVector(len);
 
-  unsigned expectedTOAPeak = (unsigned) round(gMidambles[TSC]->TOA + (gMidambles[TSC]->sequence->size()-1)/2);
-
-  signalVector burstSegment(rxBurst.begin(),startIx,windowLen);
-
-  //static complex staticData[200];
-  //signalVector correlatedBurst(staticData,0,corrLen);
-  signalVector correlatedBurst(corrLen);
-  correlate(&burstSegment, gMidambles[TSC]->sequence,
-					    &correlatedBurst, CUSTOM,true,
-					    expectedTOAPeak-maxTOA,corrLen);
-
-  float meanPower;
-  *amplitude = peakDetect(correlatedBurst,TOA,&meanPower);
-  float valleyPower = 0.0; //amplitude->norm2();
-  complex *peakPtr = correlatedBurst.begin() + (int) rint(*TOA);
-
-  // check for bogus results
-  if ((*TOA < 0.0) || (*TOA > correlatedBurst.size())) {
-        *amplitude = 0.0;
-        return false;
+  if (!convolve(&rxBurst, sync, &corr,
+                CUSTOM, start, len, sps, 0)) {
+    return -1;
   }
 
-  int numRms = 0;
-  for (int i = 2*sps; i <= 5*sps;i++) {
-    if (peakPtr - i >= correlatedBurst.begin()) { 
-      valleyPower += (peakPtr-i)->norm2();
-      numRms++;
+  _amp = peakDetect(corr, &_toa, NULL);
+  peak = corr.begin() + (int) rint(_toa);
+
+  /* Check for bogus results */
+  if ((_toa < 0.0) || (_toa > corr.size()))
+    goto notfound;
+
+  for (int i = 2 * sps; i <= 5 * sps; i++) {
+    if (peak - i >= corr.begin()) {
+      avg += (peak - i)->norm2();
+      num++;
     }
-    if (peakPtr + i < correlatedBurst.end()) {
-      valleyPower += (peakPtr+i)->norm2();
-      numRms++;
+    if (peak + i < corr.end()) {
+      avg += (peak + i)->norm2();
+      num++;
     }
   }
 
-  if (numRms < 2) {
-        // check for bogus results
-        *amplitude = 0.0;
-        return false;
+  if (num < 2)
+    goto notfound;
+
+  rms = sqrtf(avg / (float) num) + 0.00001;
+  par = (_amp.abs()) / rms;
+  if (par < thresh)
+    goto notfound;
+
+  /*
+   *  NOTE: Because ideal TSC is 66 symbols into burst,
+   *      the ideal TSC has an +/- 180 degree phase shift,
+   *      due to the pi/4 frequency shift, that 
+   *      needs to be accounted for.
+   */
+  if (amp)
+    *amp = _amp / gMidambles[tsc]->gain;
+
+  /* Delay one half of peak-centred correlation length */
+  _toa -= sps * 8;
+
+  if (toa)
+    *toa = _toa;
+
+  if (chan_req) {
+    _chan = new signalVector(6 * sps);
+
+    delayVector(corr, -_toa);
+    corr.segmentCopyTo(*_chan, target - 3, _chan->size());
+    scaleVector(*_chan, complex(1.0, 0.0) / gMidambles[tsc]->gain);
+
+    *chan = _chan;
+
+    if (chan_offset)
+      *chan_offset = 3.0 * sps;;
   }
 
-  float RMS = sqrtf(valleyPower/(float)numRms)+0.00001;
-  float peakToMean = (amplitude->abs())/RMS;
+  return 1;
 
-  // NOTE: Because ideal TSC is 66 symbols into burst,
-  //       the ideal TSC has an +/- 180 degree phase shift,
-  //       due to the pi/4 frequency shift, that 
-  //       needs to be accounted for.
-  
-  *amplitude = (*amplitude)/gMidambles[TSC]->gain;
-  *TOA = (*TOA) - (maxTOA); 
+notfound:
+  if (amp)
+    *amp = 0.0f;
+  if (toa)
+    *toa = 0.0f;
 
-  if (requestChannel && (peakToMean > detectThreshold)) {
-    float TOAoffset = maxTOA;
-    delayVector(correlatedBurst,-(*TOA));
-    // midamble only allows estimation of a 6-tap channel
-    signalVector chanVector(6 * sps);
-    float maxEnergy = -1.0;
-    int maxI = -1;
-    for (int i = 0; i < 7; i++) {
-      if (TOAoffset + (i-5) * sps + chanVector.size() > correlatedBurst.size())
-        continue;
-      if (TOAoffset + (i-5) * sps < 0)
-        continue;
-      correlatedBurst.segmentCopyTo(chanVector,
-                                    (int) floor(TOAoffset + (i - 5) * sps),
-                                    chanVector.size());
-      float energy = vectorNorm2(chanVector);
-      if (energy > 0.95*maxEnergy) {
-	maxI = i;
-	maxEnergy = energy;
-      }
-    }
-	
-    *channelResponse = new signalVector(chanVector.size());
-    correlatedBurst.segmentCopyTo(**channelResponse,
-                                  (int) floor(TOAoffset + (maxI - 5) * sps),
-                                  (*channelResponse)->size());
-    scaleVector(**channelResponse, complex(1.0, 0.0) / gMidambles[TSC]->gain);
-    
-    if (channelResponseOffset) 
-      *channelResponseOffset = 5 * sps - maxI;
-      
-  }
-
-  return (peakToMean > detectThreshold);
-		  
+  return 0;
 }
 
 signalVector *decimateVector(signalVector &wVector,
@@ -1450,7 +1392,7 @@ bool designDFE(signalVector &channelResponse,
   }
 
   *feedForwardFilter = new signalVector(Nf);
-  signalVector::iterator w = (*feedForwardFilter)->begin();
+  signalVector::iterator w = (*feedForwardFilter)->end();
   for (int i = 0; i < Nf; i++) {
     delete L[i];
     complex w_i = 0.0;
@@ -1461,8 +1403,7 @@ bool designDFE(signalVector &channelResponse,
       w_i += (*vPtr)*(chanPtr->conj());
       vPtr++; chanPtr++;
     }
-    *w = w_i/d;
-    w++;
+    *--w = w_i/d;
   }
 
 
@@ -1477,10 +1418,15 @@ SoftVector *equalizeBurst(signalVector &rxBurst,
 		       signalVector &w, // feedforward filter
 		       signalVector &b) // feedback filter
 {
+  signalVector *postForwardFull;
 
-  delayVector(rxBurst,-TOA);
+  if (!delayVector(rxBurst, -TOA))
+    return NULL;
 
-  signalVector* postForwardFull = convolve(&rxBurst,&w,NULL,FULL_SPAN);
+  postForwardFull = convolve(&rxBurst, &w, NULL,
+                             CUSTOM, 0, rxBurst.size() + w.size() - 1);
+  if (!postForwardFull)
+    return NULL;
 
   signalVector* postForward = new signalVector(rxBurst.size());
   postForwardFull->segmentCopyTo(*postForward,w.size()-1,rxBurst.size());
