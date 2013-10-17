@@ -383,12 +383,18 @@ int uhd_device::set_master_clk(double clk_rate)
 {
 	double actual_clk_rt;
 
-	// Set master clock rate
-	usrp_dev->set_master_clock_rate(clk_rate);
-	actual_clk_rt = usrp_dev->get_master_clock_rate();
+	try {
+		usrp_dev->set_master_clock_rate(clk_rate);
+		actual_clk_rt = usrp_dev->get_master_clock_rate();
+	} catch (const std::exception &ex) {
+		LOG(ALERT) << "UHD clock rate setting failed: " << clk_rate;
+		LOG(ALERT) << ex.what();
+		return -1;
+	}
 
 	if (actual_clk_rt != clk_rate) {
 		LOG(ALERT) << "Failed to set master clock rate";
+		LOG(ALERT) << "Requested clock rate " << clk_rate;
 		LOG(ALERT) << "Actual clock rate " << actual_clk_rt;
 		return -1;
 	}
@@ -408,8 +414,14 @@ int uhd_device::set_rates(double rate)
 	}
 
 	// Set sample rates
-	usrp_dev->set_tx_rate(rate);
-	usrp_dev->set_rx_rate(rate);
+	try {
+		usrp_dev->set_tx_rate(rate);
+		usrp_dev->set_rx_rate(rate);
+	} catch (const std::exception &ex) {
+		LOG(ALERT) << "UHD rate setting failed: " << rate;
+		LOG(ALERT) << ex.what();
+		return -1;
+	}
 	actual_smpl_rt = usrp_dev->get_tx_rate();
 
 	tx_offset = actual_smpl_rt - rate;
