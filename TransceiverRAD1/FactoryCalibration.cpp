@@ -151,10 +151,10 @@ unsigned int FactoryCalibration::getValue(std::string name) {
 	}
 }
 
-void FactoryCalibration::readEEPROM() {
+void FactoryCalibration::readEEPROM(int deviceID) {
 
 	core = new rnrad1Core(
-		0,
+		deviceID,
 		RAD1_CMD_INTERFACE,
 		RAD1_CMD_ALTINTERFACE,
 		"fpga.rbf",

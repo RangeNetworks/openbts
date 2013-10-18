@@ -47,8 +47,10 @@
  */
 #define SPS                 4
 
-ConfigurationKeyMap getConfigurationKeys();
-ConfigurationTable gConfig(CONFIGDB, 0, getConfigurationKeys());
+std::vector<std::string> configurationCrossCheck(const std::string& key);
+static const char *cOpenBTSConfigEnv = "OpenBTSConfigFile";
+// Load configuration from a file.
+ConfigurationTable gConfig(getenv(cOpenBTSConfigEnv)?getenv(cOpenBTSConfigEnv):CONFIGDB,"OpenBTS", getConfigurationKeys());
 
 volatile bool gbShutdown = false;
 
@@ -131,7 +133,7 @@ int main(int argc, char *argv[])
   }
 
   // Configure logger.
-  if (testConfig(CONFIGDB) < 0) {
+  if (testConfig(getenv(cOpenBTSConfigEnv)?getenv(cOpenBTSConfigEnv):CONFIGDB) < 0) {
     std::cerr << "Config: Database failure" << std::endl;
     return EXIT_FAILURE;
   }

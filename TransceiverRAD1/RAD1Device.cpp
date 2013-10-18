@@ -180,7 +180,7 @@ RAD1Device::RAD1Device (double _desiredSampleRate)
 #endif
 }
 
-bool RAD1Device::make(bool wSkipRx) 
+bool RAD1Device::make(bool wSkipRx, int devID) 
 {
   skipRx = wSkipRx;
 
@@ -192,7 +192,7 @@ bool RAD1Device::make(bool wSkipRx)
   //string rbf = "inband_1rxhb_1tx.rbf"; 
   if (!skipRx) {
   try {
-    m_uRx = rnrad1Rx::make(0,decimRate,
+    m_uRx = rnrad1Rx::make(devID,decimRate,
                            rbf,"ezusb.ihx");
     m_uRx->setFpgaMasterClockFreq(masterClockRate);
   }
@@ -220,7 +220,7 @@ bool RAD1Device::make(bool wSkipRx)
   }
 
   try {
-    m_uTx = rnrad1Tx::make(0,decimRate*2,
+    m_uTx = rnrad1Tx::make(devID,decimRate*2,
                            rbf,"ezusb.ihx");
     m_uTx->setFpgaMasterClockFreq(masterClockRate);
   }

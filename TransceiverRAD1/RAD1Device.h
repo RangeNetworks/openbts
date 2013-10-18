@@ -168,7 +168,7 @@ private:
   RAD1Device (double _desiredSampleRate);
 
   /** Instantiate the USRP */
-  bool make(bool skipRx = false); 
+  bool make(bool skipRx, int devID); 
 
   /** Start the USRP */
   bool start();

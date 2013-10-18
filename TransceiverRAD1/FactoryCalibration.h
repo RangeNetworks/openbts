@@ -41,5 +41,5 @@ class FactoryCalibration {
 	public:
 
 	unsigned int getValue(std::string name);
-	void readEEPROM();
+	void readEEPROM(int deviceID);
 };

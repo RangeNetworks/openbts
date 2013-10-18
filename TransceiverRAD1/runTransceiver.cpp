@@ -30,8 +30,10 @@
 
 using namespace std;
 
-ConfigurationKeyMap getConfigurationKeys();
-ConfigurationTable gConfig("/etc/OpenBTS/OpenBTS.db", 0, getConfigurationKeys());
+std::vector<std::string> configurationCrossCheck(const std::string& key);
+static const char *cOpenBTSConfigEnv = "OpenBTSConfigFile";
+// Load configuration from a file.
+ConfigurationTable gConfig(getenv(cOpenBTSConfigEnv)?getenv(cOpenBTSConfigEnv):"/etc/OpenBTS/OpenBTS.db","OpenBTS", getConfigurationKeys());
 FactoryCalibration gFactoryCalibration;
 
 volatile bool gbShutdown = false;
@@ -58,14 +60,14 @@ int main(int argc, char *argv[])
   // Configure logger.
   gLogInit("transceiver",gConfig.getStr("Log.Level").c_str(),LOG_LOCAL7);
 
-  gFactoryCalibration.readEEPROM();
-
   int numARFCN=1;
   if (argc>1) numARFCN = atoi(argv[1]);
 
-#ifdef SINGLEARFCN
-  numARFCN=1;
-#endif
+  int deviceID = 0;
+  if (argc>2) deviceID = atoi(argv[2]);
+
+  gFactoryCalibration.readEEPROM(deviceID);
+ 
 
   srandom(time(NULL));
 
@@ -95,10 +97,10 @@ int main(int argc, char *argv[])
   //if ((numARFCN > 1) && (mOversamplingRate % 2)) mOversamplingRate++;
   RAD1Device *usrp = new RAD1Device(mOversamplingRate*1625.0e3/6.0);
   //DummyLoad *usrp = new DummyLoad(mOversamplingRate*1625.0e3/6.0);
-  usrp->make(); 
+  usrp->make(false, deviceID); 
 
   RadioInterface* radio = new RadioInterface(usrp,3,SAMPSPERSYM,mOversamplingRate,false,numARFCN);
-  Transceiver *trx = new Transceiver(5700,"127.0.0.1",SAMPSPERSYM,GSM::Time(2,0),radio,
+  Transceiver *trx = new Transceiver(gConfig.getNum("TRX.Port"),gConfig.getStr("TRX.IP").c_str(),SAMPSPERSYM,GSM::Time(2,0),radio,
 				     numARFCN,mOversamplingRate,false);
   trx->receiveFIFO(radio->receiveFIFO());
 

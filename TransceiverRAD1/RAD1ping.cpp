@@ -40,6 +40,9 @@ int main(int argc, char *argv[]) {
   if (argc>1) gLogInit(argv[1]);
   else gLogInit("DEBUG");
 
+  int deviceID = 0;
+  if (argc>2) deviceID = atoi(argv[2]);
+
   gLogInit("openbts",argv[1],LOG_LOCAL7);
 
 
@@ -47,7 +50,7 @@ int main(int argc, char *argv[]) {
 
   RAD1Device *usrp = new RAD1Device(52.0e6/192.0);
 
-  usrp->make();
+  usrp->make(false, deviceID);
 
   TIMESTAMP timestamp;
 

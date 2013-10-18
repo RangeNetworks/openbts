@@ -45,7 +45,7 @@ int main(int argc, char *argv[]) {
 
   RAD1Device *usrp = new RAD1Device(52.0e6/192.0);
 
-  usrp->make();
+  usrp->make(false, 0);
 
   double startFreqkHz = 0.0;
   double endFreqkHz = 0.0;

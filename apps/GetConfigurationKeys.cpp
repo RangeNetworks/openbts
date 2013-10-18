@@ -2713,6 +2713,18 @@ ConfigurationKeyMap getConfigurationKeys()
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
+	//kurtis
+	tmp = new ConfigurationKey("TRX.Args","",
+		"",
+		ConfigurationKey::CUSTOMER,
+		ConfigurationKey::STRING,
+		"",
+		false,
+		"Extra arguments for the Transceiver"
+	);
+	map[tmp->getName()] = *tmp;
+	delete tmp;
+
 	tmp = new ConfigurationKey("Test.GSM.SimulatedFER.Downlink","0",
 		"probability in %",
 		ConfigurationKey::DEVELOPER,
