@@ -50,7 +50,7 @@
 std::vector<std::string> configurationCrossCheck(const std::string& key);
 static const char *cOpenBTSConfigEnv = "OpenBTSConfigFile";
 // Load configuration from a file.
-ConfigurationTable gConfig(getenv(cOpenBTSConfigEnv)?getenv(cOpenBTSConfigEnv):CONFIGDB,"OpenBTS", getConfigurationKeys());
+ConfigurationTable gConfig(getenv(cOpenBTSConfigEnv)?getenv(cOpenBTSConfigEnv):CONFIGDB,"transceiver", getConfigurationKeys());
 
 volatile bool gbShutdown = false;
 

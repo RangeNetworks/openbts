@@ -33,7 +33,7 @@ using namespace std;
 std::vector<std::string> configurationCrossCheck(const std::string& key);
 static const char *cOpenBTSConfigEnv = "OpenBTSConfigFile";
 // Load configuration from a file.
-ConfigurationTable gConfig(getenv(cOpenBTSConfigEnv)?getenv(cOpenBTSConfigEnv):"/etc/OpenBTS/OpenBTS.db","OpenBTS", getConfigurationKeys());
+ConfigurationTable gConfig(getenv(cOpenBTSConfigEnv)?getenv(cOpenBTSConfigEnv):"/etc/OpenBTS/OpenBTS.db","transceiver", getConfigurationKeys());
 FactoryCalibration gFactoryCalibration;
 
 volatile bool gbShutdown = false;

@@ -130,9 +130,12 @@ pid_t gTransceiverPid = 0;
 
 void startTransceiver()
 {
-	// kill any stray transceiver process
-	//don't do this if we want to run two of them -kurtis
-	if (system("killall transceiver 2>/dev/null")) {}
+	//if local kill the process currently listening on this port
+	char killCmd[32];
+	if (gConfig.getStr("TRX.IP") == "127.0.0.1"){
+		sprintf(killCmd,"fuser -k -n udp %d",(int)gConfig.getNum("TRX.Port"));
+		if (system(killCmd)) {}
+	}
 
 	// Start the transceiver binary, if the path is defined.
 	// If the path is not defined, the transceiver must be started by some other process.
