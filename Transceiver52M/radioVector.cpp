@@ -41,6 +41,35 @@ bool radioVector::operator>(const radioVector& other) const
 	return mTime > other.mTime;
 }
 
+noiseVector::noiseVector(size_t n)
+{
+	this->resize(n);
+	it = this->begin();
+}
+
+float noiseVector::avg()
+{
+	float val = 0.0;
+
+	for (int i = 0; i < size(); i++)
+		val += (*this)[i];
+
+	return val / (float) size();
+}
+
+bool noiseVector::insert(float val)
+{
+	if (!size())
+		return false;
+
+	if (it == this->end())
+		it = this->begin();
+
+	*it++ = val;
+
+	return true;
+}
+
 unsigned VectorFIFO::size()
 {
 	return mQ.size();

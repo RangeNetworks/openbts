@@ -36,6 +36,16 @@ private:
 	GSM::Time mTime;
 };
 
+class noiseVector : std::vector<float> {
+public:
+	noiseVector(size_t len = 0);
+	bool insert(float val);
+	float avg();
+
+private:
+	std::vector<float>::iterator it;
+};
+
 class VectorFIFO {
 public:
 	unsigned size();

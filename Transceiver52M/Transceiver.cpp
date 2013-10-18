@@ -44,7 +44,8 @@
 #  define USB_LATENCY_MIN		1,1
 #endif
 
-#define INIT_ENERGY_THRSHD		5.0f
+/* Number of running values use in noise average */
+#define NOISE_CNT			20
 
 Transceiver::Transceiver(int wBasePort,
 			 const char *TRXAddress,
@@ -54,7 +55,7 @@ Transceiver::Transceiver(int wBasePort,
 	:mDataSocket(wBasePort+2,TRXAddress,wBasePort+102),
 	 mControlSocket(wBasePort+1,TRXAddress,wBasePort+101),
 	 mClockSocket(wBasePort,TRXAddress,wBasePort+100),
-	 mSPSTx(wSPS), mSPSRx(1)
+	 mSPSTx(wSPS), mSPSRx(1), mNoises(NOISE_CNT)
 {
   GSM::Time startTime(random() % gHyperframe,0);
 
@@ -78,11 +79,8 @@ Transceiver::Transceiver(int wBasePort,
   mTxFreq = 0.0;
   mRxFreq = 0.0;
   mPower = -10;
-  mEnergyThreshold = INIT_ENERGY_THRSHD;
-  prevFalseDetectionTime = startTime;
-
+  mNoiseLev = 0.0;
 }
-
 
 Transceiver::~Transceiver()
 {
@@ -324,18 +322,19 @@ Transceiver::CorrType Transceiver::expectedCorrType(GSM::Time currTime)
   }
 
 }
-    
+
 SoftVector *Transceiver::pullRadioVector(GSM::Time &wTime,
 				      int &RSSI,
 				      int &timingOffset)
 {
   bool needDFE = false;
+  bool success = false;
+  complex amplitude = 0.0;
+  float TOA = 0.0, avg = 0.0;
 
   radioVector *rxBurst = (radioVector *) mReceiveFIFO->get();
 
   if (!rxBurst) return NULL;
-
-  LOG(DEBUG) << "receiveFIFO: read radio vector at time: " << rxBurst->getTime() << ", new size: " << mReceiveFIFO->size();
 
   int timeslot = rxBurst->getTime().TN();
 
@@ -345,30 +344,15 @@ SoftVector *Transceiver::pullRadioVector(GSM::Time &wTime,
     delete rxBurst;
     return NULL;
   }
- 
-  // check to see if received burst has sufficient 
-  signalVector *vectorBurst = rxBurst;
-  complex amplitude = 0.0;
-  float TOA = 0.0;
-  float avgPwr = 0.0;
-#ifdef ENERGY_DETECT
-  if (!energyDetect(*vectorBurst, 20 * mSPSRx, mEnergyThreshold, &avgPwr)) {
-     LOG(DEBUG) << "Estimated Energy: " << sqrt(avgPwr) << ", at time " << rxBurst->getTime();
-     double framesElapsed = rxBurst->getTime()-prevFalseDetectionTime;
-     if (framesElapsed > 50) {  // if we haven't had any false detections for a while, lower threshold
-	mEnergyThreshold -= 10.0/10.0;
-        if (mEnergyThreshold < 0.0)
-          mEnergyThreshold = 0.0;
 
-        prevFalseDetectionTime = rxBurst->getTime();
-     }
-     delete rxBurst;
-     return NULL;
-  }
-  LOG(DEBUG) << "Estimated Energy: " << sqrt(avgPwr) << ", at time " << rxBurst->getTime();
-#endif
+  signalVector *vectorBurst = rxBurst;
+
+  energyDetect(*vectorBurst, 20 * mSPSRx, 0.0, &avg);
+
+  // Update noise level
+  mNoiseLev = mNoises.avg();
+
   // run the proper correlator
-  bool success = false;
   if (corrType==TSC) {
     LOG(DEBUG) << "looking for TSC at time: " << rxBurst->getTime();
     signalVector *channelResp;
@@ -396,10 +380,7 @@ SoftVector *Transceiver::pullRadioVector(GSM::Time &wTime,
 				  &channelResp,
 				  &chanOffset);
     if (success) {
-      LOG(DEBUG) << "FOUND TSC!!!!!! " << amplitude << " " << TOA;
-      mEnergyThreshold -= 1.0F/10.0F;
-      if (mEnergyThreshold < 0.0) mEnergyThreshold = 0.0;
-      SNRestimate[timeslot] = amplitude.norm2()/(mEnergyThreshold*mEnergyThreshold+1.0); // this is not highly accurate
+      SNRestimate[timeslot] = amplitude.norm2()/(mNoiseLev*mNoiseLev+1.0); // this is not highly accurate
       if (estimateChannel) {
          LOG(DEBUG) << "estimating channel...";
          channelResponse[timeslot] = channelResp;
@@ -412,29 +393,17 @@ SoftVector *Transceiver::pullRadioVector(GSM::Time &wTime,
       }
     }
     else {
-      double framesElapsed = rxBurst->getTime()-prevFalseDetectionTime; 
-      LOG(DEBUG) << "wTime: " << rxBurst->getTime() << ", pTime: " << prevFalseDetectionTime << ", fElapsed: " << framesElapsed;
-      mEnergyThreshold += 10.0F/10.0F*exp(-framesElapsed);
-      prevFalseDetectionTime = rxBurst->getTime();
       channelResponse[timeslot] = NULL;
+      mNoises.insert(sqrt(avg));
     }
   }
   else {
     // RACH burst
-    success = detectRACHBurst(*vectorBurst, 6.0, mSPSRx, &amplitude, &TOA);
-    if (success) {
-      LOG(DEBUG) << "FOUND RACH!!!!!! " << amplitude << " " << TOA;
-      mEnergyThreshold -= (1.0F/10.0F);
-      if (mEnergyThreshold < 0.0) mEnergyThreshold = 0.0;
-      channelResponse[timeslot] = NULL; 
-    }
-    else {
-      double framesElapsed = rxBurst->getTime()-prevFalseDetectionTime;
-      mEnergyThreshold += (1.0F/10.0F)*exp(-framesElapsed);
-      prevFalseDetectionTime = rxBurst->getTime();
-    }
+    if (success = detectRACHBurst(*vectorBurst, 6.0, mSPSRx, &amplitude, &TOA))
+      channelResponse[timeslot] = NULL;
+    else
+      mNoises.insert(sqrt(avg));
   }
-  LOG(DEBUG) << "energy Threshold = " << mEnergyThreshold; 
 
   // demodulate burst
   SoftVector *burst = NULL;
@@ -542,13 +511,12 @@ void Transceiver::driveControl()
     int newGain;
     sscanf(buffer,"%3s %s %d",cmdcheck,command,&newGain);
     newGain = mRadioInterface->setRxGain(newGain);
-    mEnergyThreshold = INIT_ENERGY_THRSHD;
     sprintf(response,"RSP SETRXGAIN 0 %d",newGain);
   }
   else if (strcmp(command,"NOISELEV")==0) {
     if (mOn) {
       sprintf(response,"RSP NOISELEV 0 %d",
-              (int) round(20.0*log10(rxFullScale/mEnergyThreshold)));
+              (int) round(20.0*log10(rxFullScale/mNoiseLev)));
     }
     else {
       sprintf(response,"RSP NOISELEV 1  0");
