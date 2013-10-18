@@ -351,6 +351,7 @@ SoftVector *Transceiver::pullRadioVector(GSM::Time &wTime,
 
   // Update noise level
   mNoiseLev = mNoises.avg();
+  avg = sqrt(avg);
 
   // run the proper correlator
   if (corrType==TSC) {
@@ -394,7 +395,7 @@ SoftVector *Transceiver::pullRadioVector(GSM::Time &wTime,
     }
     else {
       channelResponse[timeslot] = NULL;
-      mNoises.insert(sqrt(avg));
+      mNoises.insert(avg);
     }
   }
   else {
@@ -402,7 +403,7 @@ SoftVector *Transceiver::pullRadioVector(GSM::Time &wTime,
     if (success = detectRACHBurst(*vectorBurst, 6.0, mSPSRx, &amplitude, &TOA))
       channelResponse[timeslot] = NULL;
     else
-      mNoises.insert(sqrt(avg));
+      mNoises.insert(avg);
   }
 
   // demodulate burst
@@ -419,7 +420,7 @@ SoftVector *Transceiver::pullRadioVector(GSM::Time &wTime,
 			    *DFEFeedback[timeslot]);
     }
     wTime = rxBurst->getTime();
-    RSSI = (int) floor(20.0*log10(rxFullScale/amplitude.abs()));
+    RSSI = (int) floor(20.0*log10(rxFullScale/avg));
     LOG(DEBUG) << "RSSI: " << RSSI;
     timingOffset = (int) round(TOA * 256.0 / mSPSRx);
   }
