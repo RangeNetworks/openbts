@@ -727,6 +727,9 @@ int uhd_device::readSamples(short *buf, int len, bool *overrun,
 	if (skip_rx)
 		return 0;
 
+	*overrun = false;
+	*underrun = false;
+
 	// Shift read time with respect to transmit clock
 	timestamp += ts_offset;
 
@@ -800,6 +803,8 @@ int uhd_device::writeSamples(short *buf, int len, bool *underrun,
 	metadata.start_of_burst = false;
 	metadata.end_of_burst = false;
 	metadata.time_spec = convert_time(timestamp, tx_rate);
+
+	*underrun = false;
 
 	// No control packets
 	if (isControl) {
