@@ -1635,7 +1635,7 @@ SIPState SIPEngine::inboundHandoverSendINVITE(TransactionEntry *transaction, uns
 		RTPState.push_back(strtol(thisItem,NULL,10));
 	}
 	free(items);
-	assert(RTPState.size() == 22);
+	assert(RTPState.size() == 19);
 	/* Out of desperation, when the RTP refused to work, I transferred from BS1 to BS2 just about
 	 * all the state in this struct.  Well, it turns out NONE of it is necessary.  Something else
 	 * entirely was the problem.  (Or, technically, state in a different struct.)  Anyway, I'm
