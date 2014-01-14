@@ -170,7 +170,7 @@ void RadioInterface::pushBuffer(void) {
   writeTimestamp += (TIMESTAMP) samplesWritten;
 
   if (sendCursor > 2*samplesWritten) 
-    memcpy(sendBuffer,sendBuffer+samplesWritten*2,sizeof(short)*2*(sendCursor-2*samplesWritten));
+    memcpy(sendBuffer,sendBuffer+samplesWritten*2,sizeof(short)*(sendCursor-2*samplesWritten));
   sendCursor = sendCursor - 2*samplesWritten;
 }
 
@@ -338,7 +338,7 @@ void RadioInterface::driveReceiveRadio() {
   }
 
   if (readSz > 0) { 
-    memcpy(rcvBuffer,rcvBuffer+2*readSz,sizeof(short)*2*(rcvCursor-readSz));
+    memcpy(rcvBuffer,rcvBuffer+2*readSz,sizeof(short)*(rcvCursor-2*readSz));
     rcvCursor = rcvCursor-2*readSz;
   }
 } 
