@@ -32,7 +32,7 @@
 #include "config.h"
 #endif
 
-#define B2XX_CLK_RT      52e6
+#define B2XX_CLK_RT      26e6
 #define B2XX_BASE_RT     GSMRATE
 #define B100_BASE_RT     400000
 #define USRP2_BASE_RT    390625
