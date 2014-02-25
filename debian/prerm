@@ -16,14 +16,20 @@ set -e
 # for details, see http://www.debian.org/doc/debian-policy/ or
 # the debian-policy package
 
-# remove()
-# {
-#     killall runloop.OpenBTS.sh &>/dev/null
-# }
+APP=OpenBTS
+
+remove()
+{
+    if [ "$(pidof $APP)" ]; then
+	killall $APP
+    else
+	echo "$APP not running"
+    fi
+}
 
 case "$1" in
     remove|upgrade|deconfigure)
-#        remove
+        remove
     ;;
 
     failed-upgrade)
