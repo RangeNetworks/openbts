@@ -1,0 +1,12 @@
+[submodule "SR"]
+	path = SR
+	url = git@github.com:RangeNetworks/subscriberRegistry.git
+	branch = 3.1
+[submodule "CommonLibs"]
+	path = CommonLibs
+	url = git@github.com:RangeNetworks/CommonLibs.git
+	branch = 3.1
+[submodule "sqlite3"]
+	path = sqlite3
+	url = git@github.com:RangeNetworks/sqlite3.git
+	branch = 3.1
