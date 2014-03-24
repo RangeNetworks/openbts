@@ -1182,7 +1182,7 @@ void L3GmmMsgAuthentication::gmmWriteBody(ByteVector &msg)
 void L3GmmMsgAuthenticationResponse::gmmParseBody(L3GmmFrame &src, size_t &rp)
 {
 	// 9.4.10 of 24.008
-        unsigned char ACrefnum = src.readByte(rp); // ignore for now
+        //unsigned char ACrefnum = src.readByte(rp); // ignore for now
         ByteVector SRES(4);
 
         // optional ieis:

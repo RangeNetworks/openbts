@@ -12,8 +12,6 @@ To run OpenBTS, the following should be installed:
 
 	Asterisk (http://www.asterisk.org), running SIP on port 5060.
 
-	libosip2 (http://www.gnu.org/software/osip/)
-
 	libortp (http://freshmeat.net/projects/ortp/)
 
 	libusrp (http://gnuradio.org).

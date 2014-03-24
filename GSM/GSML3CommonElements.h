@@ -101,9 +101,7 @@ class L3LocationAreaIdentity : public L3ProtocolElement {
 
 /** Mobile Identity, GSM 04.08, 10.5.1.4 */
 class L3MobileIdentity : public L3ProtocolElement {
-
 	private:
-
 	
 	MobileIDType mType;					///< IMSI, TMSI, or IMEI?
 	char mDigits[16];					///< GSM 03.03 2.2 limits the IMSI or IMEI to 15 digits.
@@ -134,6 +132,8 @@ class L3MobileIdentity : public L3ProtocolElement {
 	MobileIDType type() const { return mType; }
 	const char* digits() const { assert(mType!=TMSIType); return mDigits; }
 	unsigned int TMSI() const { assert(mType==TMSIType); return mTMSI; }
+	bool isIMSI() const { return mType==IMSIType; }
+	bool isTMSI() const { return mType==TMSIType; }
 	//@}
 
 	/** Comparison. */

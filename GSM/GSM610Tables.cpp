@@ -202,7 +202,7 @@ const unsigned int x4_12_p = x4_11_p + x_l;
 	the d[] bits of the GSM TCH/F.
 	RTP[4+g610BitOrder[i]] <=> GSM[i]
 */
-unsigned int GSM::g610BitOrder[260] = {
+const unsigned int GSM::g610BitOrder[260] = {
 /**@name importance class 1 */
 //@{
 /** LAR1:5 */	LAR1_p+LAR1_l-1-5, 		/* bit 0 */
@@ -482,4 +482,3 @@ unsigned int GSM::g610BitOrder[260] = {
 /** LAR6:0 */	LAR6_p+LAR6_l-1-0
 //@}
 };
-

@@ -44,7 +44,7 @@
 #endif
 
 
-#define DEFAULT_CMD_PATH "/var/run/command"
+#define DEFAULT_CMD_PATH "/var/run/OpenBTS/command"
 #define DEFAULT_RSP_PATH "./response"
 
 
@@ -154,7 +154,7 @@ int main(int argc, char *argv[])
 		// use the socket
 		if (sendto(sock,cmd,strlen(cmd)+1,0,(struct sockaddr*)&cmdSockName,sizeof(cmdSockName))<0) {
 			perror("sending datagram");
-			printf("Is the remote application running?\n");
+			printf("Is the remote application (OpenBTS daemon) running?\n");
 			continue;
 		}
 		free(cmd);

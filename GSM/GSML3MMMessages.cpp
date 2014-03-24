@@ -38,37 +38,45 @@ ostream& GSM::operator<<(ostream& os, L3MMMessage::MessageType val)
 {
 	switch (val) {
 		case L3MMMessage::IMSIDetachIndication: 
-			os << "IMSI Detach Indication"; break;
+			os << "IMSI Detach Indication"; return os;
 		case L3MMMessage::CMServiceRequest: 
-			os << "CM Service Request"; break;
+			os << "CM Service Request"; return os;
 		case L3MMMessage::CMServiceAccept: 
-			os << "CM Service Accept"; break;
+			os << "CM Service Accept"; return os;
 		case L3MMMessage::CMServiceReject: 
-			os << "CM Service Reject"; break;
+			os << "CM Service Reject"; return os;
 		case L3MMMessage::CMServiceAbort: 
-			os << "CM Service Abort"; break;
+			os << "CM Service Abort"; return os;
 		case L3MMMessage::CMReestablishmentRequest:
-			os << "CM Re-establishment Request"; break;
+			os << "CM Re-establishment Request"; return os;
 		case L3MMMessage::IdentityResponse: 
-			os << "Identity Response"; break;
+			os << "Identity Response"; return os;
 		case L3MMMessage::IdentityRequest: 
-			os << "Identity Request"; break;
+			os << "Identity Request"; return os;
 		case L3MMMessage::MMInformation: 
-			os << "MM Information"; break;
+			os << "MM Information"; return os;
 		case L3MMMessage::LocationUpdatingAccept: 
-			os << "Location Updating Accept"; break;
+			os << "Location Updating Accept"; return os;
 		case L3MMMessage::LocationUpdatingReject: 
-			os << "Location Updating Reject"; break;
+			os << "Location Updating Reject"; return os;
 		case L3MMMessage::LocationUpdatingRequest: 
-			os << "Location Updating Request"; break;
+			os << "Location Updating Request"; return os;
+		case L3MMMessage::TMSIReallocationCommand: 
+			os << "MM TMSI Reallocation Command"; return os;
+		case L3MMMessage::TMSIReallocationComplete: 
+			os << "MM TMSI Reallocation Complete"; return os;
 		case L3MMMessage::MMStatus: 
-			os << "MM Status"; break;
+			os << "MM Status"; return os;
+		case L3MMMessage::AuthenticationReject:
+			os << "MM Authentication Reject"; return os;
 		case L3MMMessage::AuthenticationRequest:
-			os << "Authentication Request"; break;
+			os << "MM Authentication Request"; return os;
 		case L3MMMessage::AuthenticationResponse:
-			os << "Authentication Response"; break;
-		default: os << hex << "0x" << (int)val << dec;
+			os << "MM Authentication Response"; return os;
+		case L3MMMessage::Undefined:
+			os << "MM Undefined"; return os;
 	}
+	os << hex << "0x" << (int)val << dec;
 	return os;
 }
 
@@ -87,6 +95,7 @@ L3MMMessage* GSM::L3MMFactory(L3MMMessage::MessageType MTI)
 	  case L3MMMessage::MMStatus: return new L3MMStatus;
 	  case L3MMMessage::IdentityResponse: return new L3IdentityResponse;
 	  case L3MMMessage::AuthenticationResponse: return new L3AuthenticationResponse;
+	  case L3MMMessage::TMSIReallocationComplete: return new L3TMSIReallocationComplete;
 	  default:
 	    LOG(WARNING) << "no L3 MM factory support for message " << MTI;
 		return NULL;
@@ -115,11 +124,8 @@ void L3MMMessage::text(ostream& os) const
 
 void L3LocationUpdatingRequest::parseBody( const  L3Frame &src, size_t &rp )
 {
-		// skip updating type
-		// (pat) Save this for debugging purposes.
+		mCKSN = src.readField(rp,4);
 		mUpdateType = src.readField(rp,4);
-		// skip ciphering ket sequence number
-		rp += 4;
 		mLAI.parseV(src,rp);
 		mClassmark.parseV(src,rp);
 		mMobileIdentity.parseLV(src, rp);
@@ -129,7 +135,8 @@ void L3LocationUpdatingRequest::parseBody( const  L3Frame &src, size_t &rp )
 void L3LocationUpdatingRequest::text(ostream& os) const
 {
 	L3MMMessage::text(os);
-	os << "UpdateType=("<<mUpdateType<<")";
+	os << " UpdateType="<<mUpdateType;
+	os << " CipherKeySeqNum="<<mCKSN;
 	os << " LAI=("<<mLAI<<")";
 	os << " MobileIdentity=("<<mMobileIdentity<<")";
 	os << " classmark=(" << mClassmark << ")";
@@ -150,14 +157,17 @@ size_t L3LocationUpdatingRequest::l2BodyLength() const
 
 size_t L3LocationUpdatingAccept::l2BodyLength() const
 {
-	if (mHaveMobileIdentity) return mLAI.lengthV() + mMobileIdentity.lengthTLV();
-	else return mLAI.lengthV();
+	size_t result = mLAI.lengthV();
+	if (mHaveMobileIdentity) result += mMobileIdentity.lengthTLV();
+	if (mFollowOnProceed) result += 1;
+	return result;
 }
 
 void L3LocationUpdatingAccept::writeBody( L3Frame &dest, size_t &wp ) const
 {
 	mLAI.writeV(dest, wp);
 	if (mHaveMobileIdentity) mMobileIdentity.writeTLV(0x17,dest,wp);
+	if (mFollowOnProceed) dest.writeField(wp,0xa1,8);	// IEI is A1
 }
 
 void L3LocationUpdatingAccept::text(ostream& os) const
@@ -179,6 +189,10 @@ void L3LocationUpdatingReject::text(ostream& os) const
 	os <<"cause="<<mRejectCause;
 }
 
+void L3TMSIReallocationComplete::text(ostream& os) const
+{
+	L3MMMessage::text(os);
+}
 
 
 void L3IMSIDetachIndication::parseBody(const L3Frame& src, size_t &rp)

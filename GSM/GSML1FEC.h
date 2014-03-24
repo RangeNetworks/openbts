@@ -1,6 +1,7 @@
 /*
 * Copyright 2008-2010 Free Software Foundation, Inc.
 * Copyright 2010 Kestrel Signal Processing, Inc.
+* Copyright 2014 Range Networks, Inc.
 *
 
     This program is distributed in the hope that it will be useful,
@@ -25,15 +26,18 @@
 #include "Threads.h"
 #include <assert.h>
 #include "BitVector.h"
+#include "ViterbiR204.h"
+#include "AmrCoder.h"
 
 #include "GSMCommon.h"
 #include "GSMTransfer.h"
 #include "GSMTDMA.h"
 
-#include "a53.h"
+#include <a53.h>
 #include "A51.h"
 
 #include "GSM610Tables.h"
+#include "GSM503Tables.h"
 
 #include <Globals.h>
 
@@ -44,6 +48,7 @@ class ARFCNManager;
 
 namespace GSM {
 
+ViterbiBase *newViterbi(AMRMode mode);
 
 /* forward refs */
 class GSMConfig;
@@ -125,7 +130,7 @@ class L1Encoder {
 	// (pat) Moved to classes that need the convolutional coder.
 	//ViterbiR2O4 mVCoder;	///< nearly all GSM channels use the same convolutional code
 
-	char mDescriptiveString[100];
+	std::string mDescriptiveString;
 
 	public:
 
@@ -152,7 +157,7 @@ class L1Encoder {
 
 	ARFCNManager *getRadio() { return mDownstream; }
 	// Used by XCCHEncoder
-	void transmit(BitVector *mI, BitVector *mE, const int *qbits);
+	void transmit(BitVector2 *mI, BitVector2 *mE, const int *qbits);
 
 	/**@name Accessors. */
 	//@{
@@ -193,7 +198,7 @@ class L1Encoder {
 	/** Start the service loop thread, if there is one.  */
 	virtual void start() { mRunning=true; }
 
-	const char* descriptiveString() const { return mDescriptiveString; }
+	virtual const char* descriptiveString() const { return mDescriptiveString.c_str(); }
 
 	L1FEC* parent() { return mParent; }
 
@@ -224,6 +229,27 @@ class L1Encoder {
 
 };
 
+struct HandoverRecord {
+	bool mValid;
+	float mhrRSSI;
+	float mhrTimingError;
+	double mhrTimestamp;
+	HandoverRecord() : mValid(false) {}
+	HandoverRecord(float rssi,float te, double timestamp) : mValid(true), mhrRSSI(rssi), mhrTimingError(te), mhrTimestamp(timestamp) {}
+};
+
+struct DecoderStats {
+	float mAveFER;
+	float mAveBER;
+	float mAveSNR;
+	unsigned mSNRCount;	// Number of SNR samples taken.
+	int mStatTotalFrames;
+	int mStatStolenFrames;
+	int mStatBadFrames;
+	void decoderStatsInit();
+	void countSNR(const RxBurst &burst);
+};
+
 
 /**
 	An abstract class for L1 decoders.
@@ -231,21 +257,23 @@ class L1Encoder {
 	// (pat) base class for: RACHL1Decoder, XCCHL1Decoder
 	// It would be more elegant to split this into two classes: a base class
 	// for both GPRS and RR, and the rest of this class that is RR specific.
+	// Update: The thing to do here is to take RACCH out because it shares no code with this class.
 */
 class L1Decoder {
 
 	protected:
 
-	// (pat) Not used for GPRS
+	// (pat) Not used for GPRS.  Or for RACCH.  It should be in XCCHL1Decoder.
 	SAPMux * mUpstream;
 
 	/**@name Mutex-controlled state information. */
 	//@{
 	mutable Mutex mLock;				///< access control
 	/**@name Timers from GSM 04.08 11.1.2 */
+	// pat believes these timers should be in XCCHL1Decoder.
 	//@{
 	Z100Timer mT3101;					///< timer for new channels
-	Z100Timer mT3109;					///< timer for existing channels
+	Z100Timer mT3109;					///< timer for existing uplink channels, uplinkLost on expiry
 	Z100Timer mT3111;					///< timer for reuse of a closed channel
 	Z100Timer mT3103;					///< timer for handover
 	//@}
@@ -256,9 +284,14 @@ class L1Decoder {
 	// Yes, I realize we're violating our own rules here. -- DAB
 	//@{
 	volatile bool mRunning;						///< true if all required service threads are started
-	volatile float mFER;						///< current FER estimate
-	static const int mFERMemory=20;				///< FER decay time, in frames
+	//volatile float mFER;						///< current FER estimate
+	//static const int mFERMemory=208;			///< FER decay time, in frames
+				// (pat) Uh, no.  It is in frames for control frames, but in frames/4 for TCH frames.
+				// (pat) Upped it from 20 frames to 208 frames, ie, about a second.
+	static const int mSNRMemory = 208;
 	volatile bool mHandoverPending;				///< if true, we are decoding handover bursts
+	volatile unsigned mHandoverRef;
+	HandoverRecord mHandoverRecord;
 	//@}
 
 	/**@name Parameters fixed by the constructor, not requiring mutex protection. */
@@ -277,6 +310,7 @@ class L1Decoder {
 	unsigned char mKc[8];
 	int mFN[8];
 
+	DecoderStats mDecoderStats;
 
 	public:
 
@@ -292,7 +326,7 @@ class L1Decoder {
 			mT3103(gConfig.getNum("GSM.Timer.T3103")),
 			mActive(false),
 			mRunning(false),
-			mFER(0.0F),
+			//mFER(0.0F),
 			mCN(wCN),mTN(wTN),
 			mMapping(wMapping),mParent(wParent),
 			mEncrypted(ENCRYPT_NO),
@@ -324,6 +358,7 @@ class L1Decoder {
 		Returns true if T3111 is not active.
 	*/
 	bool active() const;
+	//bool reallyActive() const { return mActive; }
 
 	/** Return true if any timer is expired. */
 	bool recyclable() const;
@@ -336,7 +371,8 @@ class L1Decoder {
 	}
 
 	/** Total frame error rate since last open(). */
-	float FER() const { return mFER; }
+	float FER() const { return mDecoderStats.mAveFER; }			// (pat) old routine, switched to new variable.
+	DecoderStats getDecoderStats() const { return mDecoderStats; }	// (pat) new routine, more stats
 
 	/** Return the multiplexing parameters. */
 	const TDMAMapping& mapping() const { return mMapping; }
@@ -352,10 +388,14 @@ class L1Decoder {
 	//@}
 
 	/** Control the processing of handover access busts. */
-	void handoverPending(bool flag)
+	// OK to pass reference to HandoverRecord since this struct is immortal.
+	HandoverRecord &handoverPending(bool flag, unsigned handoverRef)
 	{
-		if (flag) mT3103.set();
+		LOG(INFO) << LOGVAR(flag);
+		if (flag) { mT3103.set(); } else { mT3103.reset(); }
 		mHandoverPending=flag;
+		mHandoverRef=handoverRef;
+		return mHandoverRecord;
 	}
 
 	public:
@@ -376,8 +416,13 @@ class L1Decoder {
 	virtual void start() { mRunning=true; }
 
 	public:
-	void countGoodFrame();
-	void countBadFrame();
+	void countGoodFrame(unsigned nframes=1);
+	void countBadFrame(unsigned nframes = 1);
+	void countStolenFrame(unsigned nframes = 1);
+	void countBER(unsigned bec, unsigned frameSize);
+	bool uplinkLost() const;
+	// TODO: The RACH does not have an encoder sibling, we should put a descriptive string for it too.
+	virtual const char* descriptiveString() const { return sibling() ? sibling()->descriptiveString() : "?decoder?"; }
 
 	bool decrypt_maybe(string wIMSI, int wA5Alg);
 	unsigned char *kc() { return mKc; }
@@ -531,7 +576,7 @@ class L1FEC {
 		{ if (mDecoder) mDecoder->upstream(mux); }
 
 	/** set encoder and decoder handover pending mode. */
-	void handoverPending(bool flag);
+	HandoverRecord& handoverPending(bool flag, unsigned handoverRef);
 
 	/**@name Ganged actions. */
 	//@{
@@ -564,6 +609,7 @@ class L1FEC {
 		{ assert(mDecoder); return mDecoder->recyclable(); }
 
 	bool active() const;	// Channel in use?  See L1Encoder
+	//bool reallyActive() const;	// Channel really in use?  See L1Decoder.
 
 	// (pat) This lovely function is unsed.
 	// TRXManager.cpp:installDecoder uses L1Decoder::mapping() directly.
@@ -574,7 +620,7 @@ class L1FEC {
 	const TDMAMapping& rcvMapping() const
 		{ assert(mDecoder); return mDecoder->mapping(); }
 
-	const char* descriptiveString() const
+	virtual const char* descriptiveString() const
 		{ assert(mEncoder); return mEncoder->descriptiveString(); }
 
 	//@}
@@ -582,11 +628,13 @@ class L1FEC {
 	//void setDecoder(L1Decoder*me) { mDecoder = me; }
 	//void setEncoder(L1Encoder*me) { mEncoder = me; }
 	ARFCNManager *getRadio() { return mEncoder->getRadio(); }
-	bool inUseByGPRS() { return mGprsReserved; }
+	bool inUseByGPRS() const { return mGprsReserved; }
 	void setGPRS(bool reserved, GPRS::PDCHL1FEC *pch) { mGprsReserved = reserved; mGPRSFEC = pch; }
 
 	L1Decoder* decoder() { return mDecoder; }
 	L1Encoder* encoder() { return mEncoder; }
+	bool radioFailure() const
+		{ assert(mDecoder); return mDecoder->uplinkLost(); }
 }; 
 
 
@@ -620,8 +668,8 @@ class RACHL1Decoder : public L1Decoder
 	//@{
 	ViterbiR2O4 mVCoder;	///< nearly all GSM channels use the same convolutional code
 	Parity mParity;					///< block coder
-	BitVector mU;					///< u[], as per GSM 05.03 2.2
-	BitVector mD;					///< d[], as per GSM 05.03 2.2
+	BitVector2 mU;					///< u[], as per GSM 05.03 2.2
+	BitVector2 mD;					///< d[], as per GSM 05.03 2.2
 	//@}
 
 	// The RACH channel uses an internal FIFO,
@@ -673,18 +721,23 @@ void *RACHL1DecoderServiceLoopAdapter(RACHL1Decoder*);
 class SharedL1Encoder
 {
 	protected:
+#ifdef TESTTCHL1FEC
+	public:
+#endif
 	ViterbiR2O4 mVCoder;	///< nearly all GSM channels use the same convolutional code
     Parity mBlockCoder;
-    BitVector mC;               ///< c[], as per GSM 05.03 2.2
-    BitVector mU;               ///< u[], as per GSM 05.03 2.2
-    //BitVector mDP;              ///< d[]:p[] (data & parity)
-    BitVector mP;               ///< p[], as per GSM 05.03 2.2
+    BitVector2 mC;               ///< c[], as per GSM 05.03 2.2 Data after second encoding step.
+    BitVector2 mU;               ///< u[], as per GSM 05.03 2.2 Data after first encoding step.
+    //BitVector2 mDP;              ///< d[]:p[] (data & parity)
 	public:
-    BitVector mD;               ///< d[], as per GSM 05.03 2.2		Incoming Data.
-    BitVector mI[4];           ///< i[][], as per GSM 05.03 2.2	Outgoing Data.
-    BitVector mE[4];
+    BitVector2 mD;               ///< d[], as per GSM 05.03 2.2		Incoming Data.
+	private:
+    BitVector2 mP;               ///< p[], as per GSM 05.03 2.2  (pat) no such thing
+	public:
+    BitVector2 mI[4];           ///< i[][], as per GSM 05.03 2.2	Outgoing Data.
+    BitVector2 mE[4];
 
-	/**
+	/** GSM 05.03 4.2 encoder
 	  Encode u[] to c[].
 	  Includes LSB-MSB reversal within each octet.
 	*/
@@ -702,7 +755,7 @@ class SharedL1Encoder
 	SharedL1Encoder();
 
 	//void encodeFrame41(const L2Frame &frame, int offset);
-	void encodeFrame41(const BitVector &frame, int offset, bool copy=true);
+	void encodeFrame41(const BitVector2 &frame, int offset, bool copy=true);
 	void initInterleave(int);
 };
 
@@ -717,18 +770,18 @@ class SharedL1Decoder
     Parity mBlockCoder;
 	public:
     SoftVector mC;              ///< c[], as per GSM 05.03 2.2
-    BitVector mU;               ///< u[], as per GSM 05.03 2.2
-    BitVector mP;               ///< p[], as per GSM 05.03 2.2
-    BitVector mDP;              ///< d[]:p[] (data & parity)
+    BitVector2 mU;               ///< u[], as per GSM 05.03 2.2
+    BitVector2 mP;               ///< p[], as per GSM 05.03 2.2
+    BitVector2 mDP;              ///< d[]:p[] (data & parity)
 	public:
-    BitVector mD;               ///< d[], as per GSM 05.03 2.2
+    BitVector2 mD;               ///< d[], as per GSM 05.03 2.2
     SoftVector mE[4];
     SoftVector mI[4];           ///< i[][], as per GSM 05.03 2.2
 	/**@name Handover Access Burst FEC state. */
 	//@{
 	Parity mHParity;			///< block coder for handover access bursts
-	BitVector mHU;				///< u[] for handover access, as per GSM 05.03 4.6
-	BitVector mHD;				///< d[] for handover access, as per GSM 05.03 4.6
+	BitVector2 mHU;				///< u[] for handover access, as per GSM 05.03 4.6
+	BitVector2 mHD;				///< d[] for handover access, as per GSM 05.03 4.6
 	//@}
     //@}
 
@@ -745,35 +798,13 @@ class SharedL1Decoder
 
 
 /** Abstract L1 decoder for most control channels -- GSM 05.03 4.1 */
+// (pat) That would be SDCCH, SACCH, and FACCH.  TCH goes to TCHFRL1Decoder instead.
 class XCCHL1Decoder :
-	public SharedL1Decoder,
+	virtual public SharedL1Decoder,
 	public L1Decoder
 {
 
 	protected:
-
-	// Moved to SharedL1Decoder
-#if 0
-	/**@name FEC state. */
-	//@{
-	/**@name Normal Burst FEC state. */
-	//@{
-	Parity mBlockCoder;			///< block coder for normal bursts
-	SoftVector mI[4];			///< i[][], as per GSM 05.03 2.2
-	SoftVector mC;				///< c[], as per GSM 05.03 2.2
-	BitVector mU;				///< u[], as per GSM 05.03 2.2
-	BitVector mP;				///< p[], as per GSM 05.03 2.2
-	BitVector mDP;				///< d[]:p[] (data & parity)
-	BitVector mD;				///< d[], as per GSM 05.03 2.2
-	//@}
-	/**@name Handover Access Burst FEC state. */
-	//@{
-	Parity mHParity;			///< block coder for handover access bursts
-	BitVector mHU;				///< u[] for handover access, as per GSM 05.03 4.6
-	BitVector mHD;				///< d[] for handover access, as per GSM 05.03 4.6
-	//@}
-	//@}
-#endif
 
 	public:
 
@@ -803,23 +834,6 @@ class XCCHL1Decoder :
 	*/
 	virtual bool processBurst(const RxBurst&);
 	
-	// Moved to SharedL1Encoder.
-#if 0
-	/**
-	  Deinterleave the i[] to c[].
-	  This virtual method works for all block-interleaved channels (xCCHs).
-	  A different method is needed for diagonally-interleaved channels (TCHs).
-	*/
-	virtual void deinterleave();
-
-	/**
-	  Decode the frame and send it upstream.
-	  Includes LSB-MSB reversal within each octet.
-	  @return True if frame passed parity check.
-	 */
-	bool decode();
-#endif
-	
 	/** Finish off a properly-received L2Frame in mU and send it up to L2. */
 	virtual void handleGoodFrame();
 };
@@ -843,50 +857,26 @@ class SDCCHL1Decoder : public XCCHL1Decoder {
 
 };
 
-
-/**
-	L1 decoder for the SACCH.
-	Like any other control channel, but with hooks for power/timing control.
-*/
-class SACCHL1Decoder : public XCCHL1Decoder {
-
-	private:
-
-	SACCHL1FEC *mSACCHParent;
-	volatile float mRSSI;			///< most recent RSSI, dB wrt full scale
-	volatile float mTimingError;		///< Timing error history in symbols
+// This is just the physical info sent on SACCH.  The FER() is in the base class used by all channel types,
+// and the measurement reports are up in Layer 2.
+class MSPhysReportInfo {
+	protected:	// dont know why we bother
+	unsigned mRSSICount;			// Number of reports received so far, used for averaging RSSI and others.
+	volatile float mRSSI;			///< most recent RSSI, dB wrt full scale (Received Signal Strength derived from our measurement of the received burst).
+	volatile float mTimingError;		///< Timing error history in symbols (derived from our measurement of the received burst).
 	volatile double mTimestamp;		///< system time of most recent received burst
-	volatile int mActualMSPower;		///< actual MS tx power in dBm
-	volatile int mActualMSTiming;		///< actual MS tx timing advance in symbols
-
+	volatile int mActualMSPower;		///< actual MS tx power in dBm (that the MS reported to us)
+	volatile int mActualMSTiming;		///< actual MS tx timing advance in symbols (that the MS reported to us)
+	void sacchInit();
 	public:
-
-	SACCHL1Decoder(
-		unsigned wCN,
-		unsigned wTN,
-		const TDMAMapping& wMapping,
-		SACCHL1FEC *wParent)
-		:XCCHL1Decoder(wCN,wTN,wMapping,(L1FEC*)wParent),
-		mSACCHParent(wParent),
-		mRSSI(0.0F),
-		mTimingError(0.0F),
-		mTimestamp(0.0),
-		mActualMSPower(0),
-		mActualMSTiming(0)
-	{ }
-
-	ChannelType channelType() const { return SACCHType; }
-
+	MSPhysReportInfo() :
+		mRSSICount(0),			// irrelevant, see sacchInit
+		mRSSI(0.0F),		// irrelevant, see sacchInit
+		mTimingError(0.0F), 	// irrelevant, see sacchInit
+		mTimestamp(0.0)	// irrelevant, see sacchInit
+		{}
 	int actualMSPower() const { return mActualMSPower; }
 	int actualMSTiming() const { return mActualMSTiming; }
-
-	/** Override open() to set physical parameters with reasonable defaults. */
-	void open();
-
-	/**
-		Override processBurst to catch the physical parameters.
-	*/
-	bool processBurst(const RxBurst&);
 	
 	/** Set pyshical parameters for initialization. */
 	void setPhy(float wRSSI, float wTimingError, double wTimestamp);
@@ -899,14 +889,56 @@ class SACCHL1Decoder : public XCCHL1Decoder {
 	/** Artificially push down RSSI to induce the handset to push more power. */
 	void RSSIBumpDown(float dB) { mRSSI -= dB; }
 
+	/** Timestamp of most recent received burst. */
+	double timestamp() const { return mTimestamp; }
+
 	/**
 		Timing error of most recent received burst, symbol units.
 		Positive is late; negative is early.
 	*/
 	float timingError() const { return mTimingError; }
+	void processPhysInfo(const RxBurst &inBurst);
+	MSPhysReportInfo * getPhysInfo() { return this; }
+};
 
-	/** Timestamp of most recent received burst. */
-	double timestamp() const { return mTimestamp; }
+
+/**
+	L1 decoder for the SACCH.
+	Like any other control channel, but with hooks for power/timing control.
+*/
+class SACCHL1Decoder : public XCCHL1Decoder, public MSPhysReportInfo {
+
+	private:
+
+	SACCHL1FEC *mSACCHParent;
+
+
+	public:
+
+	SACCHL1Decoder(
+		unsigned wCN,
+		unsigned wTN,
+		const TDMAMapping& wMapping,
+		SACCHL1FEC *wParent)
+		:XCCHL1Decoder(wCN,wTN,wMapping,(L1FEC*)wParent),
+		mSACCHParent(wParent)
+	{
+		// (pat) DONT init any dynamic data here.  It is pointless - this object is immortal.
+		// TODO: on first measurement, make them all the same.
+		// David says: RACH has an option to ramp up power - should remove that option.
+		//sacchInit();
+	}
+
+	ChannelType channelType() const { return SACCHType; }
+
+
+	/** Override open() to set physical parameters with reasonable defaults. */
+	void open();
+
+	/**
+		Override processBurst to catch the physical parameters.
+	*/
+	bool processBurst(const RxBurst&);
 
 
 	protected:
@@ -929,25 +961,9 @@ class SACCHL1Decoder : public XCCHL1Decoder {
 
 /** L1 encoder used for many control channels -- mostly from GSM 05.03 4.1 */
 class XCCHL1Encoder :
-	public SharedL1Encoder,
+	virtual public SharedL1Encoder,
 	public L1Encoder
 {
-
-	protected:
-
-	// Moved to SharedL1Encoder
-#if 0
-	/**@name FEC signal processing state.  */
-	//@{
-	Parity mBlockCoder;			///< block coder for this channel
-	BitVector mI[4];			///< i[][], as per GSM 05.03 2.2
-	BitVector mC;				///< c[], as per GSM 05.03 2.2
-	BitVector mU;				///< u[], as per GSM 05.03 2.2
-	BitVector mD;				///< d[], as per GSM 05.03 2.2
-	BitVector mP;				///< p[], as per GSM 05.03 2.2
-	//@}
-#endif
-
 	public:
 
 	XCCHL1Encoder(
@@ -968,56 +984,83 @@ class XCCHL1Encoder :
 	/** Send a single L2 frame.  */
 	virtual void sendFrame(const L2Frame&);
 	// Moved to SharedL1Encoder
-	//virtual void transmit(BitVector *mI);
-#if 0
-	/**
-	  Encode u[] to c[].
-	  Includes LSB-MSB reversal within each octet.
-	*/
-	void encode();
-
-	/**
-	  Interleave c[] to i[].
-	  GSM 05.03 4.1.4.
-	*/
-	virtual void interleave();
-
-	/**
-	  Format i[] into timeslots and send them down for transmission.
-	  Set stealing flags assuming a control channel.
-	  Also updates mWriteTime.
-	  GSM 05.03 4.1.5, 05.02 5.2.3.
-	*/
-	virtual void transmit();
-#endif
-
+	//virtual void transmit(BitVector2 *mI);
 };
 
 
 
+
+// downstream flow:
+//	RTP => transaction->rxFrame(char[] rxFrame)
+//		updateCallTraffic(): TCHFACCHLogicalChannel *TCH->sendTCH(rxFrame);
+//		sendTCH packs as VocoderFrame and puts on SpeechQ.
+//		encodeTCH gets the payload from the VocoderFrame, result left in mC.
+//		then TCHFACCHL1Encoder::dispatch() sends mC result to radio.
+// Alternative:
+//		Allocate as bytevector from rtp on, and decode to VocoderFrame in sendTCH.
+//		So speechQ type is ByteVector.
+//
+// upstream flow:
+//		speechQ
+
+class TCHFRL1Encoder : virtual public SharedL1Encoder
+{
+	// Shared AMR and GSM_FR variables:
+	ViterbiBase *mViterbi;		// Points to current encoder in use.
+	AMRMode mAMRMode;
+	Parity mTCHParity;
+	BitVector2 mPrevGoodFrame;	///< current and previous good frame
+
+	BitVector2 mTCHU;				///< u[], but for traffic
+	BitVector2 mTCHD;				///< d[], but for traffic
+	BitVector2 mTCHRaw;				///< Raw data before mapping.
+
+	BitVector2 mClass1A_d;			///< the class 1A part of taffic d[]
+	BitVector2 mClass1_c;			///< the class 1 part of taffic c[]
+	BitVector2 mClass2_d;			///< the class 2 part of d[]
+
+	// AMR variables:
+	const unsigned *mAMRBitOrder;
+	unsigned mClass1ALth;
+	unsigned mClass1BLth;
+	BitVector2 mTCHUC;
+	const unsigned *mPuncture;
+	unsigned mPunctureLth;
+
+	void encodeTCH_AFS(const AudioFrame* vFrame);
+	void encodeTCH_GSM(const AudioFrame* vFrame);
+	void setViterbi(AMRMode wMode) {
+		if (mViterbi) { delete mViterbi; }
+		mViterbi = newViterbi(wMode);
+	}
+	public:
+	unsigned getTCHPayloadSize() { return GSM::gAMRKd[mAMRMode]; }	// decoded payload size.
+	void setAmrMode(AMRMode wMode);
+	/** Encode a full speed AMR vocoder frame into c[]. */
+	void encodeTCH(const AudioFrame* aFrame);	// Not that the const does any good.
+
+	// (pat) Irritating and pointless but harmless double-initialization of Parity and BitVector2s.  Stupid language.
+	// (pat) Assume TCH_FS until someone changes the mode to something else.
+	TCHFRL1Encoder() : mViterbi(0), mTCHParity(0,0,0) { setAmrMode(TCH_FS); }
+};
+
+
 /** L1 encoder used for full rate TCH and FACCH -- mostry from GSM 05.03 3.1 and 4.2 */
-class TCHFACCHL1Encoder : public XCCHL1Encoder {
-
-private:
-
+class TCHFACCHL1Encoder :
+	public XCCHL1Encoder,
+	public TCHFRL1Encoder
+{
 	bool mPreviousFACCH;	///< A copy of the previous stealing flag state.
 	size_t mOffset;			///< Current deinterleaving offset.
 
-	BitVector mE[8];
+	BitVector2 mE[8];
 	// (pat) Yes, the mI here duplicates but overrides the same
 	// vector down in XCCHL1Encoder.
-	BitVector mI[8];			///< deinterleaving history, 8 blocks instead of 4
-	BitVector mTCHU;				///< u[], but for traffic
-	BitVector mTCHD;				///< d[], but for traffic
-	BitVector mClass1_c;			///< the class 1 part of taffic c[]
-	BitVector mClass1A_d;			///< the class 1A part of taffic d[]
-	BitVector mClass2_d;			///< the class 2 part of d[]
+	BitVector2 mI[8];			///< deinterleaving history, 8 blocks instead of 4
 
-	BitVector mFillerC;				///< copy of previous c[] for filling dead time
+	BitVector2 mFillerC;				///< copy of previous c[] for filling dead time
 
-	Parity mTCHParity;
-
-	VocoderFrameFIFO mSpeechQ;		///< input queue for speech frames
+	AudioFrameFIFO mSpeechQ;		///< input queue for speech frames
 
 	L2FrameFIFO mL2Q;				///< input queue for L2 FACCH frames
 
@@ -1030,9 +1073,8 @@ public:
 			  const TDMAMapping& wMapping,
 			  L1FEC* wParent);
 
-	/** Enqueue a traffic frame for transmission. */
-	void sendTCH(const unsigned char *frame)
-		{ mSpeechQ.write(new VocoderFrame(frame)); }
+	/** Enqueue a traffic frame for transmission by the FEC to be sent to the radio. */
+	void sendTCH(AudioFrame *frame) { mSpeechQ.write(frame); }
 
 	/** Extend open() to set up semaphores. */
 	void open();
@@ -1040,11 +1082,8 @@ public:
 protected:
 
 	// GSM 05.03, 3.1.3
-	void interleave31(int blockOffset);
-#if 0
 	/** Interleave c[] to i[].  GSM 05.03 4.1.4. */
-	virtual void interleave31(int blockOffset);
-#endif
+	void interleave31(int blockOffset);
 
 	/** Encode a FACCH and enqueue it for transmission. */
 	void sendFrame(const L2Frame&);
@@ -1059,44 +1098,88 @@ protected:
 	/** Will start the dispatch thread. */
 	void start();
 
-	/** Encode a vocoder frame into c[]. */
-	void encodeTCH(const VocoderFrame& vFrame);
-
 };
 
 
 /** The C adapter for pthreads. */
 void TCHFACCHL1EncoderRoutine( TCHFACCHL1Encoder * encoder );
 
-/** L1 decoder used for full rate TCH and FACCH -- mostly from GSM 05.03 3.1 and 4.2 */
-class TCHFACCHL1Decoder : public XCCHL1Decoder {
+// TCH full rate decoder.
+class TCHFRL1Decoder : virtual public SharedL1Decoder
+{
+	// Shared AMR and GSM_FR variables:
+	AMRMode mAMRMode;
+	Parity mTCHParity;
+	BitVector2 mPrevGoodFrame;	///< current and previous good frame
+	unsigned mNumBadFrames;		// Number of bad frames in a row.
 
-	protected:
+	BitVector2 mTCHU;					///< u[] (uncoded) in the spec
+	BitVector2 mTCHD;					///< d[] (data) in the spec
+	//SoftVector mClass1_c;				///< the class 1 part of c[]
+	BitVector2 mClass1A_d;				///< the class 1A part of d[]
+	//SoftVector mClass2_c;				///< the class 2 part of c[]
 
+	// AMR variables:
+	const unsigned *mAMRBitOrder;
+	unsigned mClass1ALth;
+	unsigned mClass1BLth;
+	SoftVector mTCHUC;
+	const unsigned *mPuncture;
+	unsigned mPunctureLth;
+	ViterbiBase *mViterbi;		// Points to current decoder in use.
 	SoftVector mE[8];	///< deinterleaving history, 8 blocks instead of 4
 	SoftVector mI[8];	///< deinterleaving history, 8 blocks instead of 4
-	BitVector mTCHU;					///< u[] (uncoded) in the spec
-	BitVector mTCHD;					///< d[] (data) in the spec
-	SoftVector mClass1_c;				///< the class 1 part of c[]
-	BitVector mClass1A_d;				///< the class 1A part of d[]
-	SoftVector mClass2_c;				///< the class 2 part of c[]
 
-	VocoderFrame mVFrame;		///< unpacking buffer for current vocoder frame
-	VocoderFrame mPrevGoodFrame;	///< previous good frame
+	bool decodeTCH_GSM(bool stolen, const SoftVector *wC);
+	bool decodeTCH_AFS(bool stolen, const SoftVector *wC);
+	protected:
+	virtual void addToSpeechQ(AudioFrame *newFrame) = 0;	// Where the upstream result from decodeTCH goes.
+	void setViterbi(AMRMode wMode) {
+		if (mViterbi) { delete mViterbi; }
+		mViterbi = newViterbi(wMode);
+	}
+	public:
+	/**
+		Decode a traffic frame from TCHI[] and enqueue it.
+		Return true if there's a good frame.
+	*/
+	bool decodeTCH(bool stolen, const SoftVector *wC);	// result goes to mSpeechQ
+	void setAmrMode(AMRMode wMode);
 
-	Parity mTCHParity;
+	// (pat) Irritating and pointless but harmless double-initialization of Parity and BitVector2s.  Stupid language.
+	// (pat) Assume TCH_FS until someone changes the mode to something else.
+	TCHFRL1Decoder() : mTCHParity(0,0,0), mViterbi(0) { setAmrMode(TCH_FS); }
+};
 
-	InterthreadQueue<unsigned char> mSpeechQ;					///< output queue for speech frames
-
+/** L1 decoder used for full rate TCH and FACCH -- mostly from GSM 05.03 3.1 and 4.2 */
+// (pat) This class is basically a switch to steer incoming uplink radio frames in one of three categories
+// (FAACH, TCH, handover burst) into either the control or data upstream paths.
+// If we are not waiting for handover, the 'stolen' flag inside the radio frame
+// indicates whether the frame is FACCH (fast associated control channel message) or TCH (voice traffic) frame.
+// Messages (both FACCH and handover) go to XCCHL1Decoder and TCH go to TCHFRL1Decoder.
+// fyi: Oh, the TCHFACCHL1Decoder is connected to the XCCHL1Decoder, and the XCCHL1Decoder is connected to the...L1Decoder,
+// and the L1Decoder is connected to the...SAPMux, and the SAPMux is connected to the...LogicalChannel,
+// and the LogicalChannel is connected to the...L2DL, and the L2DL is connected to the...FACCHL2,
+// and the FACCHL2 is connected to the...L2LapDm, and the L2LapDm is connected to the...L3FrameFIFO,
+// and the L3FrameFIFO is connected to...LogicalChannel::recv, and thence to whatever procedure in the L3 layers that wants
+// to receive these messages, eg MOCController, MTCController, although the L3rewrite will substitute all
+// those with the L3 state machine.
+class TCHFACCHL1Decoder :
+	public XCCHL1Decoder,
+	public TCHFRL1Decoder
+{
+	protected:
+	SoftVector mE[8];	///< deinterleaving history, 8 blocks instead of 4
+	SoftVector mI[8];	///< deinterleaving history, 8 blocks instead of 4
+	AudioFrameFIFO mSpeechQ;					///< output queue for speech frames
+	unsigned stealBitsU[8], stealBitsL[8];	// (pat 1-16-2014) These are single bits; the upper and lower stealing bits found in incoming bursts.
 
 	public:
-
 	TCHFACCHL1Decoder(unsigned wCN, unsigned wTN, 
 			   const TDMAMapping& wMapping,
 			   L1FEC *wParent);
 
 	ChannelType channelType() const { return FACCHType; }
-
 
 	/** TCH/FACCH has a special-case writeLowSide. */
 	void writeLowSideRx(const RxBurst& inBurst);
@@ -1110,31 +1193,28 @@ class TCHFACCHL1Decoder : public XCCHL1Decoder {
 	void saveMi();
 	void restoreMi();
 	void decrypt(int B);
-	
+
 	/** Deinterleave i[] to c[].  */
-	void deinterleave(int blockOffset );
+	// (pat) This overrides the deinterleave in SharedL1Decoder.
+	// Note also that we use SharedL1Decoder::decode() for control frames, but TCHFRL1Decoder::decodeTCH() for TCH frames.
+	void deinterleaveTCH(int blockOffset );
 
-	// (pat) Routine does not exist.
-	void replaceFACCH( int blockOffset );
-
-	/**
-		Decode a traffic frame from TCHI[] and enqueue it.
-		Return true if there's a good frame.
-	*/
-	bool decodeTCH(bool stolen);
+	void deinterleave() { assert(0); }		// We must not use the inherited SharedL1Decoder::deinterleave().
 
 	/**
 		Receive a traffic frame.
 		Non-blocking.  Returns NULL if queue is dry.
 		Caller is responsible for deleting the returned array.
 	*/
-	unsigned char *recvTCH() { return mSpeechQ.read(0); }
+	AudioFrame *recvTCH() { return mSpeechQ.read(0); }
+	void addToSpeechQ(AudioFrame *newFrame);	// write the audio frame into the mSpeechQ
 
 	/** Return count of internally-queued traffic frames. */
 	unsigned queueSize() const { return mSpeechQ.size(); }
 
 	/** Return true if the uplink is dead. */
-	bool uplinkLost() const;
+	// (pat) 3-29: Moved this higher in the hierarchy so it can be shared with SDCCH.
+	//bool uplinkLost() const;
 };
 
 
@@ -1190,16 +1270,18 @@ class SCHL1Encoder : public GeneratorL1Encoder {
 	private:
 	ViterbiR2O4 mVCoder;	///< nearly all GSM channels use the same convolutional code
 	Parity mBlockCoder;			///< block parity coder
-	BitVector mU;				///< u[], as per GSM 05.03 2.2
-	BitVector mE;				///< e[], as per GSM 05.03 2.2
-	BitVector mD;				///< d[], as per GSM 05.03 2.2 
-	BitVector mP;				///< p[], as per GSM 05.03 2.2
-	BitVector mE1;				///< first half of e[]
-	BitVector mE2;				///< second half of e[]
+	BitVector2 mU;				///< u[], as per GSM 05.03 2.2
+	BitVector2 mE;				///< e[], as per GSM 05.03 2.2
+	BitVector2 mD;				///< d[], as per GSM 05.03 2.2 
+	BitVector2 mP;				///< p[], as per GSM 05.03 2.2
+	BitVector2 mE1;				///< first half of e[]
+	BitVector2 mE2;				///< second half of e[]
 
 	public:
 
 	SCHL1Encoder(L1FEC* wParent);
+
+	const char* descriptiveString() const { return "SCH"; }
 
 	protected:
 
@@ -1220,6 +1302,7 @@ class FCCHL1Encoder : public GeneratorL1Encoder {
 	public:
 
 	FCCHL1Encoder(L1FEC *wParent);
+	const char* descriptiveString() const { return "FCCH"; }
 
 	protected:
 
@@ -1276,6 +1359,7 @@ class BCCHL1Encoder : public NDCCHL1Encoder {
 	BCCHL1Encoder(L1FEC *wParent)
 		:NDCCHL1Encoder(0,0,gBCCHMapping,wParent)
 	{}
+	const char* descriptiveString() const { return "BCCH"; }
 
 	private:
 
@@ -1286,13 +1370,14 @@ class BCCHL1Encoder : public NDCCHL1Encoder {
 /**
 	L1 decoder for the SACCH.
 	Like any other control channel, but with hooks for power/timing control.
-	The SI5 and SI5 generation will be handled in higher layers.
+	The SI5 and SI6 generation will be handled in higher layers.
 */
 class SACCHL1Encoder : public XCCHL1Encoder {
 
 	private:
 
 	SACCHL1FEC *mSACCHParent;
+	string mSacchDescriptiveString;	// In L1Encoder
 
 	/**@name Physical header, GSM 04.04 6, 7.1, 7.2 */
 	//@{
@@ -1304,11 +1389,13 @@ class SACCHL1Encoder : public XCCHL1Encoder {
 
 	SACCHL1Encoder(unsigned wCN, unsigned wTN, const TDMAMapping& wMapping, SACCHL1FEC *wParent);
 
-	void orderedMSPower(int power) { mOrderedMSPower = power; }
-	void orderedMSTiming(int timing) { mOrderedMSTiming = timing; }
+	// (pat) commented out: never used.
+	//void orderedMSPower(int power) { mOrderedMSPower = power; }
+	//void orderedMSTiming(int timing) { mOrderedMSTiming = timing; }
 
 	void setPhy(const SACCHL1Encoder&);
 	void setPhy(float RSSI, float timingError);
+	virtual const char* descriptiveString() const;
 
 	/** Override open() to initialize power and timing. */
 	void open();
@@ -1429,7 +1516,7 @@ public:
 	}
 
 	/** Send a traffic frame. */
-	void sendTCH(const unsigned char * frame)
+	void sendTCH(AudioFrame * frame)
 		{ assert(mTCHEncoder); mTCHEncoder->sendTCH(frame); }
 
 	/**
@@ -1438,14 +1525,16 @@ public:
 		Non-blocking.
 		Returns NULL is no data available.
 	*/
-	unsigned char* recvTCH()
+	//unsigned char* recvTCH()
+	AudioFrame* recvTCH()
 		{ assert(mTCHDecoder); return mTCHDecoder->recvTCH(); }
 
 	unsigned queueSize() const
 		{ assert(mTCHDecoder); return mTCHDecoder->queueSize(); }
 
-	bool radioFailure() const
-		{ assert(mTCHDecoder); return mTCHDecoder->uplinkLost(); }
+	// (pat) 3-29: Moved this higher in the hierarchy so it can be shared with SDCCH.
+	//bool radioFailure() const
+		//{ assert(mTCHDecoder); return mTCHDecoder->uplinkLost(); }
 };
 
 
@@ -1474,16 +1563,15 @@ class SACCHL1FEC : public L1FEC {
 	SACCHL1Decoder *decoder() { return mSACCHDecoder; }
 	SACCHL1Encoder *encoder() { return mSACCHEncoder; }
 
+	virtual const char* descriptiveString() const
+		{ return mSACCHEncoder->descriptiveString(); }
+
 	/**@name Physical parameter access. */
 	//@{
-	float RSSI() const { return mSACCHDecoder->RSSI(); }
-	float timingError() const { return mSACCHDecoder->timingError(); }
-	double timestamp() const { return mSACCHDecoder->timestamp(); }
-	int actualMSPower() const { return mSACCHDecoder->actualMSPower(); }
-	int actualMSTiming() const { return mSACCHDecoder->actualMSTiming(); }
+	MSPhysReportInfo *getPhysInfo() { return mSACCHDecoder->getPhysInfo(); }
+	void RSSIBumpDown(int dB) { mSACCHDecoder->RSSIBumpDown(dB); }
 	void setPhy(const SACCHL1FEC&);
 	virtual void setPhy(float RSSI, float timingError, double wTimestamp);
-	void RSSIBumpDown(int dB) { mSACCHDecoder->RSSIBumpDown(dB); }
 	//@}
 };
 

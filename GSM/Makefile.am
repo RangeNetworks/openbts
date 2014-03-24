@@ -26,6 +26,7 @@ AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES)
 noinst_LTLIBRARIES = libGSM.la
 
 libGSM_la_SOURCES = \
+	GSML3SSMessages.cpp \
 	GSM610Tables.cpp \
 	GSMCommon.cpp \
 	GSMConfig.cpp \
@@ -50,6 +51,7 @@ libGSM_la_SOURCES = \
 	PhysicalStatus.cpp
 
 noinst_HEADERS = \
+	GSML3SSMessages.h \
  	GSM610Tables.h \
 	GSMCommon.h \
 	GSMConfig.h \

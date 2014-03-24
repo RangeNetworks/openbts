@@ -20,9 +20,8 @@
 
 include $(top_srcdir)/Makefile.common
 
-DESTDIR := 
+DESTDIR :=
 
-ACLOCAL_AMFLAGS = -I config
 AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES) $(USB_INCLUDES) $(WITH_INCLUDES)
 AM_CXXFLAGS = -Wall -pthread -ldl
 #AM_CXXFLAGS = -Wall -O2 -NDEBUG -pthread -ldl
@@ -34,19 +33,20 @@ _SUBDIRS = \
 	sqlite3 \
 	CommonLibs \
 	Globals \
-	SR \
-	CLI \
 	SIP \
 	GSM \
+	GSMShare \
 	SMS \
+	Scanning \
 	TRXManager \
 	Control \
 	Peering \
+	NodeManager \
 	GPRS \
 	SGSNGGSN \
+	CLI \
 	apps \
 	doc
-
 
 #if UHD or USRP1 defined, build Transceiver52M as well
 if UHD

@@ -36,6 +36,9 @@
 
 namespace SGSN {
 
+#define SQL_MULTISLOTMAXDOWNLINK "GPRS.Multislot.Max.Downlink"
+#define SQL_MULTISLOTMAXUPLINK "GPRS.Multislot.Max.Uplink"
+#define SQL_SHELLSCRIPT "GGSN.ShellScript"
 extern bool enableMultislot();
 extern void sendImplicitlyDetached(SgsnInfo *si);
 

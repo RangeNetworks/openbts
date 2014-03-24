@@ -155,6 +155,17 @@ void addFirewallRule(uint32_t ipbasenl,uint32_t masknl) {
 	gFirewallRules = new GgsnFirewallRule(gFirewallRules,ipbasenl,masknl);
 }
 
+// Sql Options, and their default values.
+#define SQL_IP_BASE "GGSN.MS.IP.Base"		// default "192.168.99.1"
+#define SQL_IP_ROUTE "GGSN.MS.IP.Route"		// optional, manufactured on demand now.  example "192.168.99.0/24"
+#define SQL_PDP_MAX_COUNT "GGSN.MS.IP.MaxCount"
+#define SQL_IP_TOSS_DUP "GGSN.IP.TossDuplicatePackets"
+#define SQL_PDU_MAX_SIZE "GGSN.IP.MaxPacketSize"
+#define SQL_IP_TIMEOUT "GGSN.IP.ReuseTimeout"
+#define SQL_TUN_IF_NAME "GGSN.TunName"
+#define SQL_FIREWALL_ENABLE "GGSN.Firewall.Enable"
+#define SQL_LOG_FILE "GGSN.Logfile.Name"	// Log file for IP traffic.
+// Default is no log file.
 
 static mg_con_t *mg_cons = 0;
 
@@ -480,17 +491,19 @@ bool miniggsn_init()
 	// We init config options at GGSN startup.
 	// They cannot be changed while running.
 	// To change an option, you would have to stop and restart the GGSN.
-	ggConfig.mgIpTimeout = gConfig.getNum("GGSN.IP.ReuseTimeout");
-	ggConfig.mgMaxPduSize = gConfig.getNum("GGSN.IP.MaxPacketSize");
-	ggConfig.mgMaxConnections = gConfig.getNum("GGSN.MS.IP.MaxCount");
-	ggConfig.mgIpTossDup = gConfig.getBool("GGSN.IP.TossDuplicatePackets");
+	ggConfig.mgIpTimeout = gConfig.getNum(SQL_IP_TIMEOUT);
+	ggConfig.mgMaxPduSize = gConfig.getNum(SQL_PDU_MAX_SIZE);
+	ggConfig.mgMaxConnections = gConfig.getNum(SQL_PDP_MAX_COUNT);
+	ggConfig.mgIpTossDup = gConfig.getNum(SQL_IP_TOSS_DUP);
 
 
-	string logfile = gConfig.getStr("GGSN.Logfile.Name");
+	string logfile = gConfig.getStr(SQL_LOG_FILE);
 	if (logfile.length()) {
 		mg_log_fp = fopen(logfile.c_str(),"w");
 		if (mg_log_fp == 0) {
-			MGERROR("could not open %s log file:%s","GGSN.Logfile.Name",logfile.c_str());
+			MGERROR("could not open %s log file:%s",SQL_LOG_FILE,logfile.c_str());
+			// (pat) Add an alert to the console so people will notice this problem.
+			LOG(ALERT) << "Cound not open tun device, GPRS non-functional:";
 		}
 	}
 
@@ -504,8 +517,8 @@ bool miniggsn_init()
 	}
 
 	if (ggConfig.mgMaxConnections > 254) {
-		MGERROR("GGSN.MS.IP.MaxCount specifies too many connections (%d) specifed, using 254",
-			ggConfig.mgMaxConnections);
+		MGERROR("%s specifies too many connections (%d) specifed, using 254",
+			SQL_PDP_MAX_COUNT,ggConfig.mgMaxConnections);
 		ggConfig.mgMaxConnections = 254;
 	}
 
@@ -516,47 +529,48 @@ bool miniggsn_init()
 	// All three can be derived from the ipRoute, if specfied.
 	// But conceivably the user might want to start their base ip address elsewhere.
 
-	const char *ip_base_str = gConfig.getStr("GGSN.MS.IP.Base").c_str();
+	const char *ip_base_str = gConfig.getStr(SQL_IP_BASE).c_str();
 	uint32_t mgIpBasenl = inet_addr(ip_base_str);
 	if (mgIpBasenl == INADDR_NONE) {
-		MGERROR("miniggn: GGSN.MS.IP.Base address invalid:%s",ip_base_str);
+		MGERROR("miniggsn: %s address invalid:%s",SQL_IP_BASE,ip_base_str);
 		return false;
 	}
 
 	if ((ntohl(mgIpBasenl) & 0xff) == 0) {
-		MGERROR("miniggn: GGSN.MS.IP.Base address should not end in .0 but proceeding anyway: %s",ip_base_str);
+		MGERROR("miniggsn: %s address should not end in .0 but proceeding anyway: %s",SQL_IP_BASE,ip_base_str);
 	}
 
+	//const char *route_str = DEFAULT_IP_ROUTE;
 	const char *route_str = 0;
 	char route_buf[40];
 	string route_save;
-	if (gConfig.defines("GGSN.MS.IP.Route")) {
-		route_save = gConfig.getStr("GGSN.MS.IP.Route");
+	if (gConfig.defines(SQL_IP_ROUTE)) {
+		route_save = gConfig.getStr(SQL_IP_ROUTE);
 		route_str = route_save.c_str();
 	}
 
 	uint32_t route_basenl, route_masknl;
 	if (route_str && *route_str && *route_str != ' ') {
 		if (strlen(route_str) > strlen("aaa.bbb.ccc.ddd/yy") + 2) {	// add some slop.
-			MGWARN("miniggn: GGSN.MS.IP.Route address is too long:%s",route_str);
+			MGWARN("miniggsn: %s address is too long:%s",SQL_IP_ROUTE,route_str);
 			// but use it anyway.
 		}
 
 		if (! ip_addr_crack(route_str,&route_basenl,&route_masknl) || route_basenl == INADDR_NONE) {
-			MGWARN("miniggsn: GGSN.MS.IP.Route is not a valid ip address: %s",route_str);
+			MGWARN("miniggsn: %s is not a valid ip address: %s",SQL_IP_ROUTE,route_str);
 			// but use it anyway.
 		}
 		if (route_masknl == 0) {
-			MGWARN("miniggsn: GGSN.MS.IP.Route is not a valid route, /mask part missing or invalid: %sn",
-				route_str);
+			MGWARN("miniggsn: %s is not a valid route, /mask part missing or invalid: %sn",
+				SQL_IP_ROUTE,route_str);
 			// but use it anyway.
 		}
 
 		// We would like to check that the base ip is within the ip route range,
 		// which is tricky, but check the most common case:
 		if ((route_basenl&route_masknl) != (mgIpBasenl&route_masknl)) {
-			MGWARN("miniggsn: GGSN.MS.IP.Base = %s ip address does not appear to be in range of GGSN.MS.IP.Route = %s",
-				ip_base_str, route_str);
+			MGWARN("miniggsn: %s = %s ip address does not appear to be in range of %s = %s",
+				SQL_IP_BASE, ip_base_str, SQL_IP_ROUTE,route_str);
 			// but use it anyway.
 		}
 	} else {
@@ -570,7 +584,7 @@ bool miniggsn_init()
 
 	// Firewall rules:
 	bool firewall_enable;
-	if ((firewall_enable = gConfig.getNum("GGSN.Firewall.Enable"))) {
+	if ((firewall_enable = gConfig.getNum(SQL_FIREWALL_ENABLE))) {
 		// Block anything in the routed range:
 		addFirewallRule(route_basenl,route_masknl);
 		// Block local loopback:
@@ -601,13 +615,13 @@ bool miniggsn_init()
 	}
 
 	MGINFO("GGSN Configuration:");
-		MGINFO("  GGSN.MS.IP.Base=%s", ip_ntoa(mgIpBasenl,NULL));
-		MGINFO("  GGSN.MS.IP.MaxCount=%d", ggConfig.mgMaxConnections);
-		MGINFO("  GGSN.MS.IP.Route=%s", route_str);
-		MGINFO("  GGSN.IP.MaxPacketSize=%d", ggConfig.mgMaxPduSize);
-		MGINFO("  GGSN.IP.ReuseTimeout=%d", ggConfig.mgIpTimeout);
-		MGINFO("  GGSN.Firewall.Enable=%d", firewall_enable);
-		MGINFO("  GGSN.IP.TossDuplicatePackets=%d", ggConfig.mgIpTossDup);
+		MGINFO("  %s=%s", SQL_IP_BASE, ip_ntoa(mgIpBasenl,NULL));
+		MGINFO("  %s=%d", SQL_PDP_MAX_COUNT, ggConfig.mgMaxConnections);
+		MGINFO("  %s=%s", SQL_IP_ROUTE, route_str);
+		MGINFO("  %s=%d", SQL_PDU_MAX_SIZE, ggConfig.mgMaxPduSize);
+		MGINFO("  %s=%d", SQL_IP_TIMEOUT, ggConfig.mgIpTimeout);
+		MGINFO("  %s=%d", SQL_FIREWALL_ENABLE, firewall_enable);
+		MGINFO("  %s=%d", SQL_IP_TOSS_DUP, ggConfig.mgIpTossDup);
 	if (firewall_enable) {
 		MGINFO("GGSN Firewall Rules:");
 		for (GgsnFirewallRule *rp = gFirewallRules; rp; rp = rp->next) {
@@ -618,7 +632,7 @@ bool miniggsn_init()
 	uint32_t dns[2];	// We dont use the result, we just want to print out the DNS servers now.
 	ip_finddns(dns);	// The dns servers are polled again later.
 
-	const char *tun_if_name = gConfig.getStr("GGSN.TunName").c_str();
+	const char *tun_if_name = gConfig.getStr(SQL_TUN_IF_NAME).c_str();
 
 	if (tun_fd == -1) {
 		ip_init();

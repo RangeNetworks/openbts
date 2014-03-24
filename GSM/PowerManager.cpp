@@ -29,13 +29,13 @@ void PowerManager::increasePower()
 {
 	int maxAtten = gConfig.getNum("GSM.Radio.PowerManager.MaxAttenDB");
 	int minAtten = gConfig.getNum("GSM.Radio.PowerManager.MinAttenDB");
-	if (mAtten==minAtten) {
+	if ((int)mAtten==minAtten) {
 		LOG(DEBUG) << "power already at maximum";
 		return;
 	}
 	mAtten--;	// raise power by reducing attenuation
-	if (mAtten<minAtten) mAtten=minAtten;
-	if (mAtten>maxAtten) mAtten=maxAtten;
+	if ((int)mAtten<minAtten) mAtten=minAtten;
+	if ((int)mAtten>maxAtten) mAtten=maxAtten;
 	LOG(INFO) << "power increased to -" << mAtten << " dB";
 	mRadio->setPower(mAtten);
 }
@@ -44,13 +44,13 @@ void PowerManager::reducePower()
 {
 	int maxAtten = gConfig.getNum("GSM.Radio.PowerManager.MaxAttenDB");
 	int minAtten = gConfig.getNum("GSM.Radio.PowerManager.MinAttenDB");
-	if (mAtten==maxAtten) {
+	if ((int)mAtten==maxAtten) {
 		LOG(DEBUG) << "power already at minimum";
 		return;
 	}
 	mAtten++; // reduce power be increasing attenuation
-	if (mAtten<minAtten) mAtten=minAtten;
-	if (mAtten>maxAtten) mAtten=maxAtten;
+	if ((int)mAtten<minAtten) mAtten=minAtten;
+	if ((int)mAtten>maxAtten) mAtten=maxAtten;
 	LOG(INFO) << "power decreased to -" << mAtten << " dB";
 	mRadio->setPower(mAtten);
 }

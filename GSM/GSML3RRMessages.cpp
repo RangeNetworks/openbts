@@ -48,86 +48,97 @@ void L3Message::parseBody(const L3Frame&, size_t&)
 }
 
 
+const char *L3RRMessage::name(MessageType mt)
+{
+	switch (mt) {
+		case L3RRMessage::SystemInformationType1: 
+			return "System Information Type 1"; 
+		case L3RRMessage::SystemInformationType2: 
+			return "System Information Type 2"; 
+		case L3RRMessage::SystemInformationType2bis: 
+			return "System Information Type 2bis"; 
+		case L3RRMessage::SystemInformationType2ter: 
+			return "System Information Type 2ter"; 
+		case L3RRMessage::SystemInformationType3: 
+			return "System Information Type 3"; 
+		case L3RRMessage::SystemInformationType4: 
+			return "System Information Type 4"; 
+		case L3RRMessage::SystemInformationType5: 
+			return "System Information Type 5"; 
+		case L3RRMessage::SystemInformationType5bis: 
+			return "System Information Type 5bis"; 
+		case L3RRMessage::SystemInformationType5ter: 
+			return "System Information Type 5ter"; 
+		case L3RRMessage::SystemInformationType6: 
+			return "System Information Type 6"; 
+		case L3RRMessage::SystemInformationType7: 
+			return "System Information Type 7"; 
+		case L3RRMessage::SystemInformationType8: 
+			return "System Information Type 8"; 
+		case L3RRMessage::SystemInformationType9: 
+			return "System Information Type 9"; 
+		case L3RRMessage::SystemInformationType13: 
+			return "System Information Type 13"; 
+		case L3RRMessage::SystemInformationType16: 
+			return "System Information Type 16"; 
+		case L3RRMessage::SystemInformationType17: 
+			return "System Information Type 17"; 
+		case L3RRMessage::PagingResponse: 
+			return "Paging Response"; 
+		case L3RRMessage::PagingRequestType1: 
+			return "Paging Request Type 1"; 
+		case L3RRMessage::MeasurementReport: 
+			return "Measurement Report"; 
+		case L3RRMessage::AssignmentComplete: 
+			return "Assignment Complete"; 
+		case L3RRMessage::ImmediateAssignment: 
+			return "Immediate Assignment"; 
+		case L3RRMessage::ImmediateAssignmentReject: 
+			return "Immediate Assignment Reject"; 
+		case L3RRMessage::AssignmentCommand: 
+			return "Assignment Command"; 
+		case L3RRMessage::AssignmentFailure: 
+			return "Assignment Failure"; 
+		case L3RRMessage::ChannelRelease: 
+			return "Channel Release"; 
+		case L3RRMessage::ChannelModeModify:
+			return "Channel Mode Modify"; 
+		case L3RRMessage::ChannelModeModifyAcknowledge:
+			return "Channel Mode Modify Acknowledge"; 
+		case L3RRMessage::GPRSSuspensionRequest: 
+			return "GPRS Suspension Request"; 
+		case L3RRMessage::ClassmarkEnquiry: 
+			return "Classmark Enquiry"; 
+		case L3RRMessage::ClassmarkChange: 
+			return "Classmark Change"; 
+		case L3RRMessage::RRStatus:
+			return "RR Status"; 
+		case L3RRMessage::ApplicationInformation:
+			return "Application Information"; 
+		case L3RRMessage::HandoverCommand:
+			return "Handover Command"; 
+		case L3RRMessage::HandoverComplete:
+			return "Handover Complete"; 
+		case L3RRMessage::HandoverFailure:
+			return "Handover Failure"; 
+		case L3RRMessage::CipheringModeCommand:
+			return "Ciphering Mode Command";
+		case L3RRMessage::CipheringModeComplete:
+			return "Ciphering Mode Complete";
+		case L3RRMessage::PhysicalInformation:
+			return "Physical Information"; 
+		default:
+			return "?";
+	}
+}
+
 ostream& GSM::operator<<(ostream& os, L3RRMessage::MessageType val)
 {
-	switch (val) {
-		case L3RRMessage::SystemInformationType1: 
-			os << "System Information Type 1"; break;
-		case L3RRMessage::SystemInformationType2: 
-			os << "System Information Type 2"; break;
-		case L3RRMessage::SystemInformationType2bis: 
-			os << "System Information Type 2bis"; break;
-		case L3RRMessage::SystemInformationType2ter: 
-			os << "System Information Type 2ter"; break;
-		case L3RRMessage::SystemInformationType3: 
-			os << "System Information Type 3"; break;
-		case L3RRMessage::SystemInformationType4: 
-			os << "System Information Type 4"; break;
-		case L3RRMessage::SystemInformationType5: 
-			os << "System Information Type 5"; break;
-		case L3RRMessage::SystemInformationType5bis: 
-			os << "System Information Type 5bis"; break;
-		case L3RRMessage::SystemInformationType5ter: 
-			os << "System Information Type 5ter"; break;
-		case L3RRMessage::SystemInformationType6: 
-			os << "System Information Type 6"; break;
-		case L3RRMessage::SystemInformationType7: 
-			os << "System Information Type 7"; break;
-		case L3RRMessage::SystemInformationType8: 
-			os << "System Information Type 8"; break;
-		case L3RRMessage::SystemInformationType9: 
-			os << "System Information Type 9"; break;
-		case L3RRMessage::SystemInformationType13: 
-			os << "System Information Type 13"; break;
-		case L3RRMessage::SystemInformationType16: 
-			os << "System Information Type 16"; break;
-		case L3RRMessage::SystemInformationType17: 
-			os << "System Information Type 17"; break;
-		case L3RRMessage::PagingResponse: 
-			os << "Paging Response"; break;
-		case L3RRMessage::PagingRequestType1: 
-			os << "Paging Request Type 1"; break;
-		case L3RRMessage::MeasurementReport: 
-			os << "Measurement Report"; break;
-		case L3RRMessage::AssignmentComplete: 
-			os << "Assignment Complete"; break;
-		case L3RRMessage::ImmediateAssignment: 
-			os << "Immediate Assignment"; break;
-		case L3RRMessage::ImmediateAssignmentReject: 
-			os << "Immediate Assignment Reject"; break;
-		case L3RRMessage::AssignmentCommand: 
-			os << "Assignment Command"; break;
-		case L3RRMessage::AssignmentFailure: 
-			os << "Assignment Failure"; break;
-		case L3RRMessage::ChannelRelease: 
-			os << "Channel Release"; break;
-		case L3RRMessage::ChannelModeModify:
-			os << "Channel Mode Modify"; break;
-		case L3RRMessage::ChannelModeModifyAcknowledge:
-			os << "Channel Mode Modify Acknowledge"; break;
-		case L3RRMessage::GPRSSuspensionRequest: 
-			os << "GPRS Suspension Request"; break;
-		case L3RRMessage::ClassmarkEnquiry: 
-			os << "Classmark Enquiry"; break;
-		case L3RRMessage::ClassmarkChange: 
-			os << "Classmark Change"; break;
-		case L3RRMessage::RRStatus:
-			os << "RR Status"; break;
-		case L3RRMessage::ApplicationInformation:
-			os << "Application Information"; break;
-		case L3RRMessage::HandoverCommand:
-			os << "Handover Command"; break;
-		case L3RRMessage::HandoverComplete:
-			os << "Handover Complete"; break;
-		case L3RRMessage::HandoverFailure:
-			os << "Handover Failure"; break;
-		case L3RRMessage::CipheringModeCommand:
-			os << "Ciphering Mode Command"; break;
-		case L3RRMessage::CipheringModeComplete:
-			os << "Ciphering Mode Complete"; break;
-		case L3RRMessage::PhysicalInformation:
-			os << "Physical Information"; break;
-		default: os << hex << "0x" << (int)val << dec;
+	const char *result = L3RRMessage::name(val);
+	if (result[0] == '?') {
+		os << hex << "0x" << (int)val << dec;
+	} else {
+		os << result;
 	}
 	return os;
 }
@@ -137,7 +148,6 @@ void L3RRMessage::text(ostream& os) const
 {
 	os << "RR " << (MessageType) MTI() << " ";
 }
-
 
 
 L3RRMessage* GSM::L3RRFactory(L3RRMessage::MessageType MTI)
@@ -156,6 +166,7 @@ L3RRMessage* GSM::L3RRFactory(L3RRMessage::MessageType MTI)
 		case L3RRMessage::HandoverComplete: return new L3HandoverComplete();
 		case L3RRMessage::HandoverFailure: return new L3HandoverFailure();
 		case L3RRMessage::CipheringModeComplete: return new L3CipheringModeComplete();
+		case L3RRMessage::HandoverCommand: return new L3HandoverCommand();
         // Partial support just to get along with some phones.
         case L3RRMessage::GPRSSuspensionRequest: return new L3GPRSSuspensionRequest();
 		default:
@@ -573,6 +584,7 @@ void L3AssignmentCommand::writeBody( L3Frame &dest, size_t &wp ) const
 	mChannelDescription.writeV(dest, wp);
 	mPowerCommand.writeV(dest, wp);
 	if (mHaveMode1) mMode1.writeTV(0x63,dest,wp); 
+	if (isAMR()) mMultiRate.writeTLV(3,dest,wp);
 }
 
 size_t L3AssignmentCommand::l2BodyLength() const 
@@ -580,6 +592,7 @@ size_t L3AssignmentCommand::l2BodyLength() const
 	size_t len = mChannelDescription.lengthV();
 	len += mPowerCommand.lengthV();
 	if (mHaveMode1) len += mMode1.lengthTV();
+	if (isAMR()) len += mMultiRate.lengthTLV();
 	return len;
 }
 
@@ -590,6 +603,7 @@ void L3AssignmentCommand::text(ostream& os) const
 	os <<"channelDescription=("<<mChannelDescription<<")";
 	os <<" powerCommand="<<mPowerCommand;
 	if (mHaveMode1) os << " mode1=" << mMode1;
+	if (isAMR()) os << " multirate=" << mMultiRate;
 }
 
 
@@ -667,6 +681,9 @@ void L3ChannelModeModify::writeBody(L3Frame &dest, size_t& wp) const
 {
 	mDescription.writeV(dest,wp);
 	mMode.writeV(dest,wp);
+	if (isAMR()) {
+		mMultiRate.writeTLV(3,dest,wp); // 3 == Multi-Rate configurion IEI
+	}
 }
 
 
@@ -675,6 +692,9 @@ void L3ChannelModeModify::text(ostream& os) const
 	L3RRMessage::text(os);
 	os << "description=(" << mDescription << ")";
 	os << " mode=(" << mMode << ")";
+	if (isAMR()) {
+		os << " multirate=(" << mMultiRate << ")";
+	}
 }
 
 
@@ -715,7 +735,7 @@ L3ApplicationInformation::L3ApplicationInformation()
 }
 
 L3ApplicationInformation::
-    L3ApplicationInformation(BitVector& data, unsigned protocolIdentifier,
+    L3ApplicationInformation(BitVector2& data, unsigned protocolIdentifier,
                              unsigned cr, unsigned firstSegment, unsigned lastSegment)
         : L3RRMessageNRO(), mID(protocolIdentifier)
         , mFlags(cr, firstSegment, lastSegment)
@@ -780,7 +800,7 @@ void L3GPRSSuspensionRequest::parseBody(const L3Frame &src, size_t& rp)
 	// is if it matches our own or not.
 	// Just squirrel away the 6 bytes as a ByteVector.
 	// This is an immediate object whose memory will be deleted automatically.
-	mRaId = ByteVector(src.segment(rp,6*8));
+	mRaId = ByteVector(src.alias().segment(rp,6*8));
 	rp += 6*8;	// And skip over it.
 	mSuspensionCause = src.readField(rp,1*8);	// 10.5.2.47
 	// Optional service support, IEI=0x01.
@@ -837,6 +857,15 @@ void L3HandoverCommand::writeBody(L3Frame& frame, size_t& wp) const
 	mHandoverReference.writeV(frame,wp);
 	mPowerCommandAccessType.writeV(frame,wp);
 	mSynchronizationIndication.writeV(frame,wp);
+}
+
+void L3HandoverCommand::parseBody(const L3Frame& frame, size_t& rp)
+{
+	mCellDescription.parseV(frame,rp);
+	mChannelDescriptionAfter.parseV(frame,rp);
+	mHandoverReference.parseV(frame,rp);
+	mPowerCommandAccessType.parseV(frame,rp);
+	mSynchronizationIndication.parseV(frame,rp);
 }
 
 void L3HandoverCommand::text(ostream& os) const

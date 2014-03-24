@@ -232,7 +232,6 @@ EXPORT int runcmd(const char *path, ...)
 		if (dopipe) {
 			close(pipefd[1]); // Close unused write end of pipe.
 		}
-		int result = 0;
 		for (int quartersecs = 0; quartersecs < 5*4; quartersecs++) {
 			if (waitpid(pid,&status,WNOHANG) == pid) {
 				// WARNING: This assumes the amount of info returned by the command

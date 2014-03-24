@@ -24,7 +24,7 @@
 
 void gWriteGSMTAP(unsigned ARFCN, unsigned TS, unsigned FN,
                   GSM::TypeAndOffset to, bool is_sacch, bool ul_dln,
-                  const BitVector& frame,
+                  const BitVector2& frame,
 				  unsigned wType = GSMTAP_TYPE_UM);
 #endif
 

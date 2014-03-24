@@ -37,7 +37,7 @@ using namespace std;
 
 int main(int argc, char *argv[]) {
 
-  gLogInit("openbts","INFO",LOG_LOCAL7);
+  gLogInit("RAD1RxRawPowerSweep","INFO",LOG_LOCAL7);
 
   int whichBoard = 0;
   if (argc > 1) whichBoard = atoi(argv[1]);

@@ -171,7 +171,7 @@ void addShellRequest(const char *wCmd,const char *arg1)
 void *miniGgsnShellServiceLoop(void *arg)
 {
 	Ggsn *ggsn = (Ggsn*)arg;
-	std::string shname = gConfig.getStr("GGSN.ShellScript");
+	std::string shname = gConfig.getStr(SQL_SHELLSCRIPT);
 	while (ggsn->active()) {
 		ShellRequest *req = ggsn->mShellQ.read(ggsn->mStopTimeout);
 		if (! req) continue;
@@ -189,7 +189,7 @@ bool Ggsn::start()
 	if (!miniggsn_init()) { return false; }
 	gGgsn.mGgsnRecvThread.start(miniGgsnReadServiceLoop,&gGgsn);
 	gGgsn.mGgsnSendThread.start(miniGgsnWriteServiceLoop,&gGgsn);
-	if (gConfig.getStr("GGSN.ShellScript").size() > 1) {
+	if (gConfig.getStr(SQL_SHELLSCRIPT).size() > 1) {
 		gGgsn.mGgsnShellThread.start(miniGgsnShellServiceLoop,&gGgsn);
 		gGgsn.mShellThreadActive = true;
 	}

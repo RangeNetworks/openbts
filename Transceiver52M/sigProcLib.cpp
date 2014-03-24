@@ -1051,12 +1051,12 @@ bool generateMidamble(int sps, int tsc)
   delete gMidambles[tsc];
 
   /* Use middle 16 bits of each TSC. Correlation sequence is not pulse shaped */
-  midMidamble = modulateBurst(gTrainingSequence[tsc].segment(5,16), 0, sps, true);
+  midMidamble = modulateBurst(gTrainingSequence[tsc].alias().segment(5,16), 0, sps, true);
   if (!midMidamble)
     return false;
 
   /* Simulated receive sequence is pulse shaped */
-  midamble = modulateBurst(gTrainingSequence[tsc], 0, sps, false);
+  midamble = modulateBurst(gTrainingSequence[tsc].alias(), 0, sps, false);
   if (!midamble) {
     status = false;
     goto release;
@@ -1127,7 +1127,7 @@ bool generateRACHSequence(int sps)
   if (!seq0)
     return false;
 
-  seq1 = modulateBurst(gRACHSynchSequence.segment(0, 40), 0, sps, true);
+  seq1 = modulateBurst(gRACHSynchSequence.alias().segment(0, 40), 0, sps, true);
   if (!seq1) {
     status = false;
     goto release;

@@ -241,7 +241,7 @@ std::ostream& operator<<(std::ostream& os, const TBFState::type &type)
 
 // These are the message transaction types.
 // Each TBFState only uses one type of message transaction, so we could use
-// the TBFState as the message transaction type, but the code is clearly
+// the TBFState as the message transaction type, but the code is clearer
 // if the message types are seprate from the TBF states.
 // When we change state there may be outstanding messages that belong to the previous state,
 // especially on error conditions.

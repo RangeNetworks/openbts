@@ -1,5 +1,5 @@
 /*
-* Copyright 2008, 2009 Free Software Foundation, Inc.
+* Copyright 2008, 2009, 2014 Free Software Foundation, Inc.
 *
 * This software is distributed under the terms of the GNU Public License.
 * See the COPYING file in the main directory for details.
@@ -189,11 +189,10 @@ bool RAD1Device::make(bool wSkipRx, int devID)
   LOG(INFO) << "making RAD1 device..";
 #ifndef SWLOOPBACK 
   string rbf = "fpga.rbf";
-  //string rbf = "inband_1rxhb_1tx.rbf"; 
+  
   if (!skipRx) {
   try {
-    m_uRx = rnrad1Rx::make(devID,decimRate,
-                           rbf,"ezusb.ihx");
+    m_uRx = rnrad1Rx::make(devID,decimRate, rbf,"ezusb.ihx");
     m_uRx->setFpgaMasterClockFreq(masterClockRate);
   }
   
@@ -220,8 +219,7 @@ bool RAD1Device::make(bool wSkipRx, int devID)
   }
 
   try {
-    m_uTx = rnrad1Tx::make(devID,decimRate*2,
-                           rbf,"ezusb.ihx");
+    m_uTx = rnrad1Tx::make(devID,decimRate*2, rbf,"ezusb.ihx");
     m_uTx->setFpgaMasterClockFreq(masterClockRate);
   }
   

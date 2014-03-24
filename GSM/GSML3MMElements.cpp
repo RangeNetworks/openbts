@@ -3,7 +3,7 @@
 */
 /*
 * Copyright 2008 Free Software Foundation, Inc.
-* Copyright 2010 Kestrel Signal Processing, Inc.
+* Copyright 2010, 2014 Kestrel Signal Processing, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
@@ -32,25 +32,31 @@ using namespace GSM;
 
 void L3CMServiceType::parseV(const L3Frame& src, size_t &rp)
 {
-	mType = (TypeCode)src.readField(rp,4);
+	mType = (CMServiceTypeCode)src.readField(rp,4);
 }
 
 
-ostream& GSM::operator<<(ostream& os, L3CMServiceType::TypeCode code)
+ostream& GSM::operator<<(ostream& os, CMServiceTypeCode code)
 {
 	switch (code) {
-		case L3CMServiceType::MobileOriginatedCall: os << "MOC"; break;
-		case L3CMServiceType::ShortMessage: os << "SMS"; break;
-		case L3CMServiceType::SupplementaryService: os << "SS"; break;
-		case L3CMServiceType::VoiceCallGroup: os << "VGCS"; break;
-		case L3CMServiceType::VoiceBroadcast: os << "VBS"; break;
-		case L3CMServiceType::LocationService: os << "LCS"; break;
-		case L3CMServiceType::MobileTerminatedCall: os << "MTC"; break;
-		case L3CMServiceType::MobileTerminatedShortMessage: os << "MTSMS"; break;
-		case L3CMServiceType::TestCall: os << "Test"; break;
-		case L3CMServiceType::FuzzCall: os << "Fuzz"; break;
-		default: os << "?" << (int)code << "?";
+		case L3CMServiceType::MobileOriginatedCall: os << "MOC"; return os;
+		case L3CMServiceType::EmergencyCall: os << "Emergency"; return os;
+		case L3CMServiceType::ShortMessage: os << "SMS"; return os;
+		case L3CMServiceType::SupplementaryService: os << "SS"; return os;
+		case L3CMServiceType::VoiceCallGroup: os << "VGCS"; return os;
+		case L3CMServiceType::VoiceBroadcast: os << "VBS"; return os;
+		case L3CMServiceType::LocationService: os << "LCS"; return os;
+		case L3CMServiceType::MobileTerminatedCall: os << "MTC"; return os;
+		case L3CMServiceType::MobileTerminatedShortMessage: os << "MTSMS"; return os;
+		case L3CMServiceType::TestCall: os << "Test"; return os;
+		case L3CMServiceType::FuzzCallTch: os << "FuzzCallTCH"; return os;
+		case L3CMServiceType::FuzzCallSdcch: os << "FuzzCallSDCCH"; return os;
+		case L3CMServiceType::LocationUpdateRequest: os << "LUR"; return os;
+		case L3CMServiceType::HandoverCall: os << "Handover"; return os;
+		case L3CMServiceType::UndefinedType: break;
+		//default: os << "?" << (int)code << "?";
 	}
+	os << "invalid:" << (int)code;
 	return os;
 }
 
@@ -64,6 +70,11 @@ void L3RejectCause::writeV( L3Frame& dest, size_t &wp ) const
 	dest.writeField(wp, mRejectCause, 8);
 }
 
+
+void L3RejectCause::parseV(const L3Frame& src, size_t &rp)
+{
+        mRejectCause = (RejectCause) src.readField(rp,8);
+}
 
 void L3RejectCause::text(ostream& os) const
 {	
@@ -100,7 +111,7 @@ void L3NetworkName::writeV(L3Frame& dest, size_t &wp) const
 		dest.writeField(wp,mCI,1);				// show country name?
 		dest.writeField(wp,spareBits,3);		// spare bits in last octet
 		// Temporary vector "chars" so we can do LSB8MSB() after encoding.
-		BitVector chars(dest.segment(wp,msgBits));
+		BitVector2 chars(dest.segment(wp,msgBits));
 		size_t twp = 0;
 		// the characters: 7 bit, GSM 03.38 6.1.2.2, 6.2.1
 		for (unsigned i=0; i<sz; i++) {

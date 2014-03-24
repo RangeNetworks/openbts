@@ -27,9 +27,7 @@
 #include "GSMLogicalChannel.h"
 #include "GSMConfig.h"
 
-#include <TransactionTable.h>
-#include <SMSControl.h>
-#include <ControlCommon.h>
+#include <ControlTransfer.h>
 #include "GPRSExport.h"
 
 #include <Logger.h>
@@ -38,8 +36,7 @@ using namespace std;
 using namespace GSM;
 
 
-
-void LogicalChannel::open()
+void L2LogicalChannel::open()
 {
 	LOG(INFO);
 	LOG(DEBUG);
@@ -48,35 +45,30 @@ void LogicalChannel::open()
 	if (mL1) mL1->open();		// (pat) L1FEC::open()
 	LOG(DEBUG);
 	for (int s=0; s<4; s++) {
-		if (mL2[s]) mL2[s]->open();
+		if (mL2[s]) mL2[s]->l2open(descriptiveString());
 		LOG(DEBUG) << "SAPI=" << s << " open complete";
 	}
-	// Empty any stray transactions in the FIFO from the SIP layer.
-	while (true) {
-		Control::TransactionEntry *trans = mTransactionFIFO.readNoBlock();
-		if (!trans) break;
-		LOG(WARNING) << "flushing stray transaction " << *trans;
-		// FIXME -- Shouldn't we be deleting these?
-	}
-	LOG(DEBUG);
 }
 
 
 // (pat) This is connecting layer2, not layer1.
-void LogicalChannel::connect()
+void L2LogicalChannel::connect()
 {
 	mMux.downstream(mL1);
 	if (mL1) mL1->upstream(&mMux);
 	for (int s=0; s<4; s++) {
 		mMux.upstream(mL2[s],s);
-		if (mL2[s]) mL2[s]->downstream(&mMux);
+		if (mL2[s]) {
+			mL2[s]->l2Downstream(&mMux);
+			mL2[s]->l2Upstream(this);
+		}
 	}
 }
 
 
 // (pat) This is only called during initialization, using the createCombination*() functions.
 // The L1FEC->downstream hooks the radio to this logical channel, permanently.
-void LogicalChannel::downstream(ARFCNManager* radio)
+void L2LogicalChannel::downstream(ARFCNManager* radio)
 {
 	assert(mL1);	// This is L1FEC
 	mL1->downstream(radio);
@@ -86,12 +78,13 @@ void LogicalChannel::downstream(ARFCNManager* radio)
 
 
 // Serialize and send an L3Message with a given primitive.
-void LogicalChannel::send(const L3Message& msg,
+// The msg is not deleted; its value is used before return.
+void L2LogicalChannel::l2sendm(const L3Message& msg,
 		const GSM::Primitive& prim,
-		unsigned SAPI)
+		SAPI_t SAPI)
 {
-	LOG(INFO) << "L3 SAP" << SAPI << " sending " << msg;
-	send(L3Frame(msg,prim), SAPI);
+	OBJLOG(INFO) << "L3" <<LOGVAR(SAPI) << " sending " << msg;
+	l2sendf(L3Frame(msg,prim,SAPI), SAPI);
 }
 
 
@@ -108,7 +101,7 @@ CCCHLogicalChannel::CCCHLogicalChannel(const TDMAMapping& wMapping)
 
 void CCCHLogicalChannel::open()
 {
-	LogicalChannel::open();
+	L2LogicalChannel::open();
 	if (!mRunning) {
 		mRunning=true;
 		mServiceThread.start((void*(*)(void*))CCCHLogicalChannelServiceLoopAdapter,this);
@@ -141,7 +134,7 @@ void CCCHLogicalChannel::serviceLoop()
 	unsigned bs_pa_mfrms = mCC.getBS_PA_MFRMS();
 #endif
 	// prime the first idle frame
-	LogicalChannel::send(idleFrame);
+	L2LogicalChannel::l2sendf(idleFrame);
 	// run the loop
 	while (true) {
 		L3Frame* frame = NULL;
@@ -160,12 +153,12 @@ void CCCHLogicalChannel::serviceLoop()
 		}
 		if (frame) {
 			// (pat) This tortuously calls XCCCHL1Encoder::transmit (see my documentation
-			// at LogicalChannel::send), which blocks until L1Encoder::mPrevWriteTime.
+			// at L2LogicalChannel::send), which blocks until L1Encoder::mPrevWriteTime.
 			// Note: The q size is 0 while we are blocked here, so if we are trying
 			// to determine the next write time by adding the qsize, we are way off.
 			// Thats why there is an mWaitingToSend flag.
 			mWaitingToSend = true;	// Waiting to send this block at mNextWriteTime.
-			LogicalChannel::send(*frame);
+			L2LogicalChannel::l2sendf(*frame);
 			mWaitingToSend = false;
 			OBJLOG(DEBUG) << "CCCHLogicalChannel::serviceLoop sending " << *frame;
 			delete frame;
@@ -176,7 +169,7 @@ void CCCHLogicalChannel::serviceLoop()
 			// Unfortunately, this slows the response.
 			// TODO: Send a static idle frame to the Transciever and rewrite this.
 			mWaitingToSend = true;	// Waiting to send an idle frame at mNextWriteTime.
-			LogicalChannel::send(idleFrame);
+			L2LogicalChannel::l2sendf(idleFrame);
 			mWaitingToSend = false;
 			OBJLOG(DEBUG) << "CCCHLogicalChannel::serviceLoop sending idle frame";
 		}
@@ -263,7 +256,7 @@ Time GSM::CCCHLogicalChannel::getNextMsgSendTime() {
 
 
 
-L3ChannelDescription LogicalChannel::channelDescription() const
+L3ChannelDescription L2LogicalChannel::channelDescription() const
 {
 	// In some debug cases, L1 may not exist, so we fake this information.
 	if (mL1==NULL) return L3ChannelDescription(TDMA_MISC,0,0,0);
@@ -288,8 +281,8 @@ SDCCHLogicalChannel::SDCCHLogicalChannel(
 	mL1 = new SDCCHL1FEC(wCN,wTN,wMapping.LCH());
 	// SAP0 is RR/MM/CC, SAP3 is SMS
 	// SAP1 and SAP2 are not used.
-	L2LAPDm *SAP0L2 = new SDCCHL2(1,0);
-	L2LAPDm *SAP3L2 = new SDCCHL2(1,3);
+	L2LAPDm *SAP0L2 = new SDCCHL2(1,SAPI0);		// derived from L2LAPDm
+	L2LAPDm *SAP3L2 = new SDCCHL2(1,SAPI3);
 	LOG(DEBUG) << "LAPDm pairs SAP0=" << SAP0L2 << " SAP3=" << SAP3L2;
 	SAP3L2->master(SAP0L2);
 	mL2[0] = SAP0L2;
@@ -300,13 +293,70 @@ SDCCHLogicalChannel::SDCCHLogicalChannel(
 
 
 
+void NeighborCache::neighborClearMeasurements()
+{
+	LOG(DEBUG);
+	mNeighborRSSI.clear();
+	cNumReports = gConfig.getNum("GSM.Neighbors.Averaging");	// Neighbor must appear in 2 of last cNumReports measurement reports.
+}
+
+// I am a little worried that the MS will not report just the 6 best cells, but may report some cells in
+// one report and some other cells in another report, so we dont delete a neighbor just because
+// it does not appear in a single report.  We set mnCount to cNumReports and decrement it toward 0.
+// The effect is that in order to be considered for handover, the neighbor must appear in at least
+// 2 of the last cNumReports measurement reports, then we send a cumulative decaying average of the reports.
+void NeighborCache::neighborStartMeasurements()
+{
+	LOG(DEBUG);
+	// Called at start of measurement reports.  Decrement mnCount toward to zero.
+	for (NeighborMap::iterator it = mNeighborRSSI.begin(); it != mNeighborRSSI.end(); it++) {
+		if (it->second.mnCount) it->second.mnCount--;
+	}
+}
+
+string NeighborCache::neighborText()
+{
+	string result; result.reserve(100);
+	result.append("Neighbors(");
+	for (NeighborMap::iterator it = mNeighborRSSI.begin(); it != mNeighborRSSI.end(); it++) {
+		LOG(DEBUG);
+		unsigned freqindex = it->first >> 6, bsic = it->first & 0x3f;
+		char buf[82];
+		snprintf(buf,80,"(freqIndex=%u BSIC=%u count=%u AvgRSSI=%d)",freqindex,bsic,it->second.mnCount,it->second.mnAvgRSSI);
+		result.append(buf);
+	}
+	result.append(")");
+	return result;
+}
+
+int NeighborCache::neighborAddMeasurement(unsigned freqindex, unsigned BSIC, int RSSI)
+{
+	unsigned key = (freqindex<<6) + BSIC;
+	NeighborData &data = mNeighborRSSI[key];
+	int result;
+	int startCount = data.mnCount, startAvg = data.mnAvgRSSI;
+	if (data.mnCount == 0) {
+		// Handsets sometimes send a spuriously low measurement report,
+		// so dont handover until we have seen at least two measurements from the same neighbor.
+		// We prevent handover by sending an impossibly low RSSI.
+		data.mnAvgRSSI = RSSI;
+		data.mnCount = cNumReports;
+		result = -200;	// Impossibly low value.
+	} else {
+		data.mnCount = cNumReports;
+		result = data.mnAvgRSSI = RSSI/2 + data.mnAvgRSSI/2;
+	}
+	int endCount=data.mnCount;	// ffing << botches this.
+	LOG(DEBUG) <<LOGVAR(result) <<LOGVAR(BSIC)<<LOGVAR(freqindex)<<LOGVAR(RSSI)<<LOGVAR(endCount) <<LOGVAR(startCount)<<LOGVAR(startAvg);
+	return result;
+}
 
 
 SACCHLogicalChannel::SACCHLogicalChannel(
 		unsigned wCN,
 		unsigned wTN,
 		const MappingPair& wMapping,
-		const LogicalChannel *wHost)
+		/*const*/ L2LogicalChannel *wHost)
 		: mRunning(false),
 		mHost(wHost)
 {
@@ -314,8 +364,8 @@ SACCHLogicalChannel::SACCHLogicalChannel(
 	mL1 = mSACCHL1;
 	// SAP0 is RR, SAP3 is SMS
 	// SAP1 and SAP2 are not used.
-	mL2[0] = new SACCHL2(1,0);
-	mL2[3] = new SACCHL2(1,3);
+	mL2[0] = new SACCHL2(1,SAPI0);	// derived from L2LAPDm
+	mL2[3] = new SACCHL2(1,SAPI3);
 	connect();
 	assert(mSACCH==NULL);
 }
@@ -323,16 +373,27 @@ SACCHLogicalChannel::SACCHLogicalChannel(
 
 void SACCHLogicalChannel::open()
 {
-	LogicalChannel::open();
+	L2LogicalChannel::open();
 	if (!mRunning) {
 		mRunning=true;
 		mServiceThread.start((void*(*)(void*))SACCHLogicalChannelServiceLoopAdapter,this);
+#if USE_SEMAPHORE
+		sem_init(&mOpenSignal,0,0);
+#endif
 	}
+	neighborClearMeasurements();
+	mAverageRXLEV_SUB_SERVICING_CELL = 0;
+	// Just make sure any stray messages are flushed when we reactivate the channel.
+	while (L3Message *straymsg = mTxQueue.readNoBlock()) { delete straymsg; }
+#if USE_SEMAPHORE
+	cout << descriptiveString() << " POST" <<endl;
+	sem_post(&mOpenSignal);	// Note: you must open the L2LogicalChannel before starting the SACCH service loop.
+#endif
 }
 
 
 
-L3Message* processSACCHMessage(L3Frame *l3frame)
+static L3Message* parseSACCHMessage(const L3Frame *l3frame)
 {
 	if (!l3frame) return NULL;
 	LOG(DEBUG) << *l3frame;
@@ -341,17 +402,20 @@ L3Message* processSACCHMessage(L3Frame *l3frame)
 		LOG(INFO) << "non-data primitive " << prim;
 		return NULL;
 	}
-	// FIXME -- Why, again, do we need to do this?
+	// FIXME -- Why, again, do we need to do this?  (pat) Apparently, we dont.
 //	L3Frame realFrame = l3frame->segment(24, l3frame->size()-24);
 	L3Message* message = parseL3(*l3frame);
 	if (!message) {
 		LOG(WARNING) << "SACCH recevied unparsable L3 frame " << *l3frame;
+		WATCHF("SACCH received unparsable L3 frame PD=%d MTI=%d",l3frame->PD(),l3frame->MTI());
 	}
 	return message;
 }
 
 
 
+// (pat) This is started when SACCH is opened, and runs forever.
+// The SACCHLogicalChannel are created by the SDCCHLogicalChannel and TCHFACCHLogicalChannel constructors.
 void SACCHLogicalChannel::serviceLoop()
 {
 
@@ -362,22 +426,47 @@ void SACCHLogicalChannel::serviceLoop()
 		// Throttle back if not active.
 		if (!active()) {
 			//OBJLOG(DEBUG) << "SACCH sleeping";
-			sleepFrames(51);
-			continue;
+			// pat 5-2013: Vastly reducing the delays here and in L2LAPDm to try to reduce
+			// random failures of handover and channel reassignment from SDCCH to TCHF.
+			// Update: The further this sleep is reduced, the more reliable handover becomes.
+			// I left it at 4 for a while but handover still failed sometimes.
+			//sleepFrames(51);
+#define USE_SEMAPHORE 0	// This does not work well - there appear to be hundreds of interrupts per second.
+#if USE_SEMAPHORE
+			// (pat) Update: Getting rid of the sleep entirely.  We will use a semaphore instead.
+			// Note that the semaphore call may return on signal, which is ok here.
+			cout << descriptiveString() << " WAIT" <<endl;
+			sem_wait(&mOpenSignal);
+			cout << descriptiveString() << " AFTER" <<endl;
+#else
+			sleepFrames(2);
+#endif
+			// A clever way to avoid the sleep above would be to wait for ESTABLISH primitive.
+			// (But which do you wait on - the tx or the rx queue?
+			continue;	// paranoid, check again.
 		}
 
-		// TODO SMS -- Check to see if the tx queues are empty.  If so, send SI5/6,
-		// otherwise sleep and continue;
-
-		// Send alternating SI5/SI6.
-		// These L3Frames were created with the UNIT_DATA primivitive.
-		OBJLOG(DEBUG) << "sending SI5/6 on SACCH";
-		if (count%2) {
-			gBTS.regenerateSI5();
-			LogicalChannel::send(gBTS.SI5Frame());
+		// Send any outbound messages.  If the tx queue is empty send alternating SI5/6.
+		// (pat) FIXME: implement this!
+		if (const L3Message *l3msg = mTxQueue.readNoBlock()) {
+			SAPI_t sapi = SAPI0;		// Determine sapi from PD.  This is probably unnecessary, they are probably all SAPI=3
+			switch (l3msg->PD()) {
+			case L3RadioResourcePD: sapi = SAPI0; break;
+			case L3SMSPD: sapi = SAPI3; break;
+			default:
+				OBJLOG(ERR)<<"In SACCHLogicalChannel, unexpected"<<LOGVAR(l3msg->PD());
+				break;
+			}
+			L2LogicalChannel::l2sendm(*l3msg,GSM::DATA,sapi);
+			delete l3msg;
+		} else {
+			// Send alternating SI5/SI6.
+			// These L3Frames were created with the UNIT_DATA primivitive.
+			OBJLOG(DEBUG) << "sending SI5/6 on SACCH";
+			if (count%2) L2LogicalChannel::l2sendf(gBTS.SI5Frame());
+			else L2LogicalChannel::l2sendf(gBTS.SI6Frame());
+			count++;
 		}
-		else LogicalChannel::send(gBTS.SI6Frame());
-		count++;
 
 		// Receive inbound messages.
 		// This read loop flushes stray reports quickly.
@@ -387,9 +476,37 @@ void SACCHLogicalChannel::serviceLoop()
 			bool nothing = true;
 
 			// Process SAP0 -- RR Measurement reports
-			L3Frame *rrFrame = LogicalChannel::recv(0,0);
-			if (rrFrame) nothing=false;
-			L3Message* rrMessage = processSACCHMessage(rrFrame);
+			if (L3Frame *rrFrame = L2LogicalChannel::l2recv(0,0)) {
+				nothing=false;
+				bool isMeasurementReport = rrFrame->isData()
+					&& rrFrame->PD() == L3RadioResourcePD && rrFrame->MTI() == L3RRMessage::MeasurementReport;
+				if (isMeasurementReport) {
+					// Neither of these 'ifs' should fail, but be safe.
+					if (const L3Message* rrMessage = parseSACCHMessage(rrFrame)) {
+						if (const L3MeasurementReport* measurement = dynamic_cast<typeof(measurement)>(rrMessage)) {
+							OBJLOG(DEBUG) << "SACCH measurement report " << mMeasurementResults;
+							mMeasurementResults = measurement->results();
+							if (mMeasurementResults.MEAS_VALID() == 0) {
+								addSelfRxLev(mMeasurementResults.RXLEV_SUB_SERVING_CELL_dBm());
+							}
+							// Add the measurement results to the table
+							// Note that the typeAndOffset of a SACCH match the host channel.
+							gPhysStatus.setPhysical(this, mMeasurementResults);
+							// Check for handover requirement.
+							// (pat) TODO: This may block while waiting for a reply from a Peer BTS.
+							Control::HandoverDetermination(mMeasurementResults,mAverageRXLEV_SUB_SERVICING_CELL,this);
+						}
+						delete rrMessage;
+					}
+					delete rrFrame;
+				} else {
+					// Send it off to Layer 3.  Who knows what might show up here.
+					hostChan()->chanEnqueueFrame(rrFrame);
+				}
+			}
+
+#if 0
+			L3Message* rrMessage = parseSACCHMessage(rrFrame);
 			delete rrFrame;
 			if (rrMessage) {
 				L3MeasurementReport* measurement = dynamic_cast<L3MeasurementReport*>(rrMessage);
@@ -400,51 +517,34 @@ void SACCHLogicalChannel::serviceLoop()
 					// Note that the typeAndOffset of a SACCH match the host channel.
 					gPhysStatus.setPhysical(this, mMeasurementResults);
 					// Check for handover requirement.
+					// (pat) TODO: This may block while waiting for a reply from a Peer BTS.
 					Control::HandoverDetermination(mMeasurementResults,this);
+					delete rrMessage;
 				} else {
-					OBJLOG(NOTICE) << "SACCH SAP0 sent unaticipated message " << rrMessage;
+					if (Control::l3rewrite()) {
+						OBJLOG(DEBUG) << "chanEnqueuel3msg:"<<rrMessage;
+						hostChan()->chanEnqueuel3msg(rrMessage);
+					} else {
+						OBJLOG(NOTICE) << "SACCH SAP0 sent unaticipated message " << rrMessage;
+						delete rrMessage;
+					}
 				}
-				delete rrMessage;
 			}
+#endif
 
 			// Process SAP3 -- SMS
-			L3Frame *smsFrame = LogicalChannel::recv(0,3);
-			if (smsFrame) nothing=false;
-			L3Message* smsMessage = processSACCHMessage(smsFrame);
-			delete smsFrame;
-			if (smsMessage) {
-				const SMS::CPData* cpData = dynamic_cast<const SMS::CPData*>(smsMessage);
-				if (cpData) {
-					OBJLOG(INFO) << "SMS CPDU " << *cpData;
-					Control::TransactionEntry *transaction = gTransactionTable.find(this);
-					try {
-						if (transaction) {
-							Control::InCallMOSMSController(cpData,transaction,this);
-						} else {
-							OBJLOG(WARNING) << "in-call MOSMS CP-DATA with no corresponding transaction";
-						}
-					} catch (Control::ControlLayerException e) {
-						//LogicalChannel::send(RELEASE,3);
-						gTransactionTable.remove(e.transactionID());
-					}
-				} else {
-					OBJLOG(NOTICE) << "SACCH SAP3 sent unaticipated message " << rrMessage;
-				}
-				delete smsMessage;
-			}
+			L3Frame *smsFrame = L2LogicalChannel::l2recv(0,3);
+			if (smsFrame) {
+				nothing=false;
 
-			// Anything from the SIP side?
-			// MTSMS (delivery from SIP to the MS)
-			Control::TransactionEntry *sipTransaction = mTransactionFIFO.readNoBlock();
-			if (sipTransaction) {
-				OBJLOG(INFO) << "SIP-side transaction: " << sipTransaction;
-				assert(sipTransaction->service() == L3CMServiceType::MobileTerminatedShortMessage);
-				try {
-					Control::MTSMSController(sipTransaction,this);
-				} catch (Control::ControlLayerException e) {
-					//LogicalChannel::send(RELEASE,3);
-					gTransactionTable.remove(e.transactionID());
-				}
+				OBJLOG(DEBUG) <<"received SMS frame:"<<smsFrame;
+
+				// The SACCH messages are polled from by the single L3LogicalChannel thread that handles this MS.
+				//if (smsFrame) { Control::gCSL3StateMachine.csl3Write(new Control::GenericL3Msg(smsFrame,this)); }
+				//L3Message *smsMessage = parseSACCHMessage(smsFrame);
+				//OBJLOG(DEBUG) <<"parsed SMS message:"<<smsMessage;
+				//delete smsFrame;
+				hostChan()->chanEnqueueFrame(smsFrame);
 			}
 
 			// Did we get anything from the phone?
@@ -454,7 +554,6 @@ void SACCHLogicalChannel::serviceLoop()
 			// Nothing happened?
 			if (nothing) break;
 		}
-
 	}
 }
 
@@ -467,21 +566,14 @@ void *GSM::SACCHLogicalChannelServiceLoopAdapter(SACCHLogicalChannel* chan)
 
 
 // These have to go into the .cpp file to prevent an illegal forward reference.
-void LogicalChannel::setPhy(float wRSSI, float wTimingError, double wTimestamp)
+void L2LogicalChannel::setPhy(float wRSSI, float wTimingError, double wTimestamp)
 	{ assert(mSACCH); mSACCH->setPhy(wRSSI,wTimingError,wTimestamp); }
-void LogicalChannel::setPhy(const LogicalChannel& other)
+void L2LogicalChannel::setPhy(const L2LogicalChannel& other)
 	{ assert(mSACCH); mSACCH->setPhy(*other.SACCH()); }
-float LogicalChannel::RSSI() const
-	{ assert(mSACCH); return mSACCH->RSSI(); }
-float LogicalChannel::timingError() const
-	{ assert(mSACCH); return mSACCH->timingError(); }
-double LogicalChannel::timestamp() const
-	{ assert(mSACCH); return mSACCH->timestamp(); }
-int LogicalChannel::actualMSPower() const
-	{ assert(mSACCH); return mSACCH->actualMSPower(); }
-int LogicalChannel::actualMSTiming() const
-	{ assert(mSACCH); return mSACCH->actualMSTiming(); }
-const L3MeasurementResults& LogicalChannel::measurementResults() const
+MSPhysReportInfo * L2LogicalChannel::getPhysInfo() const {
+	assert(mSACCH); return mSACCH->getPhysInfo();
+}
+const L3MeasurementResults& L2LogicalChannel::measurementResults() const
 	{ assert(mSACCH); return mSACCH->measurementResults(); }
 
 
@@ -495,8 +587,8 @@ TCHFACCHLogicalChannel::TCHFACCHLogicalChannel(
 	mL1 = mTCHL1;
 	// SAP0 is RR/MM/CC, SAP3 is SMS
 	// SAP1 and SAP2 are not used.
-	mL2[0] = new FACCHL2(1,0);
-	mL2[3] = new FACCHL2(1,3);
+	mL2[0] = new FACCHL2(1,SAPI0);
+	mL2[3] = new FACCHL2(1,SAPI3);
 	mSACCH = new SACCHLogicalChannel(wCN,wTN,wMapping.SACCH(),this);
 	connect();
 }
@@ -513,23 +605,24 @@ CBCHLogicalChannel::CBCHLogicalChannel(const CompleteMapping& wMapping)
 }
 
 
-void CBCHLogicalChannel::send(const L3SMSCBMessage& msg)
+void CBCHLogicalChannel::l2sendm(const L3SMSCBMessage& msg)
 {
 	L3Frame frame(UNIT_DATA,88*8);
 	msg.write(frame);
-	LogicalChannel::send(frame);
+	L2LogicalChannel::l2sendf(frame);
 }
 
 
 
 
-bool LogicalChannel::waitForPrimitive(Primitive primitive, unsigned timeout_ms)
+#if UNUSED
+bool L2LogicalChannel::waitForPrimitive(Primitive primitive, unsigned timeout_ms)
 {
 	bool waiting = true;
 	while (waiting) {
 		L3Frame *req = recv(timeout_ms);
 		if (req==NULL) {
-			LOG(NOTICE) << "timeout at uptime " << gBTS.uptime() << " frame " << gBTS.time();
+			OBJLOG(NOTICE) << "timeout at uptime " << gBTS.uptime() << " frame " << gBTS.time();
 			return false;
 		}
 		waiting = (req->primitive()!=primitive);
@@ -539,7 +632,7 @@ bool LogicalChannel::waitForPrimitive(Primitive primitive, unsigned timeout_ms)
 }
 
 
-void LogicalChannel::waitForPrimitive(Primitive primitive)
+void L2LogicalChannel::waitForPrimitive(Primitive primitive)
 {
 	bool waiting = true;
 	while (waiting) {
@@ -549,34 +642,29 @@ void LogicalChannel::waitForPrimitive(Primitive primitive)
 		delete req;
 	}
 }
+#endif
 
-L3Frame* LogicalChannel::waitForEstablishOrHandover()
+// We only return state for SAPI0, although the state could be different in SAPI0 and SAPI3.
+LAPDState L2LogicalChannel::getLapdmState() const
 {
-	while (true) {
-		L3Frame *req = recv();
-		if (req==NULL) continue;
-		if (req->primitive()==ESTABLISH) return req;
-		if (req->primitive()==HANDOVER_ACCESS) return req;
-		LOG(INFO) << "LogicalChannel: Ignored primitive:"<<req->primitive();
-		delete req;
-	}
-	return NULL;	// to keep the compiler happy
+	// The check for NULL is redundant - these objects are allocated at startup and are immortal.
+	if (mL2[0]) { return mL2[0]->getLapdmState(); }
+	return LAPDStateUnused;
 }
 
 
-
-ostream& GSM::operator<<(ostream& os, const LogicalChannel& chan)
+ostream& GSM::operator<<(ostream& os, const L2LogicalChannel& chan)
 {
 	os << chan.descriptiveString();
 	return os;
 }
-
-
-void LogicalChannel::addTransaction(Control::TransactionEntry *transaction)
+std::ostream& GSM::operator<<(std::ostream&os, const L2LogicalChannel*ch)
 {
-	assert(transaction->channel()==this);
-	mTransactionFIFO.write(transaction);
+	if (ch) { os <<*ch; } else { os << "(null L2Logicalchannel)"; }
+	return os;
 }
+
+
 
 // vim: ts=4 sw=4
 

@@ -700,7 +700,7 @@ void Transceiver::driveControl(unsigned ARFCN)
   }
   else if (strcmp(command,"READFACTORY")==0) {
     char param[16];
-    sscanf(buffer,"%3s %s %s",cmdcheck,command,&param);
+    sscanf(buffer,"%3s %s %s",cmdcheck,command,param);	// (pat) this was formerly &param which was incorrect.
     int ret = gFactoryCalibration.getValue(std::string(param));
     // TODO : this should actually return the param name requested
     sprintf(response,"RSP READFACTORY 0 %d", ret);

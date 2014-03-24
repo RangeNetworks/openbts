@@ -51,7 +51,8 @@ noinst_PROGRAMS = \
 	RAD1Cmd \
 	RAD1SN \
 	RAD1RxRawPowerSweep \
-	RAD1RxRawPower
+	RAD1RxRawPower \
+	PowerScanner
 
 noinst_HEADERS = \
         ad9862.h                        \
@@ -112,6 +113,12 @@ sigProcLibTest_LDADD = \
 	$(GSM_LA) \
 	$(COMMON_LA) $(SQLITE_LA)
 
+PowerScanner_SOURCES = PowerScanner.cpp ../apps/GetConfigurationKeys.cpp
+PowerScanner_LDADD = \
+	libtransceiver.la \
+	$(SCANNING_LA) \
+	$(GSM_LA) \
+	$(COMMON_LA) $(SQLITE_LA)
 
 
 MOSTLYCLEANFILES +=
@@ -122,9 +129,10 @@ MOSTLYCLEANFILES +=
 #sweepGenerator.cpp
 #testRadio.cpp
 
-install: transceiver
+install: transceiver PowerScanner
 	@mkdir -p "$(DESTDIR)/OpenBTS/"
 	install transceiver "$(DESTDIR)/OpenBTS/"
 	install ezusb.ihx "$(DESTDIR)/OpenBTS/"
 	install fpga.rbf "$(DESTDIR)/OpenBTS/"
+	install PowerScanner "$(DESTDIR)/OpenBTS/"
 

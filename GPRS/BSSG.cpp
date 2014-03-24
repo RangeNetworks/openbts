@@ -26,6 +26,8 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 
+#if INTERNAL_SGSN == 0
+
 namespace BSSG {
 BSSGMain gBSSG;
 
@@ -368,3 +370,4 @@ void BSSGWriteLowSide(NSMsg *ulmsg)
 }
 
 };
+#endif

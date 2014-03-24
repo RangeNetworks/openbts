@@ -14,6 +14,7 @@
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
+#define LOG_GROUP LogGroup::Control
 
 #include "ControlCommon.h"
 #include <GSMLogicalChannel.h>
@@ -22,6 +23,9 @@
 #include <Reporting.h>
 #include <sqlite3.h>
 #include <sqlite3util.h>
+
+// (pat) See GSM 03.41.  SMSCB is a broadcast message service on a dedicated broadcast channel and unrelated to anything else.
+// Broadcast messages are completely unacknowledged.  They are repeated perpetually.
 
 
 static const char* createSMSCBTable = {
@@ -143,7 +147,7 @@ void SMSCBSendMessage(sqlite3* DB, sqlite3_stmt* stmt, GSM::CBCHLogicalChannel* 
 		);
 		// Send it.
 		LOG(DEBUG) << "sending L3 message page " << page+1 << ": " << message;
-		CBCH->send(message);
+		CBCH->l2sendm(message);
 	}
 	free(messageText);
 

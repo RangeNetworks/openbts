@@ -60,12 +60,12 @@ class L3RRMessage : public L3Message {
 		SystemInformationType2=0x1a,
 		SystemInformationType2bis=0x02,
 		SystemInformationType2ter=0x03,
-		SystemInformationType3=0x1b,
-		SystemInformationType4=0x1c,
-		SystemInformationType5=0x1d,
+		SystemInformationType3=0x1b,		// 27
+		SystemInformationType4=0x1c,		// 28
+		SystemInformationType5=0x1d,		// 29
 		SystemInformationType5bis=0x05,
 		SystemInformationType5ter=0x06,
-		SystemInformationType6=0x1e,
+		SystemInformationType6=0x1e,		// 30
 		SystemInformationType7=0x1f,
 		SystemInformationType8=0x18,
 		SystemInformationType9=0x04,
@@ -75,18 +75,18 @@ class L3RRMessage : public L3Message {
 		//@}
 		///@name Channel Management
 		//@{
-		AssignmentCommand=0x2e,
+		AssignmentCommand=0x2e,			// 46
 		AssignmentComplete=0x29,
 		AssignmentFailure=0x2f,
-		ChannelRelease=0x0d,
-		ImmediateAssignment=0x3f,
+		ChannelRelease=0x0d,			// 13
+		ImmediateAssignment=0x3f,		// 63
 		ImmediateAssignmentExtended=0x39,
-		ImmediateAssignmentReject=0x3a,
+		ImmediateAssignmentReject=0x3a,		// 58
 		AdditionalAssignment=0x3b,
 		//@}
 		///@name Paging
 		//@{
-		PagingRequestType1=0x21,
+		PagingRequestType1=0x21,		// 33
 		PagingRequestType2=0x22,
 		PagingRequestType3=0x24,
 		PagingResponse=0x27,
@@ -623,7 +623,7 @@ public:
 	// (pat) writeBody called via:
 	// CCCHLogicalChannel:send(L3RRMessage msg)
 	// calls L3FrameFIFO mq.L3FrameFIFO::write(new L3Frame(L3Message msg,UNIT_DATA));
-	// L3Frame::L3Frame(L3Message&,Primitive) : BitVector(msg.bitsNeeded)
+	// L3Frame::L3Frame(L3Message&,Primitive) : BitVector2(msg.bitsNeeded)
 	//                      mPrimitive(wPrimitive),
 	//                      mL2Length(wPrimitive) { L3Message msg.write(); }
 	// L3Message::write() calls writeBody()
@@ -679,7 +679,7 @@ private:
 public:
 	
 	/** The default cause is 0x0, "normal event". */
-	L3ChannelRelease(const L3RRCause& cause = L3RRCause(0x0))
+	L3ChannelRelease(const L3RRCause& cause = L3RRCause(L3RRCause::NormalEvent))
 		:L3RRMessageNRO(),mRRCause(cause),mGprsResumptionPresent(0)
 	{}
 
@@ -743,6 +743,7 @@ private:
 	
 	bool mHaveMode1;
 	L3ChannelMode mMode1;	
+	L3MultiRateConfiguration mMultiRate;	// For AMR codecs, defaults to AMR-FR.
 
 public:
 
@@ -760,6 +761,7 @@ public:
 	{}
 
 
+	bool isAMR() const { return mHaveMode1 && mMode1.isAMR(); }
 
 	int MTI() const { return (int) AssignmentCommand; }
 
@@ -846,6 +848,7 @@ class L3ChannelModeModify : public L3RRMessageNRO {
 
 	L3ChannelDescription mDescription;
 	L3ChannelMode mMode;
+	L3MultiRateConfiguration mMultiRate;	// For AMR codecs, defaults to AMR-FR.
 
 	public:
 
@@ -857,9 +860,11 @@ class L3ChannelModeModify : public L3RRMessageNRO {
 	{}
 
 	int MTI() const { return (int) ChannelModeModify; }
+	bool isAMR() const { return mMode.isAMR(); }
 
 	size_t l2BodyLength() const
-		{ return mDescription.lengthV() + mMode.lengthV(); }
+		{ return mDescription.lengthV() + mMode.lengthV() +
+			(isAMR() ? mMultiRate.lengthTLV() : 0); }
 
 	void writeBody(L3Frame&, size_t&) const;
 	void text(std::ostream&) const;
@@ -925,7 +930,7 @@ class L3ApplicationInformation : public L3RRMessageNRO {
 	L3ApplicationInformation();
 	// data is the first argument to allow the rest to default, since that is the common case,
 	// sending a single (cr=0, first=0, last=0) RRLP (id=0) APDU wrapped in a ApplicationInformation L3 packet.
-	L3ApplicationInformation(BitVector& data, unsigned protocolIdentifier=0,
+	L3ApplicationInformation(BitVector2& data, unsigned protocolIdentifier=0,
 	                         unsigned cr=0, unsigned firstSegment=0, unsigned lastSegment=0);
 
 	///@name Accessors.
@@ -1073,9 +1078,14 @@ class L3HandoverCommand : public L3RRMessageNRO {
 		mSynchronizationIndication(wSynchronizationIndication)
 		{ }
 
+	L3HandoverCommand() {}	// This is to manufacture one.
+
 	int MTI() const { return (int) HandoverCommand; }
 
 	size_t l2BodyLength() const;
+	// (pat) This is never an incoming message from a handset, but we pass it between BTS base-stations,
+	// so add a parser so we can print its content in debug messages.
+	void parseBody(const L3Frame&, size_t&);
 	void writeBody(L3Frame&, size_t&) const;
 	void text(std::ostream&) const;
 };

@@ -1,6 +1,6 @@
 /*
 * Copyright 2008, 2010 Free Software Foundation, Inc.
-* Copyright 2012 Range Networks, Inc.
+* Copyright 2012, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
 *
@@ -77,7 +77,6 @@ void* ClockLoopAdapter(TransceiverManager *transceiver)
 	// This loop has a period of about 3 seconds.
 
 	gResetWatchdog();
-	Timeval nextContact;
 	while (1) {
 		transceiver->clockHandler();
 		LOG(DEBUG) << "watchdog timer expires in " << gWatchdogRemaining() << " seconds";
@@ -101,7 +100,7 @@ void TransceiverManager::clockHandler()
 	if (msgLen<0) {
 		LOG(EMERG) << "TRX clock interface timed out, assuming TRX is dead.";
 		gReports.incr("OpenBTS.Exit.Error.TransceiverHeartbeat");
-#ifdef RN_DEVELOPER_MODE
+#if RN_DEVELOPER_MODE
 		// (pat) Added so you can keep debugging without the radio.
 		static int foo = 0;
 		pthread_exit(&foo);
@@ -285,6 +284,11 @@ int ::ARFCNManager::sendCommandPacket(const char* command, char* response)
 			break;
 		}
 		LOG(WARNING) << "TRX link timeout on attempt " << retry+1;
+		// Dont wait so long.
+		if (gConfig.defines("DeveloperMode") && 0 == strcmp(command,"CMD POWERON")) {
+			printf("Developer mode, curtailing transceiver poweron test\n"); fflush(stdout);
+			return 0;
+		}
 	}
 
 	mControlLock.unlock();
@@ -431,7 +435,7 @@ bool ::ARFCNManager::powerOff()
 {
 	int status = sendCommand("POWEROFF");
 	if (status!=0) {
-		LOG(ALERT) << "POWEROFF failed with status " << status;
+		LOG(INFO) << "POWEROFF failed with status " << status;
 		return false;
 	}
 	return true;
@@ -451,6 +455,12 @@ bool ::ARFCNManager::powerOn(bool warn)
 		return false;
 	}
 	return true;
+}
+
+bool ::ARFCNManager::trxRunning()
+{
+	int status = sendCommand("POWEROFF");
+	return status == 0;
 }
 
 
@@ -546,7 +556,7 @@ bool ::ARFCNManager::clearHandover(unsigned TN)
 	assert(TN<8);
 	int status = sendCommand("NOHANDOVER",TN);
 	if (status!=0) {
-		LOG(WARNING) << "NOHANDOVER failed with status " << status;
+		LOG(ALERT) << "NOHANDOVER failed with status " << status;
 		return false;
 	}
 	return true;

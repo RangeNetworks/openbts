@@ -50,6 +50,7 @@ class TCHFACCHLogicalChannel;
 class CCCHList : public std::vector<CCCHLogicalChannel*> {};
 class SDCCHList : public std::vector<SDCCHLogicalChannel*> {};
 class TCHList : public std::vector<TCHFACCHLogicalChannel*> {};
+typedef std::vector<L2LogicalChannel*> L2ChanList;
 
 /**
 	This object carries the top-level GSM air interface configuration.
@@ -347,6 +348,7 @@ class GSMConfig {
 
 	/** Get a handle to the power manager. */
 	PowerManager& powerManager() { return mPowerManager; }
+	void getChanVector(std::vector<L2LogicalChannel*> &result);
 };
 
 

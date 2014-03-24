@@ -2,7 +2,7 @@
 
 /*
 * Copyright 2008, 2009 Free Software Foundation, Inc.
-* Copyright 2011 Range Networks, Inc.
+* Copyright 2011, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
@@ -26,6 +26,8 @@
 #include "GSML3Message.h"
 #include "GSML3CommonElements.h"
 #include "GSML3CCElements.h"
+#include "GSML3SSMessages.h"
+#include <ControlTransfer.h>
 
 
 namespace GSM { 
@@ -57,14 +59,15 @@ class L3CCMessage : public L3Message {
 		CallProceeding=0x02,
 		Connect=0x07,
 		Setup=0x05,
+		EmergencySetup=0x0e,
 		ConnectAcknowledge=0x0f,
 		Progress=0x03,
 		//@}
 		/**@name call clearing */
 		//@{
-		Disconnect=0x25,
+		Disconnect=0x25,		// 37
 		Release=0x2d,
-		ReleaseComplete=0x2a,
+		ReleaseComplete=0x2a,	// 42
 		//@}
 		/**@name DTMF */
 		//@{
@@ -104,6 +107,21 @@ class L3CCMessage : public L3Message {
 };
 
 
+class L3CCCommonIEs {
+	public:
+	Bool_z mHaveFacility;
+	L3SupServFacilityIE mFacility;
+	// The SS Version is variable length, which is nonsense, because it is one byte which can take the values 0 or 1.  Woo hoo!
+	Bool_z mHaveSSVersion;
+	L3SupServVersionIndicator mSSVersion;
+
+	void ccCommonText(std::ostream&) const;
+	void ccCommonParse( const L3Frame &src, size_t &rp );
+	void ccCommonWrite( L3Frame &dest, size_t &wp ) const;
+	size_t ccCommonLength() const;
+};
+
+
 std::ostream& operator<<(std::ostream& os, L3CCMessage::MessageType MTI);
 
 
@@ -122,7 +140,7 @@ L3CCMessage* L3CCFactory(L3CCMessage::MessageType MTI);
 
 
 /** GSM 04.08 9.3.19 */
-class L3Release : public L3CCMessage {
+class L3Release : public L3CCMessage, public L3CCCommonIEs  {
 
 	private:
 
@@ -185,7 +203,7 @@ public:
 
 
 /** GSM 04.08 9.3.19 */
-class L3ReleaseComplete : public L3CCMessage {
+class L3ReleaseComplete : public L3CCMessage, public L3CCCommonIEs {
 
 	private:
 
@@ -217,56 +235,39 @@ class L3ReleaseComplete : public L3CCMessage {
 
 
 
-
 /**
 	GSM 04.08 9.3.23
 	This message can have different forms for uplink and downlink
 	but the TLV format is flexiable enough to allow us to use one class for both.
 */
-class L3Setup : public L3CCMessage
+class L3Setup : public L3CCMessage, public L3CCCapabilities, public L3CCCommonIEs
 {
-
 	// We fill in IEs one at a time as we need them.
 
-	/// Bearer Capability IE
-	bool mHaveBearerCapability;
-	L3BearerCapability mBearerCapability;
-
 	/// Calling Party BCD Number (0x5C O TLV 3-19 ).
-	bool mHaveCallingPartyBCDNumber;
+	Bool_z mHaveCallingPartyBCDNumber;
 	L3CallingPartyBCDNumber mCallingPartyBCDNumber;
 
 	/// Called Party BCD Number (0x5E O TLV 3-19).
-	bool mHaveCalledPartyBCDNumber;
+	Bool_z mHaveCalledPartyBCDNumber;
 	L3CalledPartyBCDNumber mCalledPartyBCDNumber;
-
-
-
 public:
 
 	L3Setup(unsigned wTI=7)
-		:L3CCMessage(wTI),
-		mHaveBearerCapability(false),
-		mHaveCallingPartyBCDNumber(false),
-		mHaveCalledPartyBCDNumber(false)
+		:L3CCMessage(wTI)
 	{ }
 
 	
 	L3Setup(unsigned wTI, const L3CalledPartyBCDNumber& wCalledPartyBCDNumber)
-		:L3CCMessage(wTI), 
-		mHaveBearerCapability(false),
-		mHaveCallingPartyBCDNumber(false),
+		:L3CCMessage(wTI) ,
 		mHaveCalledPartyBCDNumber(true),mCalledPartyBCDNumber(wCalledPartyBCDNumber)
 	{ }
 	
+	// (pat) This is cleverly converting callingPartyBCDNumber to a char string and back.
 	L3Setup(unsigned wTI, const L3CallingPartyBCDNumber& wCallingPartyBCDNumber)
 		:L3CCMessage(wTI), 
-		mHaveBearerCapability(false),
-		mHaveCallingPartyBCDNumber(true),mCallingPartyBCDNumber(wCallingPartyBCDNumber),
-		mHaveCalledPartyBCDNumber(false)
+		mHaveCallingPartyBCDNumber(true),mCallingPartyBCDNumber(wCallingPartyBCDNumber)
 	{ }
-
-
 
 
 	/** Accessors */
@@ -287,6 +288,25 @@ public:
 };
 
 
+/**
+	GSM 04.08 9.3.8
+*/
+// (pat) 5-2013: This uses a subset of the IEs as L3Setup, so we can use that class to parse it.
+//class L3EmergencySetup : public L3CCMessage
+class L3EmergencySetup : public L3Setup
+{
+public:
+
+	//L3EmergencySetup(unsigned wTI=7) :L3CCMessage(wTI) { }
+	
+	int MTI() const { return EmergencySetup; }
+	//void parseBody(const L3Frame &src, size_t &rp) {}	// parseBody supplied by L3Setup.
+	size_t l2BodyLength() const { return 0; }	// We dont write this message, so we dont care about this.
+};
+
+
+
+
 /** GSM 04.08 9.3.3 */
 class L3CallProceeding : public L3CCMessage {
 
@@ -294,7 +314,8 @@ class L3CallProceeding : public L3CCMessage {
 
 	// We'fill in IEs one at a time as we need them.
 
-	bool mHaveBearerCapability;
+	// (pat) Should be modified to use L3CCCapabilities.
+	//bool mHaveBearerCapability;
 	L3BearerCapability mBearerCapability;
 
 	bool mHaveProgress;
@@ -304,7 +325,7 @@ public:
 
 	L3CallProceeding(unsigned wTI=7)
 		:L3CCMessage(wTI),
-		mHaveBearerCapability(false),
+		//mHaveBearerCapability(false),
 		mHaveProgress(false)
 	{}
 	
@@ -324,18 +345,18 @@ public:
 	Even though uplink and downlink forms have different optional fields,
 	we can use a single message for both sides.
 */
-class L3Alerting : public L3CCMessage 
+class L3Alerting : public L3CCMessage, public L3CCCommonIEs 
 {
 	private:
 
-	bool mHaveProgress;
+	Bool_z mHaveProgress;
 	L3ProgressIndicator mProgress; 		///< Progress appears in uplink only.
 
 	public:
 
 	L3Alerting(unsigned wTI=7)
-		:L3CCMessage(wTI),
-		mHaveProgress(false)
+		:L3CCMessage(wTI)
+		//,mHaveProgress(false)
 	{}
 
 	L3Alerting(unsigned wTI,const L3ProgressIndicator& wProgress)
@@ -394,8 +415,8 @@ public:
 	{}
 
 	int MTI() const { return ConnectAcknowledge; }
-	void writeBody( L3Frame &dest, size_t &wp ) const {}
-	void parseBody( const L3Frame &src, size_t &rp ) {}
+	void writeBody( L3Frame &/*dest*/, size_t &/*wp*/ ) const {}
+	void parseBody( const L3Frame &/*src*/, size_t &/*rp*/ ) {}
 	size_t l2BodyLength() const { return 0; }
 
 };
@@ -411,7 +432,7 @@ private:
 public:
 
 	/** Initialize with default cause of 0x10 "normal call clearing". */
-	L3Disconnect(unsigned wTI=7, const L3Cause& wCause = L3Cause(0x10))
+	L3Disconnect(unsigned wTI=7, const L3Cause& wCause = L3Cause(L3Cause::NormalCallClearing))
 		:L3CCMessage(wTI),
 		mCause(wCause)
 	{}
@@ -422,24 +443,31 @@ public:
 	void parseBody( const L3Frame &src, size_t &rp );
 	size_t l2BodyLength() const { return mCause.lengthLV(); }
 	void text(std::ostream&) const;
-
 };
 
 
 
 /** GSM 04.08 9.3.2 */
-class L3CallConfirmed : public L3CCMessage {
+class L3CallConfirmed : public L3CCMessage, public L3CCCapabilities {
 
 private:
 
-	bool mHaveCause;
+	// (pat) BearerCapability is sent by GSM phone
+	//Bool_z mHaveBearerCapability;
+	//L3BearerCapability mBearerCapability;
+	Bool_z mHaveCause;
 	L3Cause	mCause;
+
+	// (pat) SupportedCodecList is sent by UMTS phone
+	//Bool_z mHaveSupportedCodecs;
+	//L3SupportedCodecList mSupportedCodecs;
 
 public:
 
 	L3CallConfirmed(unsigned wTI=7)
-		:L3CCMessage(wTI),
-		mHaveCause(false)
+		:L3CCMessage(wTI)
+		//mHaveCause(false),
+		//mHaveSupportedCodecs(false)
 	{}
 
 	int MTI() const { return CallConfirmed; }
@@ -531,7 +559,7 @@ class L3StopDTMF : public L3CCMessage {
 	{}
 
 	int MTI() const { return StopDTMF; }
-	void parseBody(const L3Frame &src, size_t &rp) { }
+	void parseBody(const L3Frame &/*src*/, size_t &/*rp*/) { }
 	size_t l2BodyLength() const { return 0; };
 };
 
@@ -588,8 +616,8 @@ public:
 	{}
 
 	int MTI() const { return Hold; }
-	void writeBody( L3Frame &dest, size_t &wp ) const {}
-	void parseBody( const L3Frame &src, size_t &rp ) {}
+	void writeBody( L3Frame &/*dest*/, size_t &/*wp*/ ) const {}
+	void parseBody( const L3Frame &/*src*/, size_t &/*rp*/ ) {}
 	size_t l2BodyLength() const { return 0; }
 
 };

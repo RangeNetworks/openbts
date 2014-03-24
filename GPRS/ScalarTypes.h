@@ -14,6 +14,9 @@
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 */
 
+// (pat) This file defines initialized scalar types: Bool_z, Int_z, UInt_z, Size_t_z etc., which function like
+// their normal counterparts (with exceptions noted below) but are guaranteed initialized to 0.
+
 #ifndef SCALARTYPES_H
 #define SCALARTYPES_H
 #include <iostream>	// For size_t

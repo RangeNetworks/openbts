@@ -1,7 +1,7 @@
 /*
 * Copyright 2009, 2010 Free Software Foundation, Inc.
 * Copyright 2010 Kestrel Signal Processing, Inc.
-* Copyright 2011, 2012 Range Networks, Inc.
+* Copyright 2011, 2012, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
@@ -24,7 +24,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <time.h>
-#include <algorithm>
+#include <algorithm>		// for sort()
 
 #include <config.h>
 
@@ -33,20 +33,26 @@
 
 #include <GSMConfig.h>
 #include <GSMLogicalChannel.h>
-#include <ControlCommon.h>
-#include <TransactionTable.h>
+#include <ControlTransfer.h>
+#include <L3TranEntry.h>
 #include <TRXManager.h>
 #include <PowerManager.h>
 #include <TMSITable.h>
 #include <RadioResource.h>
-#include <CallControl.h>
 #include <NeighborTable.h>
 #include <Defines.h>
 #include <GPRSExport.h>
 #include <MAC.h>
+#include <L3MMLayer.h>
+#include <Utils.h>
+#include <SIP2Interface.h>
+#include <Peering.h>
+
+std::string getARFCNsString(unsigned band);
 
 namespace SGSN {
-	extern int sgsnCLI(int argc, char **argv, std::ostream &os);
+	// Hack.
+	extern CommandLine::CLIStatus sgsnCLI(int argc, char **argv, std::ostream &os);
 };
 
 #include <Globals.h>
@@ -55,17 +61,11 @@ namespace SGSN {
 
 #undef WARNING
 
-using namespace std;
-using namespace CommandLine;
-
-#define SUCCESS 0
-#define BAD_NUM_ARGS 1
-#define BAD_VALUE 2
-#define NOT_FOUND 3
-#define TOO_MANY_ARGS 4
-#define FAILURE 5
-
 extern TransceiverManager gTRX;
+
+namespace CommandLine {
+using namespace std;
+using namespace Control;
 
 /** Standard responses in the CLI, much mach erorrCode enum. */
 static const char* standardResponses[] = {
@@ -78,47 +78,144 @@ static const char* standardResponses[] = {
 };
 
 
+struct CLIParseError {
+	string msg;
+	CLIParseError(string wMsg) : msg(wMsg) {}
+};
 
 
-int Parser::execute(char* line, ostream& os) const
+
+CLIStatus Parser::execute(char* line, ostream& os) const
 {
 	LOG(INFO) << "executing console command: " << line;
 
 	// tokenize
 	char *argv[mMaxArgs];
 	int argc = 0;
-	char **ap;
 	// This is (almost) straight from the man page for strsep.
-	for (ap=argv; (*ap=strsep(&line," ")) != NULL; ) {
-		if (**ap != '\0') {
-			if (++ap >= &argv[mMaxArgs]) break;
-			else argc++;
+	while (line && argc < mMaxArgs) {
+		while (*line == ' ') { line++; }
+		if (! *line) { break; }
+		char *anarg = line;
+		if (*line == '"') {		// We allow a quoted string as a single argument.  Quotes themselves are removed.
+			line++; anarg++;
+			char *endquote = strchr(line,'"');
+			if (endquote == NULL) {
+				os << "error: Missing quote."<<endl;
+				return FAILURE;
+			}
+			if (!(endquote[1] == 0 || endquote[1] == ' ')) {
+				os << "error: Embedded quotes not allowed." << endl;
+				return FAILURE;
+			}
+			*endquote = 0;
+			line = endquote+1;
+		} else if (strsep(&line," ") == NULL) {
+			break;
 		}
+		argv[argc++] = anarg;
 	}
+	//for (ap=argv; (*ap=strsep(&line," ")) != NULL; ) {
+	//	if (**ap != '\0') {
+	//		if (++ap >= &argv[mMaxArgs]) break;
+	//		else argc++;
+	//	}
+	//}
 	// Blank line?
 	if (!argc) return SUCCESS;
 	// Find the command.
+	//printf("args=%d\n",argc);
+	//for (int i = 0; i < argc; i++) { printf("argv[%d]=%s\n",i,argv[i]); }
 	ParseTable::const_iterator cfp = mParseTable.find(argv[0]);
 	if (cfp == mParseTable.end()) {
 		return NOT_FOUND;
 	}
-	int (*func)(int,char**,ostream&);
+	CLICommand func;
 	func = cfp->second;
 	// Do it.
-	int retVal = (*func)(argc,argv,os);
+	CLIStatus retVal;
+	try {
+		retVal = (*func)(argc,argv,os);
+	} catch (CLIParseError &pe) {
+		os << pe.msg << endl;
+		retVal = SUCCESS;	// Dont print any further messages.
+	}
 	// Give hint on bad # args.
 	if (retVal==BAD_NUM_ARGS) os << help(argv[0]) << endl;
 	return retVal;
 }
 
 
-int Parser::process(const char* line, ostream& os) const
+// This is called from a runloop in apps/OpenBTS.cpp
+// If it returns a negative number OpenBTS exists.
+CLIStatus Parser::process(const char* line, ostream& os) const
 {
+	static Mutex oneCommandAtATime;
+	ScopedLock lock(oneCommandAtATime);
 	char *newLine = strdup(line);
-	int retVal = execute(newLine,os);
+	CLIStatus retVal = execute(newLine,os);
 	free(newLine);
-	if (retVal>0) os << standardResponses[retVal] << endl;
+	if (retVal < 0 || retVal > FAILURE) {
+		os << "Unrecognized CLI command exit status: "<<retVal << endl;
+	} else if (retVal != SUCCESS) {
+		os << standardResponses[retVal] << endl;
+	}
 	return retVal;
+}
+
+
+static void *commandLineFunc(void *arg)
+{
+	const char *prompt = "OpenBTS> ";		//gConfig.getStr("CLI.Prompt");  CLI.Prompt no longer defined.
+	try {
+#ifdef HAVE_READLINE
+		using_history();
+		while (true) {
+			clearerr(stdin);	// Control-D may set the eof bit which causes getline to return immediately.  Fix it.
+			char *inbuf = readline(prompt);
+			if (inbuf) {
+				if (*inbuf) {
+					add_history(inbuf);
+					// The parser returns -1 on exit.
+					if (gParser.process(inbuf, cout, cin)<0) {
+						free(inbuf);
+						break;
+					}
+				}
+				free(inbuf);
+			} else {
+				printf("EOF ignored\n");
+			}
+			sleep(1); // in case something goofs up here, dont steal all the cpu cycles.
+		}
+#else
+		while (true) {
+			//cout << endl << 
+			cout << endl << prompt;
+			cout.flush();
+			char inbuf[1024];
+			cin.clear();	// Control-D may set the eof bit which causes getline to return immediately.  Fix it.
+			cin.getline(inbuf,1024,'\n');		// istream::getline
+			if (!cin.fail()) {
+				// The parser returns -1 on exit.
+				if (gParser.process(inbuf,cout)<0) break;
+			}
+			sleep(1); // in case something goofs up here, dont steal all the cpu cycles.
+		}
+#endif
+	} catch (ConfigurationTableKeyNotFound e) {
+		LOG(EMERG) << "required configuration parameter " << e.key() << " not defined, aborting";
+		gReports.incr("OpenBTS.Exit.Error.ConfigurationParamterNotFound");
+	}
+
+	exit(0);	// Exit OpenBTS
+	return NULL;
+}
+
+void Parser::startCommandLine()	// (pat) Start a simple command line processor as a separate thread.
+{
+	static Thread commandLineThread;
+	commandLineThread.start(commandLineFunc,NULL);
 }
 
 
@@ -130,12 +227,53 @@ const char * Parser::help(const string& cmd) const
 }
 
 
+// Parse options in optstring out of argc,argv.
+// The optstring is a space separated list of options.  The options need not start with '-'.  To recognize just "-" or "--" just add it in.
+// Return a map containing the options found; if option in optstring was followed by ':', map value will be the next argv argument, otherwise "true".
+// Leave argc,argv pointing at the first argument after the options, ie, on return argc is the number of non-option arguments remaining in argv.
+// This routine does not allow combining options, ie, -a -b != -ab
+static map<string,string> cliParse(int &argc, char **&argv, ostream &os, const char *optstring)
+{
+	map<string,string> options;		// The result
+	// Skip the command name.
+	argc--, argv++;
+	// Parse args.
+	for ( ; argc > 0; argc--, argv++ ) {
+		char *arg = argv[0];
+		// The argv to match may not contain ':' to prevent the pathological case, for example, where optionlist contains "-a:" and command line arg is "-a:"
+		if (strchr(arg,':')) { return options; }	// Can't parse this, too dangerous.
+		const char *op = strstr(optstring,arg);
+		if (op && (op == optstring || op[-1] == ' ')) {
+			const char *ep = op + strlen(arg);
+			if (*ep == ':') {
+				// This valid option requires an argument.
+				argc--, argv++;
+				if (argc <= 0) { throw CLIParseError(format("expected argument after: %s",arg)); }
+				options[arg] = string(argv[0]);
+				continue;
+			} else if (*ep == 0 || *ep == ' ') {
+				// This valid option does not require an argument.
+				options[arg] = string("true");
+				continue;
+			} else {
+				// Partial match of something in optstring; drop through to treat it like any other argument.
+			}
+		} else {
+			break;	// Return when we find the first non-option.
+		}
+		// An argument beginning with - and not in optstring is an unrecognized option and is an error.
+		if (*arg == '-') { throw CLIParseError(format("unrecognized argument: %s",arg)); }
+		return options;
+	}
+	return options;
+}
+
 
 /**@name Commands for the CLI. */
 //@{
 
 // forward refs
-int printStats(int argc, char** argv, ostream& os);
+static CLIStatus printStats(int argc, char** argv, ostream& os);
 
 /*
 	A CLI command takes the argument in an array.
@@ -143,7 +281,7 @@ int printStats(int argc, char** argv, ostream& os);
 */
 
 /** Display system uptime and current GSM frame number. */
-int uptime(int argc, char** argv, ostream& os)
+static CLIStatus uptime(int argc, char** argv, ostream& os)
 {
 	if (argc!=1) return BAD_NUM_ARGS;
 	os.precision(2);
@@ -178,7 +316,7 @@ int uptime(int argc, char** argv, ostream& os)
 
 
 /** Give a list of available commands or describe a specific command. */
-int showHelp(int argc, char** argv, ostream& os)
+static CLIStatus showHelp(int argc, char** argv, ostream& os)
 {
 	if (argc==2) {
 		os << argv[1] << " " << gParser.help(argv[1]) << endl;
@@ -204,7 +342,7 @@ int showHelp(int argc, char** argv, ostream& os)
 
 
 /** A function to return -1, the exit code for the caller. */
-int exit_function(int argc, char** argv, ostream& os)
+static CLIStatus exit_function(int argc, char** argv, ostream& os)
 {
 	unsigned wait =0;
 	if (argc>2) return BAD_NUM_ARGS;
@@ -236,54 +374,95 @@ int exit_function(int argc, char** argv, ostream& os)
 		os << endl << "exiting with loads:" << endl;
 		printStats(1,NULL,os);
 	}
-	os << endl << "exiting..." << endl;
-	return -1;
+	LOG(ALERT) << "exiting OpenBTS as directed by command line...";	// This is sent to the log file.
+	os << endl << "exiting..." << endl;								// This is sent to OpenBTSCLI
+	// We have to return CLI_EXIT rather than just exiting so we can send the result to OpenBTSCLI.
+	return CLI_EXIT;
 }
-
-
-
-// Forward ref.
-int tmsis(int argc, char** argv, ostream& os);
-
-/** Dump TMSI table to a text file. */
-int dumpTMSIs(const char* filename)
-{
-	ofstream fileout;
-	fileout.open(filename, ios::out); // erases existing!
-	// FIXME -- Check that the file really opened.
-	// Fake an argument list to call printTMSIs.
-	const char* subargv[] = {"tmsis", NULL};
-	int subargc = 1;
-	// (pat) Cast makes gcc happy about const conversion.
-	return tmsis(subargc, const_cast<char**>(subargv), fileout);
-}
-
-
 
 
 /** Print or clear the TMSI table. */
-int tmsis(int argc, char** argv, ostream& os)
+static const char *tmsisHelp = "[-a | -l | -ll | -r | clear | dump [-l] <filename> | delete -tmsi <tmsi> | delete -imsi <imsi> | query <query> set name=value] --\n"
+	"   default print the TMSI table;  -l or -ll gives longer listing;\n"
+	"   -a lists all TMSIs, default is to show most recent 100 in table\n"
+	"   -r raw TMSI table listing\n"
+	"   clear - clear the TMSI table;\n"
+	"   dump - dump the TMSI table to specified filename;\n"
+	"   delete - delete entry for specified imsi or tmsi;\n"
+	"   set name=value - set TMSI database field name to value.  If value is a string use apostrophes, eg: set IMSI='12345678901234'\n"
+	"   query - run sql query, which may be quoted, eg: tmsis query \"UPDATE TMSI_TABLE SET AUTH=0 WHERE IMSI=='123456789012'\" This option may be removed in future."
+	;
+static CLIStatus tmsis(int argc, char** argv, ostream& os)
 {
-	if (argc>=2) {
-		// Clear?
-		if (strcmp(argv[1],"clear")==0) {
-			if (argc!=2) return BAD_NUM_ARGS;
-			os << "clearing TMSI table" << endl;
-			gTMSITable.clear();
-			return SUCCESS;
-		}
-		// Dump?
-		if (strcmp(argv[1],"dump")==0) {
-			if (argc!=3) return BAD_NUM_ARGS;
-			os << "dumping TMSI table to " << argv[2] << endl;
-			return dumpTMSIs(argv[2]);
-		}
-		return BAD_VALUE;
+	// (pat) We used to allow just "dump" or "clear", so be backward compatible for a while.
+	map<string,string> options = cliParse(argc,argv,os,"-a -l -ll -r dump: clear delete -imsi: -tmsi: query: set:");
+	string imsiopt = options["-imsi"];
+	string tmsiopt = options["-tmsi"];
+	unsigned tmsi = strtoul(tmsiopt.c_str(),NULL,0);	// No bad effect if option is empty.
+	string myquery;
+	if (argc) return BAD_NUM_ARGS;
+	int verbose = 0;
+	if (options.count("-l")) { verbose = 1; }
+	if (options.count("-ll")) { verbose = 2; }
+	bool showAll = options.count("-a");
+	if (options.count("clear")) {
+		os << "clearing TMSI table" << endl;
+		gTMSITable.tmsiTabClear();
+		return SUCCESS;
 	}
-
-	if (argc!=1) return BAD_NUM_ARGS;
-	os << "TMSI       IMSI            age  used" << endl;
-	gTMSITable.dump(os);
+	if (options.count("dump")) {
+		ofstream fileout;
+		string filename = options["dump"];
+		if (filename.size() == 0) { os << "bad filename"<<endl; return FAILURE; }
+		os << "dumping TMSI table to " << filename << endl;
+		fileout.open(filename.c_str(), ios::out); // erases existing!
+		gTMSITable.tmsiTabDump(verbose,options.count("-r"),fileout,showAll);
+		return SUCCESS;
+	}
+	if (options.count("delete")) {
+		if (tmsiopt.size()) {
+			if (gTMSITable.dropTmsi(tmsi)) {
+				os << format("Deleted TMSI table entry for 0x%x",tmsi) << endl;
+			} else {
+				os << format("Cound not delete TMSI table entry for 0x%x",tmsi) << endl;
+				return FAILURE;
+			}
+		} else if (imsiopt.size()) {
+			if (gTMSITable.dropImsi(imsiopt.c_str())) {
+				os << format("Deleted TMSI table entry for %s",imsiopt) << endl;
+			} else {
+				os << format("Cound not delete TMSI table entry for %s",imsiopt) << endl;
+				return FAILURE;
+			}
+		} else {
+			oops2:
+			os << "expecting: -tmsi or -imsi option" << endl;
+			return FAILURE;
+		}
+		return SUCCESS;
+	}
+	if (options.count("set")) {
+		if (tmsiopt.size()) {
+			myquery = format("UPDATE TMSI_TABLE SET %s WHERE TMSI==%u",options["set"],tmsi);
+		} else if (imsiopt.size()) {
+			myquery = format("UPDATE TMSI_TABLE SET %s WHERE IMSI==%s",options["set"],options["-imsi"]);
+		} else {
+			goto oops2;
+		}
+		goto runmyquery;
+	}
+	if (options.count("query")) {
+		myquery = options["query"];
+		runmyquery:
+		if (gTMSITable.runQuery(myquery.c_str(),0)) {
+			os << "Query success."<<endl;
+			return SUCCESS;
+		} else {
+			os << "Query failed:"<<myquery<<endl;
+			return FAILURE;
+		}
+	}
+	gTMSITable.tmsiTabDump(verbose,options.count("-r"),os,showAll);
 	return SUCCESS;
 }
 
@@ -303,7 +482,7 @@ int isIMSI(const char *imsi)
 }
 
 /** Submit an SMS for delivery to an IMSI. */
-int sendsimple(int argc, char** argv, ostream& os)
+static CLIStatus sendsimple(int argc, char** argv, ostream& os)
 {
 	if (argc<4) return BAD_NUM_ARGS;
 
@@ -321,18 +500,24 @@ int sendsimple(int argc, char** argv, ostream& os)
 	static UDPSocket sock(0,"127.0.0.1",gConfig.getNum("SIP.Local.Port"));
 
 	static const char form[] =
-		"MESSAGE sip:IMSI%s@127.0.0.1 SIP/2.0\n"
-		"Via: SIP/2.0/TCP 127.0.0.1;branch=%x\n"
-		"Max-Forwards: 2\n"
-		"From: %s <sip:%s@127.0.0.1:%d>;tag=%d\n"
-		"To: sip:IMSI%s@127.0.0.1\n"
-		"Call-ID: %x@127.0.0.1:%d\n"
-		"CSeq: 1 MESSAGE\n"
-		"Content-Type: text/plain\nContent-Length: %u\n"
-		"\n%s\n";
+		"MESSAGE sip:IMSI%s@127.0.0.1 SIP/2.0\r\n"
+		"Via: SIP/2.0/TCP 127.0.0.1:%d;branch=%x\r\n"	// (pat) The via MUST contain the port.
+		"Max-Forwards: 2\r\n"
+		"From: %s <sip:%s@127.0.0.1:%d>;tag=%d\r\n"
+		"To: sip:IMSI%s@127.0.0.1\r\n"
+		"Call-ID: %x@127.0.0.1:%d\r\n"
+		"CSeq: 1 MESSAGE\r\n"
+		"Content-Type: text/plain\nContent-Length: %u\r\n"
+		"\r\n%s\r\n";
 	static char buffer[1500];
 	snprintf(buffer,1499,form,
-		IMSI, (unsigned)random(), srcAddr,srcAddr,sock.port(),(unsigned)random(), IMSI, (unsigned)random(),sock.port(), strlen(txtBuf), txtBuf);
+		IMSI, sock.port(), // via
+		(unsigned)random(), // branch
+		srcAddr,srcAddr,sock.port(), // from
+		(unsigned)random(), // tag
+		IMSI, // to imsi
+		(unsigned)random(), sock.port(), // Call-ID
+		strlen(txtBuf), txtBuf);	// Content-Type and content.
 	sock.write(buffer);
 
 	os << "message submitted for delivery" << endl;
@@ -351,8 +536,8 @@ int sendsimple(int argc, char** argv, ostream& os)
 }
 
 
-/** Submit an SMS for delivery to an IMSI. */
-int sendsms(int argc, char** argv, ostream& os)
+/** Submit an SMS for delivery to an IMSI on this BTS. */
+static CLIStatus sendsms(int argc, char** argv, ostream& os)
 {
 	if (argc<4) return BAD_NUM_ARGS;
 
@@ -360,40 +545,38 @@ int sendsms(int argc, char** argv, ostream& os)
 	char *srcAddr = argv[2];
 	string rest = "";
 	for (int i=3; i<argc; i++) rest = rest + argv[i] + " ";
-	const char *txtBuf = rest.c_str();
 
 	if (!isIMSI(IMSI)) {
 		os << "Invalid IMSI. Enter 15 digits only.";
 		return BAD_VALUE;
 	}
 
-	Control::TransactionEntry *transaction = new Control::TransactionEntry(
-		gConfig.getStr("SIP.Proxy.SMS").c_str(),
-		GSM::L3MobileIdentity(IMSI),
-		NULL,
-		GSM::L3CMServiceType::MobileTerminatedShortMessage,
-		GSM::L3CallingPartyBCDNumber(srcAddr),
-		GSM::Paging,
-		txtBuf);
-	transaction->messageType("text/plain");
-	Control::initiateMTTransaction(transaction,GSM::SDCCHType,30000);
+	// We just use the IMSI, dont try to find a tmsi.
+	FullMobileId msid(IMSI);
+	Control::TranEntry *tran = Control::TranEntry::newMTSMS(
+						NULL,	// No SIPDialog
+						msid,
+						GSM::L3CallingPartyBCDNumber(srcAddr),
+						rest,					// message body
+						string("text/plain"));	// messate content type
+	Control::gMMLayer.mmAddMT(tran);
 	os << "message submitted for delivery" << endl;
 	return SUCCESS;
 }
 
 
 /** Print current usage loads. */
-int printStats(int argc, char** argv, ostream& os)
+static CLIStatus printStats(int argc, char** argv, ostream& os)
 {
 	// FIXME -- This needs to take GPRS channels into account. See #762.
 	if (argc!=1) return BAD_NUM_ARGS;
 	os << "== GSM ==" << endl;
 	os << "SDCCH load: " << gBTS.SDCCHActive() << '/' << gBTS.SDCCHTotal() << endl;
 	os << "TCH/F load: " << gBTS.TCHActive() << '/' << gBTS.TCHTotal() << endl;
-	os << "AGCH/PCH load: " << gBTS.AGCHLoad() << ',' << gBTS.PCHLoad() << endl;
+	os << "AGCH/PCH load: " << gBTS.AGCHLoad() << ',' << gBTS.PCHLoad() << " (target <= 3)" << endl;
 	// paging table size
 	os << "Paging table size: " << gBTS.pager().pagingEntryListSize() << endl;
-	os << "Transactions: " << gTransactionTable.size() << endl;
+	os << "Transactions: " << gNewTransactionTable.size() << endl;
 	// 3122 timer current value (the number of seconds an MS should hold off the next RACH)
 	os << "T3122: " << gBTS.T3122() << " ms (target " << gConfig.getNum("GSM.Radio.PowerManager.TargetT3122") << " ms)" << endl;
 	os << "== GPRS ==" << endl;
@@ -410,7 +593,7 @@ int printStats(int argc, char** argv, ostream& os)
 
 
 /** Get/Set MCC, MNC, LAC, CI. */
-int cellID(int argc, char** argv, ostream& os)
+static CLIStatus cellID(int argc, char** argv, ostream& os)
 {
 	if (argc==1) {
 		os << "MCC=" << gConfig.getStr("GSM.Identity.MCC")
@@ -441,7 +624,7 @@ int cellID(int argc, char** argv, ostream& os)
 		return BAD_VALUE;
 	}
 
-	gTMSITable.clear();
+	gTMSITable.tmsiTabClear();
 	gConfig.set("GSM.Identity.MCC",argv[1]);
 	gConfig.set("GSM.Identity.MNC",argv[2]);
 	gConfig.set("GSM.Identity.LAC",argv[3]);
@@ -449,24 +632,116 @@ int cellID(int argc, char** argv, ostream& os)
 	return SUCCESS;
 }
 
+static CLIStatus handover(int argc, char** argv, ostream& os)
+{
+	if (argc!=3) return BAD_NUM_ARGS;
+	string imsi(strncasecmp(argv[1],"IMSI",4)==0 ? argv[1]+4 : argv[1]);	// Allow "IMSI1234..." or just "1234..."
+	RefCntPointer<TranEntry> tran = gMMLayer.mmFindVoiceTranByImsi(imsi);
+	if (tran == 0) {
+		os << "IMSI not found:"<<imsi;
+		return BAD_VALUE;
+	}
+	string peer;
 
+	// Allow "N0" to pick the first neighbor, etc.
+	if (argv[2][0] == 'N' || argv[2][0] == 'n') {
+		int nth = atoi(argv[2]+1);
+		vector<string> neighbors = gConfig.getVectorOfStrings("GSM.Neighbors");
+		if (nth < 0 || nth >= (int)neighbors.size()) {
+			os << format("Specified neighbor index '%d' out of bounds.  There are %d neighbors.",nth,neighbors.size());
+			return BAD_VALUE;
+		}
+		peer = neighbors[nth];
+	} else {
+		peer = string(argv[2]);
+	}
+
+	if (! gPeerInterface.sendHandoverRequest(peer,tran)) {
+		return BAD_VALUE;
+	}
+	return SUCCESS;	// success of the handover CLI command, not success of the handover.
+}
 
 
 /** Print table of current transactions. */
-int calls(int argc, char** argv, ostream& os)
+// (pat) In version 4 this dumps the MM layer.
+static CLIStatus calls(int argc, char** argv, ostream& os)
 {
+	map<string,string> options = cliParse(argc,argv,os,"-a -all -t -m -s");
+	if (argc) return BAD_NUM_ARGS;
+	bool showAll = options.count("-a") || options.count("-all");	// -a and -all are synonyms.
+	bool trans = options.count("-t");
+	bool mm = options.count("-m");
+	bool sip = options.count("-s");
+#if 0
 	bool showAll = false;
-	if (argc==2) showAll = true;
-	if (argc>2) return BAD_NUM_ARGS;
-	size_t count = gTransactionTable.dump(os,showAll);
-	os << endl << count << " transactions in table" << endl;
+	bool trans = false;
+	bool mm = false;
+	bool sip = false;
+	// Parse args.
+	for (int i = 1; i < argc; i++) {
+		if (argv[i][0] == '-') {
+			for (char*op = argv[i]+1; *op; op++) {
+				switch (*op) {
+					case 'm': mm = true; continue;
+					case 'a': showAll = true; continue;
+					case 's': sip = true; continue;
+					case 't': trans = true; continue;
+					case 'l': continue;	// Allows -all without complaint.
+					default:
+						os << "unrecognized argument:"<<argv[i]<<" ";
+						return BAD_VALUE;
+				}
+			}
+		} else {
+			// This command doesnt take any non-option arguments.
+			os << "unrecognized argument:"<<argv[i]<<" ";
+			return BAD_VALUE;
+		}
+	}
+#endif
+	// If no specific options, default is to show transactions
+	if (!(trans || mm || sip)) { trans = true; }
+
+	if (trans) {
+		size_t count = gNewTransactionTable.dump(os,showAll);
+		os << endl << count << " transactions in table" << endl;
+	}
+	if (mm) {
+		Control::gMMLayer.printMMInfo(os);
+	}
+	if (sip) {
+		SIP::printDialogs(os);
+	}
+	return SUCCESS;
+}
+
+
+/** Print table of current transactions in tabular format. */
+// (pat) In version 4 this dumps the MM layer.
+static CLIStatus transactions(int argc, char** argv, ostream& os)
+{
+	map<string,string> options = cliParse(argc,argv,os,"purge");
+	if (argc>1) {
+		return BAD_NUM_ARGS;
+	}
+
+	TranEntry::header(os);
+	size_t count = gStaleTransactionTable.dumpTable(os);
+	os << endl << count << " completed transaction records in table" << endl;
+
+	if (options.count("purge")) {
+		gStaleTransactionTable.clearTable();
+		os << "records purged" << endl;
+	}
+
 	return SUCCESS;
 }
 
 
 
 /** Print or modify the global configuration table. */
-int rawconfig(int argc, char** argv, ostream& os)
+static CLIStatus rawconfig(int argc, char** argv, ostream& os)
 {
 	// no args, just print
 	if (argc==1) {
@@ -506,7 +781,7 @@ int rawconfig(int argc, char** argv, ostream& os)
 	return SUCCESS;
 }
 
-int trxfactory(int argc, char** argv, ostream& os)
+static CLIStatus trxfactory(int argc, char** argv, ostream& os)
 {
 	if (argc!=1) return BAD_NUM_ARGS;
 
@@ -543,7 +818,7 @@ int trxfactory(int argc, char** argv, ostream& os)
 }
 
 /** Audit the current configuration. */
-int audit(int argc, char** argv, ostream& os)
+static CLIStatus audit(int argc, char** argv, ostream& os)
 {
 	ConfigurationKeyMap::iterator mp;
 	stringstream ss;
@@ -655,6 +930,7 @@ int audit(int argc, char** argv, ostream& os)
 		ss.str("");
 	}
 
+
 	// non-default values
 	mp = gConfig.mSchema.begin();
 	while (mp != gConfig.mSchema.end()) {
@@ -702,7 +978,7 @@ int audit(int argc, char** argv, ostream& os)
 }
 
 /** Print or modify the global configuration table. */
-int _config(string mode, int argc, char** argv, ostream& os)
+CLIStatus _config(string mode, int argc, char** argv, ostream& os)
 {
 	// no args, just print
 	if (argc==1) {
@@ -809,6 +1085,9 @@ int _config(string mode, int argc, char** argv, ostream& os)
 			return FAILURE;
 		}
 //	}
+	if (string(argv[1]).compare("GSM.Radio.Band") == 0) {
+		gConfig.mSchema["GSM.Radio.C0"].updateValidValues(getARFCNsString(gConfig.getNum("GSM.Radio.Band")));
+	}
 	vector<string> warnings = gConfig.crossCheck(argv[1]);
 	vector<string>::iterator warning = warnings.begin();
 	while (warning != warnings.end()) {
@@ -824,19 +1103,19 @@ int _config(string mode, int argc, char** argv, ostream& os)
 }
 
 /** Print or modify the global configuration table. Customer access. */
-int config(int argc, char** argv, ostream& os)
+static CLIStatus config(int argc, char** argv, ostream& os)
 {
 	return _config("customer", argc, argv, os);
 }
 
 /** Print or modify the global configuration table. Developer/factory access. */
-int devconfig(int argc, char** argv, ostream& os)
+static CLIStatus devconfig(int argc, char** argv, ostream& os)
 {
 	return _config("developer", argc, argv, os);
 }
 
 /** Disable a configuration key. */
-int unconfig(int argc, char** argv, ostream& os)
+static CLIStatus unconfig(int argc, char** argv, ostream& os)
 {
 	if (argc!=2) return BAD_NUM_ARGS;
 
@@ -862,7 +1141,7 @@ int unconfig(int argc, char** argv, ostream& os)
 
 
 /** Set a configuration value back to default or remove from table if custom key. */
-int rmconfig(int argc, char** argv, ostream& os)
+static CLIStatus rmconfig(int argc, char** argv, ostream& os)
 {
 	if (argc!=2) return BAD_NUM_ARGS;
 
@@ -904,7 +1183,7 @@ int rmconfig(int argc, char** argv, ostream& os)
 
 
 /** Change the registration timers. */
-int regperiod(int argc, char** argv, ostream& os)
+static CLIStatus regperiod(int argc, char** argv, ostream& os)
 {
 	if (argc==1) {
 		os << "T3212 is " << gConfig.getNum("GSM.Timer.T3212") << " minutes" << endl;
@@ -942,7 +1221,7 @@ int regperiod(int argc, char** argv, ostream& os)
 
 
 /** Print the list of alarms kept by the logger, i.e. the last LOG(ALARM) << <text> */
-int alarms(int argc, char** argv, ostream& os)
+static CLIStatus alarms(int argc, char** argv, ostream& os)
 {
 	std::ostream_iterator<std::string> output( os, "\n" );
 	std::list<std::string> alarms = gGetLoggerAlarms();
@@ -952,7 +1231,7 @@ int alarms(int argc, char** argv, ostream& os)
 
 
 /** Version string. */
-int version(int argc, char **argv, ostream& os)
+static CLIStatus version(int argc, char **argv, ostream& os)
 {
 	if (argc!=1) return BAD_NUM_ARGS;
 	os << gVersionString << endl;
@@ -960,24 +1239,44 @@ int version(int argc, char **argv, ostream& os)
 }
 
 /** Show start-up notices. */
-int notices(int argc, char **argv, ostream& os)
+static CLIStatus notices(int argc, char **argv, ostream& os)
 {
 	if (argc!=1) return BAD_NUM_ARGS;
 	os << endl << gOpenBTSWelcome << endl;
 	return SUCCESS;
 }
 
-int page(int argc, char **argv, ostream& os)
+static CLIStatus page(int argc, char **argv, ostream& os)
 {
 	if (argc==1) {
-		gBTS.pager().dump(os);
+		Control::gMMLayer.printPages(os);
 		return SUCCESS;
 	}
 	return BAD_NUM_ARGS;
+
+	// (pat 7-30-2013)  I think David removed the page command because it did not work in rev 3,
+	// but I had already added rev 4 code, and here it is in case someone wants to test it:
+
+	if (argc!=3) return BAD_NUM_ARGS;
+	char *IMSI = argv[1];
+	if (strlen(IMSI)>15) {
+		os << IMSI << " is not a valid IMSI" << endl;
+		return BAD_VALUE;
+	}
+	// (pat) Implement pat by just sending an SMS.
+	Control::FullMobileId msid(IMSI);
+	Control::TranEntry *tran = Control::TranEntry::newMTSMS(
+						NULL,	// No SIPDialog
+						msid,
+						GSM::L3CallingPartyBCDNumber("0"),
+						string(""),			// message body
+						string(""));		// messate content type
+	Control::gMMLayer.mmAddMT(tran);
+	return SUCCESS;
 }
 
 
-int testcall(int argc, char **argv, ostream& os)
+static CLIStatus testcall(int argc, char **argv, ostream& os)
 {
 	if (argc!=3) return BAD_NUM_ARGS;
 	char *IMSI = argv[1];
@@ -985,34 +1284,261 @@ int testcall(int argc, char **argv, ostream& os)
 		os << IMSI << " is not a valid IMSI" << endl;
 		return BAD_VALUE;
 	}
-	Control::TransactionEntry *transaction = new Control::TransactionEntry(
-		gConfig.getStr("SIP.Proxy.Speech").c_str(),
-		GSM::L3MobileIdentity(IMSI),
-		NULL,
-		GSM::L3CMServiceType::TestCall,
-		GSM::L3CallingPartyBCDNumber("0"),
-		GSM::Paging);
-	Control::initiateMTTransaction(transaction,GSM::TCHFType,1000*atoi(argv[2]));
+	FullMobileId msid(IMSI);
+	TranEntry *tran = TranEntry::newMTC(
+			NULL,	// No SIPDialog
+			msid,
+			GSM::L3CMServiceType::TestCall,
+			string("0"));
+			//GSM::L3CallingPartyBCDNumber("0"));
+	Control::gMMLayer.mmAddMT(tran);		// start paging.
 	return SUCCESS;
 }
 
-int endcall(int argc, char **argv, ostream& os)
+
+// Return the Transaction Id or zero is an invalid value.
+static TranEntryId transactionId(const char *id)
+{
+	unsigned result;
+	if (toupper(*id) == 'T') result = atoi(id+1);
+	else result = atoi(id);
+	return (TranEntryId) result;
+}
+
+
+static CLIStatus endcall(int argc, char **argv, ostream& os)
 {
 	if (argc!=2) return BAD_NUM_ARGS;
-	unsigned transID = atoi(argv[1]);
-	Control::TransactionEntry* target = gTransactionTable.find(transID);
-	if (!target) {
-		os << transID << " not found in table";
+	TranEntryId tid = transactionId(argv[1]);
+	if (tid == 0) {
+		os << argv[1] << " is not a valid transaction id";
 		return BAD_VALUE;
 	}
-	target->terminate();
+	if (! gNewTransactionTable.ttTerminate(tid)) {
+		os << argv[1] << " not found in transaction table";
+		return BAD_VALUE;
+	}
 	return SUCCESS;
 }
 
 
+static void addGprsInfo(vector<string> &row, const GSM::L2LogicalChannel* chan)
+{
+	// "CN TN chan      transaction active recyc UPFER RSSI TXPWR TXTA DNLEV DNBER Neighbor Neighbor";
+	row.clear();
+	string empty("-");
+	row.push_back(format("%d",chan->CN()));		// CN
+	row.push_back(format("%d",chan->TN()));		// TN
+	row.push_back(string("GPRS"));				// chan type
+	row.push_back(empty);						// transaction
+	row.push_back(string(chan->active()?"true":"false"));	// active
+	row.push_back(string(chan->recyclable()?"true":"false"));	// recyclable
+	// TODO: We could report gprs chan->PDCHCommon::FER() and we should keep gprs chan utilization per channel.
+}
+
+// Return a descriptive string of the current channel state.
+static string chanState(const L2LogicalChannel *chan)
+{
+	if (! chan->active()) { return string("inactive"); }
+	LAPDState lstate = chan->getLapdmState();
+	if (lstate) {
+		ostringstream ss; ss << lstate;
+		return ss.str();
+	} else {
+		return string("active");
+	}
+}
+
+// This allocates a ton of tiny strings.  It doesnt matter; this function is only called interactively.
+static void addChanInfo(vector<string> &row, TranEntryList tids, const GSM::L2LogicalChannel* chan, const vector<string> &fields)
+{
+	row.clear();
+	for (unsigned i = 0; i < fields.size(); i++) {
+		string field = fields[i];
+		MSPhysReportInfo *phys = NULL;
+		GSM::L3MeasurementResults meas = chan->SACCH()->measurementResults();
+		if (chan->SACCH()) { meas = chan->SACCH()->measurementResults(); }
+
+		if (field == "CN") {
+			row.push_back(format("%d",chan->CN()));
+		} else if (field == "TN") {
+			row.push_back(format("%d",chan->TN()));
+		} else if (field == "chan") {
+			ostringstream foo; foo << chan->typeAndOffset();
+			row.push_back(foo.str());
+		} else if (field == "transaction") {
+			// Add all the transaction ids.
+			string tranids;
+			for (TranEntryList::iterator it = tids.begin(); it != tids.end(); it++) {
+				if (tranids.size()) tranids += " ";
+				tranids += format("T%d",*it);
+			}
+			row.push_back(tranids);
+
+			if (chan->inUseByGPRS()) {
+				row.push_back(string("GPRS"));
+				// (pat) Thats all we can say about this channel, although we could show the aggregate FER of all MS using the channel.
+				return;
+			}
+		} else if (field == "LAPDm") {
+			row.push_back(chanState(chan));
+		} else if (field == "recyc") {
+			row.push_back(string(chan->recyclable()?"true":"false"));
+		} else if (field == "FER") {
+			row.push_back(format("%-5.2f",100.0*chan->FER()));
+		} else if (field == "RSSI") {
+			if (phys == 0) { phys = chan->getPhysInfo(); }
+			row.push_back(format("%-4d",(int)round(phys->RSSI())));
+		} else if (field == "TA") {	// The TA measured by the BTS.
+			// (pat) This was requested by Mark to get a more accurate distance measure of the MS.
+			if (phys == 0) { phys = chan->getPhysInfo(); }
+			row.push_back(format("%-.1f",phys->timingError()));
+		} else if (field == "TXPWR") {
+			if (phys == 0) { phys = chan->getPhysInfo(); }
+			row.push_back(format("%-5d",(int)round(phys->actualMSPower())));
+		} else if (field == "TXTA") {	// The TA reported by the MS.
+			if (phys == 0) { phys = chan->getPhysInfo(); }
+			row.push_back(format("%-4d",(int)round(phys->actualMSTiming())));
+		} else if (field == "DNLEV") {
+			if (chan->SACCH() && meas.MEAS_VALID() == 0) {	// Yes, 0 means meas_valid.
+				row.push_back(format("%-5d", meas.RXLEV_FULL_SERVING_CELL_dBm()));
+			} else {
+				row.push_back("");
+			}
+		} else if (field == "DNBER") {
+			if (chan->SACCH() && meas.MEAS_VALID() == 0) {	// Yes, 0 means meas_valid.
+				row.push_back(format("%-5.2f", 100.0*meas.RXQUAL_FULL_SERVING_CELL_BER()));
+			} else {
+				row.push_back("");
+			}
+		} else if (field == "Neighbor") {	// Print Neighbor ARFCN and Neighbor dBm
+			if (chan->SACCH() && meas.NO_NCELL()) {
+				unsigned CN = meas.BCCH_FREQ_NCELL(0);
+				std::vector<unsigned> ARFCNList = gNeighborTable.ARFCNList();
+				if (CN>=ARFCNList.size()) {
+					LOG(NOTICE) << "BCCH index " << CN << " does not match ARFCN list of size " << ARFCNList.size();
+					goto skipneighbors;
+				}
+				row.push_back(format("%-8u", ARFCNList[CN]));
+				row.push_back(format("%-8d",meas.RXLEV_NCELL_dBm(0)));
+			} else {
+				skipneighbors:
+				row.push_back("");
+				row.push_back("");
+			}
+			i++;	// We printed both Neighbor fields so skip over.
+			assert(fields[i] == "Neighbor");
+		} else if (field == "IMSI") {
+			row.push_back(chan->chanGetImsi(true));
+		} else if (field == "Frames") {
+			DecoderStats ds = chan->getDecoderStats();
+			row.push_back(format("%d/%d/%d",ds.mStatBadFrames,ds.mStatStolenFrames,ds.mStatTotalFrames));
+		} else if (field == "SNR") {
+			DecoderStats ds = chan->getDecoderStats();
+			row.push_back(format("%.3g",ds.mAveSNR));
+		} else if (field == "BER") {
+			DecoderStats ds = chan->getDecoderStats();
+			row.push_back(format("%.3g",100.0 * ds.mAveBER));
+		}
+	}
+}
+
+	// old: "  active - true if the channel is or recently was in use;
+static const char *chansHelp = "[-a -l -tab] -- report PHY status for active channels, or if -a all channels.\n"
+    "  -l for longer listing, -tab for tab-separated output format\n"
+	"  CN - Channel Number; TN - Timeslot Number; chan type - the dedicated channel type, or GPRS if reserved for Packet Services;\n"
+	"  transaction id - One or more Layer 3 transactions running on this channel;\n"
+	"  LAPDm state - The current acknowledged message state, if any, otherwise 'active' or 'inactive';\n"
+	"  recyc - true if channel is recyclable, ie, can be reused now;\n"
+	"  RSSI - Uplink signal level dB above noise floor measured by BTS, should be near config parameter GSM.Radio.RSSITarget;\n"
+	"  SNR - Signal to Noise Ratio measured by BTS, higher is better, less than 10 is probably unusable;\n"
+	"  BER - Bit Error Rate before decoding measured by BTS, as a percentage;\n"
+	"  FER - voice frame loss rate as a percentage measured by BTS;\n"
+	"  TA - Timing advance in symbol periods measured by the BTS;\n"
+	"  TXPWR - Uplink transmit power dB reported by MS;\n"
+	"  TXTA - Timing advance in symbol periods reported by MS;\n"
+	"  DNLEV - Downlink signal level dB reported by MS;\n"
+	"  DNBER - Downlink Bit Error rate percentage reported by MS;\n"
+	"  Neighbor ARFCN and dBm - One of the neighbors channel and downlink RSSI reported by the MS;\n"
+	"         may also be: 'no-MMContext' to indicate the layer2 channel is open but has not yet sent any layer3 messages;\n"
+	"         or 'no-MMUser' to indicate that layer3 is connected but the IMSI is not yet known.\n"
+	"  IMSI - International Mobile Subscriber Id of the MS on this channel, reported only if known;\n"
+	"  Frames - number of bad, stolen, and total frames sent, only for traffic channels;\n"
+	;
+
+CLIStatus printChansV4(std::ostream& os,bool showAll, bool longList, bool tabSeparated)
+{
+	// The "active" field needs to be a big enough for the longest lapdm states here:
+	//                                                 LinkEstablished
+	//                                                 ContentionResolve  
+	//                                                 AwaitingEstablish
+	// The spacing in these headers no longer matters.
+	const char *header1, *header2;
+
+	// The spaces in these headers are removed later; they are there only to make the columns line up so
+	// we can make sure we have the two column headers correct.
+	if (longList) {
+		header1 = "CN TN chan transaction LAPDm recyc RSSI SNR FER BER TA  TXPWR TXTA DNLEV DNBER IMSI Frames     Neighbor Neighbor";
+		header2 = "_  _  type id          state _     dB   _   pct pct sym dBm   sym  dBm   pct   _    bad/st/tot ARFCN    dBm";
+	} else {
+		header1 = "CN TN chan transaction LAPDm recyc RSSI SNR FER BER TXPWR TXTA DNLEV DNBER IMSI";
+		header2 = "_  _  type id          state _     dB   _   pct pct dBm   sym  dBm   pct   ";
+		// This is the original version 4 list:
+		//header1 = "CN TN chan transaction LAPDm recyc FER RSSI TXPWR TXTA DNLEV DNBER Neighbor Neighbor IMSI";
+		//header2 = "_  _  type id          state _     pct dB   dBm   sym  dBm   pct    ARFCN    dBm";
+	}
+
+	LOG(DEBUG);
+	prettyTable_t tab;
+	vector<string> vh1, vh2;
+	tab.push_back(stringSplit(vh1,header1));
+	tab.push_back(stringSplit(vh2,header2));
 
 
-void printChanInfo(unsigned transID, const GSM::LogicalChannel* chan, ostream& os)
+	using namespace GSM;
+
+	//gPhysStatus.dump(os);
+	//os << endl << "Old data reporting: " << endl;
+
+	L2ChanList chans;
+	gBTS.getChanVector(chans);
+	LOG(DEBUG);
+	Control::TranEntryList tids;
+	for (L2ChanList::iterator it = chans.begin(); it != chans.end(); it++) {
+		const L2LogicalChannel *chan = *it;
+		LOG(DEBUG);
+		chan->getTranIds(tids);		// Get transactions using this channel.
+		LOG(DEBUG);
+		// It would be a bug to have a non-empty tids on an inactive channel, but in that case we really want to show it.
+		if (chan->active() || ! tids.empty() || showAll) {
+			vector<string> row;
+			addChanInfo(row,tids,chan,vh1);
+			tab.push_back(row);
+		} else if (chan->inUseByGPRS() && showAll) {
+			vector<string> row;
+			addGprsInfo(row,chan);
+			tab.push_back(row);
+		}
+	}
+	printPrettyTable(tab,os,tabSeparated);
+	return SUCCESS;
+}
+
+static CLIStatus chans(int argc, char **argv, ostream& os)
+{
+	// bool showAll = false;
+	// if (argc==2) showAll = true;
+	map<string,string> options = cliParse(argc,argv,os,"-a -l -tab");
+	bool showAll = options.count("-a");
+	bool longList = options.count("-l");
+	bool tabSeparated = options.count("-tab");
+	if (argc) return BAD_NUM_ARGS;
+	printChansV4(os,showAll,longList,tabSeparated);
+	return SUCCESS;
+}
+
+#if OLD_VERSION
+void printChanInfo(unsigned transID, const GSM::L2LogicalChannel* chan, ostream& os)
 {
 	os << setw(2) << chan->CN() << " " << chan->TN();
 	os << " " << setw(9) << chan->typeAndOffset();
@@ -1059,56 +1585,45 @@ void printChanInfo(unsigned transID, const GSM::LogicalChannel* chan, ostream& o
 }
 
 
-
-int chans(int argc, char **argv, ostream& os)
+CLIStatus printChansV4(std::ostream& os,bool showAll)
 {
-	bool showAll = false;
-	if (argc==2) showAll = true;
-	if (argc>2) return BAD_NUM_ARGS;
-
+	using namespace GSM;
 	os << "CN TN chan      transaction active recyc UPFER RSSI TXPWR TXTA DNLEV DNBER Neighbor Neighbor" << endl;
 	os << "CN TN type      id                       pct    dB   dBm  sym   dBm   pct    ARFCN    dBm" << endl;
 
 	//gPhysStatus.dump(os);
 	//os << endl << "Old data reporting: " << endl;
 
-	// SDCCHs
-	GSM::SDCCHList::const_iterator sChanItr = gBTS.SDCCHPool().begin();
-	while (sChanItr != gBTS.SDCCHPool().end()) {
-		const GSM::SDCCHLogicalChannel* sChan = *sChanItr;
-		if (sChan->active() || showAll) {
-			Control::TransactionEntry *trans = gTransactionTable.find(sChan);
-			int tid = 0;
-			if (trans) tid = trans->ID();
-			printChanInfo(tid,sChan,os);
-			//if (showAll) printChanInfo(tid,sChan->SACCH(),os);
+	L2ChanList chans;
+	gBTS.getChanVector(chans);
+	Control::TranEntryList tids;
+	for (L2ChanList::iterator it = chans.begin(); it != chans.end(); it++) {
+		const L2LogicalChannel *chan = *it;
+		chan->getTranIds(tids);
+		// It would be a bug to have a non-empty tids on an active channel, but in that case we really want to show it.
+		if (chan->active() || ! tids.empty() || showAll) {
+			// TODO: There could be multiple TIDs; we should print them all.
+			printChanInfo(tids.empty()?0:tids.front(),chan,os);
 		}
-		++sChanItr;
 	}
-
-	// TCHs
-	GSM::TCHList::const_iterator tChanItr = gBTS.TCHPool().begin();
-	while (tChanItr != gBTS.TCHPool().end()) {
-		const GSM::TCHFACCHLogicalChannel* tChan = *tChanItr;
-		if (tChan->active() || showAll) {
-			Control::TransactionEntry *trans = gTransactionTable.find(tChan);
-			int tid = 0;
-			if (trans) tid = trans->ID();
-			printChanInfo(tid,tChan,os);
-			//if (showAll) printChanInfo(tid,tChan->SACCH(),os);
-		}
-		++tChanItr;
-	}
-
 	os << endl;
-
 	return SUCCESS;
 }
 
+static CLIStatus chans(int argc, char **argv, ostream& os)
+{
+	bool showAll = false;
+	if (argc==2) showAll = true;
+	if (argc>2) return BAD_NUM_ARGS;
+	printChansV4(os,showAll);
+	return SUCCESS;
+}
+#endif
 
 
 
-int power(int argc, char **argv, ostream& os)
+
+static CLIStatus power(int argc, char **argv, ostream& os)
 {
 	os << "current downlink power " << gBTS.powerManager().power() << " dB wrt full scale" << endl;
 	os << "current attenuation bounds "
@@ -1151,7 +1666,7 @@ int power(int argc, char **argv, ostream& os)
 }
 
 
-int rxgain(int argc, char** argv, ostream& os)
+static CLIStatus rxgain(int argc, char** argv, ostream& os)
 {
         os << "current RX gain is " << gConfig.getNum("GSM.Radio.RxGain") << " dB" << endl;
         if (argc==1) return SUCCESS;
@@ -1171,7 +1686,7 @@ int rxgain(int argc, char** argv, ostream& os)
         return SUCCESS;
 }
 
-int txatten(int argc, char** argv, ostream& os)
+static CLIStatus txatten(int argc, char** argv, ostream& os)
 {
         os << "current TX attenuation is " << gConfig.getNum("TRX.TxAttenOffset") << " dB" << endl;
         if (argc==1) return SUCCESS;
@@ -1192,7 +1707,7 @@ int txatten(int argc, char** argv, ostream& os)
 }
 
 
-int freqcorr(int argc, char** argv, ostream& os)
+static CLIStatus freqcorr(int argc, char** argv, ostream& os)
 {
         os << "current freq. offset is " << gConfig.getNum("TRX.RadioFrequencyOffset") << endl;
         if (argc==1) return SUCCESS;
@@ -1214,18 +1729,28 @@ int freqcorr(int argc, char** argv, ostream& os)
 
 
 
-int noise(int argc, char** argv, ostream& os)
+static CLIStatus noise(int argc, char** argv, ostream& os)
 {
-        if (argc!=1) return BAD_NUM_ARGS;
+	if (argc!=1) return BAD_NUM_ARGS;
 
-        int noise = gTRX.ARFCN(0)->getNoiseLevel();
-        os << "noise RSSI is -" << noise << " dB wrt full scale" << endl;
-	os << "MS RSSI target is " << gConfig.getNum("GSM.Radio.RSSITarget") << " dB wrt full scale" << endl;
+	int noise = gTRX.ARFCN(0)->getNoiseLevel();
+	int target = abs(gConfig.getNum("GSM.Radio.RSSITarget"));
+	int diff = noise - target;
 
-        return SUCCESS;
+	os << "noise RSSI is -" << noise << " dB wrt full scale" << endl;
+	os << "MS RSSI target is -" << target << " dB wrt full scale" << endl;
+	if (diff <= 0) {
+		os << "WARNING: the current noise level exceeds the MS RSSI target, uplink connectivity will be impossible." << endl;
+	} else if (diff <= 10) {
+		os << "WARNING: the current noise level is approaching the MS RSSI target, uplink connectivity will be extremely limited." << endl;
+	} else {
+		os << "INFO: the current noise level is acceptable." << endl;
+	}
+
+	return SUCCESS;
 }
 
-int sysinfo(int argc, char** argv, ostream& os)
+static CLIStatus sysinfo(int argc, char** argv, ostream& os)
 {
         if (argc!=1) return BAD_NUM_ARGS;
 
@@ -1246,13 +1771,75 @@ int sysinfo(int argc, char** argv, ostream& os)
 }
 
 
-int neighbors(int argc, char** argv, ostream& os)
+static CLIStatus neighbors(int argc, char** argv, ostream& os)
 {
-
-	os << "host C0 BSIC" << endl;
+	map<string,string> options = cliParse(argc,argv,os,"-tab");
+	if (argc) return BAD_NUM_ARGS;
+	bool tabSeparated = options.count("-tab");
+	FILE *result = NULL;
 	char cmd[200];
-	sprintf(cmd,"sqlite3 -separator ' ' %s 'select IPADDRESS,C0,BSIC from neighbor_table'",
+	snprintf(cmd,200,"sqlite3 -separator ' ' %s 'select IPADDRESS,C0,BSIC from neighbor_table'",
 		gConfig.getStr("Peering.NeighborTable.Path").c_str());
+	result = popen(cmd,"r");
+#if 1		// pat was here.
+	prettyTable_t tab;
+	vector<string> vh;
+	tab.push_back(stringSplit(vh,"host C0  BSIC")); vh.clear();
+	tab.push_back(stringSplit(vh,"---- --- ----")); vh.clear();
+	if (result) {
+		char line[202];
+		while (fgets(line, 200, result)) {
+			tab.push_back(stringSplit(vh,line)); vh.clear();
+		}
+	}
+	printPrettyTable(tab,os,tabSeparated);
+#else
+	os << "host C0 BSIC" << endl;
+	char *line = (char*)malloc(200);
+	while (!feof(result)) {
+		if (!fgets(line, 200, result)) break;
+		os << line;
+	}
+	free(line);
+	os << endl;
+#endif
+	if (result) pclose(result);
+	return SUCCESS;
+}
+
+
+static CLIStatus crashme(int argc, char** argv, ostream& os)
+{
+	char *nullp = 0x0;
+	// we actually have to output this,
+	// or the compiler will optimize it out
+	os << *nullp;
+	return FAILURE;
+}
+
+
+static CLIStatus stats(int argc, char** argv, ostream& os)
+{
+	char cmd[BUFSIZ];
+	if (argc==2) {
+		if (strcmp(argv[1],"clear")==0) {
+				gReports.clear();
+				os << "stats table (gReporting) cleared" << endl;
+				return SUCCESS;
+		}
+		snprintf(cmd,sizeof(cmd)-1,
+			"sqlite3 %s 'select name||\": \"||value||\" events over \"||((%lu-clearedtime)/60)||\" minutes\" from reporting where name like \"%%%s%%\";'",
+			gConfig.getStr("Control.Reporting.StatsTable").c_str(),
+			time(NULL), argv[1]);
+	}
+	else if (argc==1)
+	{
+		snprintf(cmd,sizeof(cmd)-1,"sqlite3 %s 'select name||\": \"||value||\" events over \"||((%lu-clearedtime)/60)||\" minutes\" from reporting;'",
+			gConfig.getStr("Control.Reporting.StatsTable").c_str(), time(NULL));
+	} else
+	{
+	    return BAD_NUM_ARGS;
+	}
 	FILE *result = popen(cmd,"r");
 	char *line = (char*)malloc(200);
 	while (!feof(result)) {
@@ -1266,42 +1853,13 @@ int neighbors(int argc, char** argv, ostream& os)
 }
 
 
-int crashme(int argc, char** argv, ostream& os)
+static CLIStatus memStat(int argc, char** argv, ostream& os)
 {
-	char *nullp = 0x0;
-	// we actually have to output this,
-	// or the compiler will optimize it out
-	os << *nullp;
-	return FAILURE;
-}
-
-
-int stats(int argc, char** argv, ostream& os)
-{
-
-	char cmd[200];
-	if (argc==2) {
-		if (strcmp(argv[1],"clear")==0) {
-				gReports.clear();
-				os << "stats table (gReporting) cleared" << endl;
-				return SUCCESS;
-		}
-		sprintf(cmd,"sqlite3 %s 'select name||\": \"||value||\" events over \"||((%lu-clearedtime)/60)||\" minutes\" from reporting where name like \"%%%s%%\";'",
-			gConfig.getStr("Control.Reporting.StatsTable").c_str(), time(NULL), argv[1]);
-	}
-	else if (argc==1)
-		sprintf(cmd,"sqlite3 %s 'select name||\": \"||value||\" events over \"||((%lu-clearedtime)/60)||\" minutes\" from reporting;'",
-			gConfig.getStr("Control.Reporting.StatsTable").c_str(), time(NULL));
-	else return BAD_NUM_ARGS;
-	FILE *result = popen(cmd,"r");
-	char *line = (char*)malloc(200);
-	while (!feof(result)) {
-		if (!fgets(line, 200, result)) break;
-		os << line;
-	}
-	free(line);
-	os << endl;
-	pclose(result);
+	// These counters are always available.
+	os << "Count"<<LOGVAR2("TranEntry",gCountTranEntry)<<LOGVAR2("SipDialog",gCountSipDialogs)
+		<<LOGVAR2("RTPSessions",gCountRtpSessions) <<LOGVAR2("RTPSockets",gCountRtpSockets);
+	// The counters printed by gMemStats are only available if we were compiled with the memory checker enabled.
+	gMemStats.text(os);
 	return SUCCESS;
 }
 
@@ -1315,12 +1873,13 @@ void Parser::addCommands()
 	addCommand("uptime", uptime, "-- show BTS uptime and BTS frame number.");
 	addCommand("help", showHelp, "[command] -- list available commands or gets help on a specific command.");
 	addCommand("shutdown", exit_function, "[wait] -- shut down or restart OpenBTS, either immediately, or waiting for existing calls to clear with a timeout in seconds");
-	addCommand("tmsis", tmsis, "[\"clear\"] or [\"dump\" filename] -- print/clear the TMSI table or dump it to a file.");
-	addCommand("sendsms", sendsms, "IMSI src# message... -- send direct SMS to IMSI, addressed from source number src#.");
+	addCommand("tmsis", tmsis, tmsisHelp);
+	addCommand("sendsms", sendsms, "IMSI src# message... -- send direct SMS to IMSI on this BTS, addressed from source number src#.");
 	addCommand("sendsimple", sendsimple, "IMSI src# message... -- send SMS to IMSI via SIP interface, addressed from source number src#.");
 	addCommand("load", printStats, "-- print the current activity loads.");
 	addCommand("cellid", cellID, "[MCC MNC LAC CI] -- get/set location area identity (MCC, MNC, LAC) and cell ID (CI)");
-	addCommand("calls", calls, "-- print the transaction table");
+	addCommand("calls", calls, "[-m | -a | -s | -t] -- print transaction table [or -m: mobility management tables or -s: SIP dialogs].  Note this includes both CS (voice call) and SMS transactions.  If -a specified with -t, show all transactions, else only active");
+	addCommand("trans", transactions, "[purge] -- print-only or print-and-purge completed transaction table (tabular format)");
 	addCommand("rawconfig", rawconfig, "[] OR [patt] OR [key val(s)] -- print the current configuration, print configuration values matching a pattern, or set/change a configuration value");
 	addCommand("trxfactory", trxfactory, "-- print the radio's factory calibration and meta information");
 	addCommand("audit", audit, "-- audit the current configuration for troubleshooting");
@@ -1330,7 +1889,7 @@ void Parser::addCommands()
 	addCommand("alarms", alarms, "-- show latest alarms");
 	addCommand("version", version,"-- print the version string");
 	addCommand("page", page, "print the paging table");
-	addCommand("chans", chans, "-- report PHY status for active channels");
+	addCommand("chans", chans, chansHelp);
 	addCommand("power", power, "[minAtten maxAtten] -- report current attentuation or set min/max bounds");
         addCommand("rxgain", rxgain, "[newRxgain] -- get/set the RX gain in dB");
         addCommand("txatten", txatten, "[newTxAtten] -- get/set the TX attenuation in dB");
@@ -1340,16 +1899,20 @@ void Parser::addCommands()
 	addCommand("unconfig", unconfig, "key -- disable a configuration key by setting an empty value");
 	addCommand("notices", notices, "-- show startup copyright and legal notices");
 	addCommand("endcall", endcall,"trans# -- terminate the given transaction");
-	addCommand("testcall", testcall, "IMSI time -- initiate a TCHF test call to a given IMSI with a given paging time");
+	//addCommand("testcall", testcall, "IMSI time -- initiate a TCHF test call to a given IMSI with a given paging time");
 	addCommand("sysinfo", sysinfo, "-- print current system information messages");
 	addCommand("neighbors", neighbors, "-- dump the neighbor table");
 	addCommand("gprs", GPRS::gprsCLI,"GPRS mode sub-command.  Type: gprs help for more");
 	addCommand("sgsn", SGSN::sgsnCLI,"SGSN mode sub-command.  Type: sgsn help for more");
 	addCommand("crashme", crashme, "force crash of OpenBTS for testing purposes");
 	addCommand("stats", stats,"[patt] OR clear -- print all, or selected, performance counters, OR clear all counters");
+	addCommand("handover", handover,"imsi neighbor -- attempt handover to neighbor specified by ip address");
+	addCommand("memstat", memStat, "-- internal testing command: print memory use stats");
+
 }
 
 
+};
 
 
 // vim: ts=4 sw=4

@@ -1,7 +1,7 @@
 /*
 * Copyright 2008, 2009, 2010 Free Software Foundation, Inc.
 * Copyright 2010 Kestrel Signal Processing, Inc.
-* Copyright 2011, 2012 Range Networks, Inc.
+* Copyright 2011, 2012, 2013, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
@@ -23,16 +23,88 @@
 
 #include <Configuration.h>
 
+
+std::string getARFCNsString(unsigned band) {
+	std::stringstream ss;
+	int i;
+	float downlink;
+	float uplink;
+
+	if (band == 850) {
+		// 128:251 GSM850
+		downlink = 869.2;
+		uplink = 824.2;
+		for (i = 128; i <= 251; i++) {
+			ss << i << "|GSM850 #" << i << " : " << downlink << " MHz downlink / " << uplink << " MHz uplink,";
+			downlink += 0.2;
+			uplink += 0.2;
+		}
+
+	} else if (band == 900) {
+		// 0:124 PGSM900
+		downlink = 935.2;
+		uplink = 890.2;
+		for (i = 0; i <= 124; i++) {
+			ss << i << "|PGSM900 #" << i << " : " << downlink << " MHz downlink / " << uplink << " MHz uplink,";
+			downlink += 0.2;
+			uplink += 0.2;
+		}
+
+		// 975:1023 EGSM900
+		downlink = 1130;
+		uplink = 1085;
+		for (i = 975; i <= 1023; i++) {
+			ss << i << "|EGSM900 #" << i << " : " << downlink << " MHz downlink / " << uplink << " MHz uplink,";
+			downlink += 0.2;
+			uplink += 0.2;
+		}
+
+	} else if (band == 1800) {
+		// 512:885 DCS1800
+		downlink = 1805.2;
+		uplink = 1710.2;
+		for (i = 512; i <= 885; i++) {
+			ss << i << "|DCS1800 #" << i << " : " << downlink << " MHz downlink / " << uplink << " MHz uplink,";
+			downlink += 0.2;
+			uplink += 0.2;
+		}
+
+	} else if (band == 1900) {
+		// 512:810 PCS1900
+		downlink = 1930.2;
+		uplink = 1850.2;
+		for (i = 512; i <= 810; i++) {
+			ss << i << "|PCS1900 #" << i << " : " << downlink << " MHz downlink / " << uplink << " MHz uplink,";
+			downlink += 0.2;
+			uplink += 0.2;
+		}
+	}
+
+	std::string tmp = ss.str();
+	return tmp.substr(0, tmp.size()-1);
+}
+
 ConfigurationKeyMap getConfigurationKeys()
 {
 
 	//VALIDVALUES NOTATION:
+	// (pat) for ConfigurationKey::CHOICE and CHOICE_OPT:
 	// * A:B : range from A to B in steps of 1
 	// * A:B(C) : range from A to B in steps of C
 	// * A:B,D:E : range from A to B and from D to E
 	// * A,B : multiple choices of value A and B
 	// * X|A,Y|B : multiple choices of string "A" with value X and string "B" with value Y
+	// For CHOICE_OPT, the input value can also be empty.
+	// 
+	// (pat) I believe the following is valid for ConfigurationKey::REGEX and REGEX_OPT
 	// * ^REGEX$ : string must match regular expression
+	// For REGEX_OPT, the input value can also be empty.
+	//
+	// (pat) for ConfigurationKey::VALRANGE looks like the syntax is this subset:
+	// 		A:B : range from A to B in steps of 1
+	// 		A:B(C) : range from A to B in steps of C, but C is ignored.
+	// 		and a comma is silently ignored?
+	// 		The input value is constrained to be a number.
 
 	/*
 	TODO : double check: sometimes symbol periods == 0.55km and other times 1.1km?
@@ -57,9 +129,9 @@ ConfigurationKeyMap getConfigurationKeys()
 	ConfigurationKeyMap map;
 	ConfigurationKey *tmp;
 
-	tmp = new ConfigurationKey("CLI.SocketPath","/var/run/command",
+	tmp = new ConfigurationKey("CLI.SocketPath","/var/run/OpenBTS/command",
 		"",
-		ConfigurationKey::CUSTOMERWARN,
+		ConfigurationKey::FACTORY,
 		ConfigurationKey::FILEPATH,
 		"",
 		false,
@@ -70,7 +142,7 @@ ConfigurationKeyMap getConfigurationKeys()
 
 	tmp = new ConfigurationKey("Control.Call.QueryRRLP.Early","0",
 		"",
-		ConfigurationKey::CUSTOMER,
+		ConfigurationKey::DEVELOPER,
 		ConfigurationKey::BOOLEAN,
 		"",
 		false,
@@ -81,7 +153,7 @@ ConfigurationKeyMap getConfigurationKeys()
 
 	tmp = new ConfigurationKey("Control.Call.QueryRRLP.Late","0",
 		"",
-		ConfigurationKey::CUSTOMER,
+		ConfigurationKey::DEVELOPER,
 		ConfigurationKey::BOOLEAN,
 		"",
 		false,
@@ -89,6 +161,7 @@ ConfigurationKeyMap getConfigurationKeys()
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
+
 
 	tmp = new ConfigurationKey("Control.GSMTAP.GPRS","0",
 		"",
@@ -125,13 +198,30 @@ ConfigurationKeyMap getConfigurationKeys()
 
 	tmp = new ConfigurationKey("Control.LUR.AttachDetach","1",
 		"",
-		ConfigurationKey::CUSTOMER,
+		ConfigurationKey::CUSTOMERWARN,		// (pat) We have never tested with AttachDetach == 0; so customers should not use it!
 		ConfigurationKey::BOOLEAN,
 		"",
 		false,
 		"Use attach/detach procedure.  "
 			"This will make initial LUR more prompt.  "
-			"It will also cause an un-regstration if the handset powers off and really heavy LUR loads in areas with spotty coverage."
+			"It will also cause an un-registration if the handset powers off and really heavy LUR loads in areas with spotty coverage.  "
+			"Range Networks strongly recommends setting this to 1.  "	// (pat) added, until someone tests this!
+	);
+	map[tmp->getName()] = *tmp;
+	delete tmp;
+
+	tmp = new ConfigurationKey("Control.LUR.RegistrationMessageFrequency","FIRST",
+		"^PLMN|NORMAL|FIRST$",
+		ConfigurationKey::CUSTOMERWARN,
+		ConfigurationKey::STRING,
+		"",
+		false,
+		"This option helps determine when a registration message is sent by the BTS to a handset.  "
+		"If 'PLMN' the message is sent only when the handset first registers in the PLMN, as reported by the handset. "
+		"If 'NORMAL' the message is sent whenever the handset enters the cell, as reported by the handset. "
+		"If 'FIRST' the message is sent the first time this BTS sees this MS as determined by the WELCOME_SENT field of the TMSI_TABLE."
+		"This option is not completely reliable because the functioning of this option depends on information provided "
+		"by the handset during their initial attach procedure, and some handsets set this information improperly."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -140,7 +230,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		"",
 		ConfigurationKey::CUSTOMER,
 		ConfigurationKey::STRING_OPT,// audited
-		"^[[:print:]]+$",
+		"^[ -~]+$",
 		false,
 		"Send this text message, followed by the IMSI, to unprovisioned handsets that are denied registration."
 	);
@@ -153,7 +243,8 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::STRING,
 		"^[0-9]+$",
 		false,
-		"The return address for the failed registration message."
+		"The return address for the failed registration message.  "
+		"If unset, the message will not be sent.  "
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -162,12 +253,12 @@ ConfigurationKeyMap getConfigurationKeys()
 		"",
 		ConfigurationKey::CUSTOMER,
 		ConfigurationKey::STRING_OPT,// audited
-		"^[[:print:]]+$",
+		"^[ -~]+$",
 		false,
-		"The text message (followed by the IMSI) to be sent to provisioned handsets when they attach on Um.  "
+		"The text message, followed by the IMSI, to be sent to provisioned handsets when they attach on Um.  "
 			"By default, no message is sent.  "
 			"To have a message sent, specify one.  "
-			"To stop sending messages again, execute \"unconfig Control.LUR.NormalRegistration.Message\"."
+			"To stop sending messages again, execute \"unconfig Control.LUR.NormalRegistration.Message\".  "
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -178,7 +269,8 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::STRING,
 		"^[0-9]+$",
 		false,
-		"The return address for the normal registration message."
+		"The return address for the normal registration message.  "
+		"If unset, the message will not be sent.  "
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -189,10 +281,10 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::REGEX_OPT,// audited
 		"",
 		false,
-		"This is value is a regular expression.  "
+		"This value is a regular expression.  "
 			"Any handset with an IMSI matching the regular expression is allowed to register, even if it is not provisioned.  "
 			"By default, this feature is disabled.  "
-			"To enable open registration, specify a regular expression e.g. ^460 (which matches any IMSI starting with 460, the MCC for China).  "
+			"To enable open registration, specify a regular expression to match.  E.g. ^001, which matches any IMSI starting with 001, the MCC for test networks.  "
 			"To disable open registration again, execute \"unconfig Control.LUR.OpenRegistration\"."
 	);
 	map[tmp->getName()] = *tmp;
@@ -202,7 +294,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		"",
 		ConfigurationKey::CUSTOMER,
 		ConfigurationKey::STRING,
-		"^[[:print:]]+$",
+		"^[ -~]+$",
 		false,
 		"Send this text message, followed by the IMSI, to unprovisioned handsets when they attach on Um due to open registration."
 	);
@@ -215,11 +307,11 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::REGEX_OPT,// audited
 		"",
 		false,
-		"This is value is a regular expression.  "
+		"This value is a regular expression.  "
 			"Any unprovisioned handset with an IMSI matching the regular expression is rejected for registration, even if it matches Control.LUR.OpenRegistration.  "
-			"By default, this feature is disabled.  "
-			"To enable this filter, specify a regular expression e.g. ^460 (which matches any IMSI starting with 460, the MCC for China).  "
-			"To disable this filter again, execute \"unconfig Control.LUR.OpenRegistration.Reject\".  "
+			"By default, this filter is disabled.  "
+			"To enable the filter, specify a regular expression.  E.g. ^666 matches any IMSI starting with 666, which currently does not correspond to any known MCC.  Stay on the light side of the Force!"
+			"To disable the filter again, execute \"unconfig Control.LUR.OpenRegistration.Reject\".  "
 			"If Control.LUR.OpenRegistration is disabled, this parameter has no effect."
 	);
 	map[tmp->getName()] = *tmp;
@@ -253,14 +345,14 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::BOOLEAN,
 		"",
 		false,
-		"Query every MS for IMEI during LUR."
+		"Query every MS for IMEI during initial LUR."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
 	tmp = new ConfigurationKey("Control.LUR.QueryRRLP","0",
 		"",
-		ConfigurationKey::CUSTOMER,
+		ConfigurationKey::DEVELOPER,
 		ConfigurationKey::BOOLEAN,
 		"",
 		false,
@@ -268,6 +360,7 @@ ConfigurationKeyMap getConfigurationKeys()
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
+
 
 	tmp = new ConfigurationKey("Control.LUR.SendTMSIs","0",
 		"",
@@ -280,6 +373,24 @@ ConfigurationKeyMap getConfigurationKeys()
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
+	tmp = new ConfigurationKey("Control.LUR.FailMode","ACCEPT",
+		"",	// no units
+		ConfigurationKey::CUSTOMER,
+		ConfigurationKey::CHOICE,
+		"ACCEPT,FAIL,OPEN",
+		false,	// not static
+		"Action to take after registration failure due to network failure, error in Registrar, or other unexpected error.  "
+		"This does not apply to regular authorization failure handled by other config options.  "
+		"If ACCEPT the handset is authorized for service.  If FAIL the handset is denied service.  If OPEN the open registration procedure is applied."
+		);
+	map[tmp->getName()] = *tmp;
+	delete tmp;
+
+
+	// (pat) 6-2013:  If you send cause==4, the MS continues to retry.
+	// Cause==3 and 6 are commented out because:
+	// "David constantly stressed them being very disruptive to out-of-network phones.
+	// "You're not just saying "go away from me" you're saying "this phone has been stolen and should now cease to operate until you restart it."
 	tmp = new ConfigurationKey("Control.LUR.UnprovisionedRejectCause","0x04",
 		"",
 		ConfigurationKey::CUSTOMERWARN,
@@ -308,36 +419,15 @@ ConfigurationKeyMap getConfigurationKeys()
 			"0x65|Message not compatible with the protocol state,"
 			"0x6F|Unspecified protocol error",
 		false,
-		"Reject cause for location updating failures for unprovisioned phones.  "
+		"Reject cause for location updating failures for unprovisioned phones, that is, the IMSI was not found in the Registrar database.  "
+			"The SIP result code from the Registrar in this case is 401.  "
 			"Reject causes come from GSM 04.08 10.5.3.6.  "
-			"Reject cause 0x04, IMSI not in VLR, is usually the right one."
+			"Reject cause 0x02 or 0x04 is usually the right one."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
-	tmp = new ConfigurationKey("Control.LUR.WhiteList","0",
-		"",
-		ConfigurationKey::CUSTOMER,
-		ConfigurationKey::BOOLEAN,
-		"",
-		false,
-		"Whitelist checking is performed."
-	);
-	map[tmp->getName()] = *tmp;
-	delete tmp;
-
-	tmp = new ConfigurationKey("Control.LUR.WhiteListing.Message","Your handset needs to be added to the whitelist.",
-		"",
-		ConfigurationKey::CUSTOMER,
-		ConfigurationKey::STRING,
-		"^[[:print:]]+$",
-		false,
-		"The whitelisting notification message."
-	);
-	map[tmp->getName()] = *tmp;
-	delete tmp;
-
-	tmp = new ConfigurationKey("Control.LUR.WhiteListing.RejectCause","0x04",
+	tmp = new ConfigurationKey("Control.LUR.404RejectCause","0x04",
 		"",
 		ConfigurationKey::CUSTOMERWARN,
 		ConfigurationKey::CHOICE,
@@ -365,25 +455,37 @@ ConfigurationKeyMap getConfigurationKeys()
 			"0x65|Message not compatible with the protocol state,"
 			"0x6F|Unspecified protocol error",
 		false,
-		"Reject cause for handset not in the whitelist, when whitelisting is enforced.  "
+		"Reject cause for location updating failures for phones that fail authentication.  "
+			"The SIP result code from the Registrar in this case is 404.  "
 			"Reject causes come from GSM 04.08 10.5.3.6.  "
-			"Reject cause 0x04, IMSI not in VLR, is usually the right one."
+			"Reject cause 0x02 or 0x04 is usually the right one."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
-	tmp = new ConfigurationKey("Control.LUR.WhiteListing.ShortCode","1000",
+	tmp = new ConfigurationKey("Control.LUR.TestMode","0",
 		"",
-		ConfigurationKey::CUSTOMER,
-		ConfigurationKey::STRING,
-		"^[0-9]+$",
+		ConfigurationKey::DEVELOPER,
+		ConfigurationKey::VALRANGE,
+		"0:1",
 		false,
-		"The return address for the whitelisting notificiation message."
+		"Used for testing the LUR procedure."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
-	tmp = new ConfigurationKey("Control.Reporting.PhysStatusTable","/var/run/ChannelTable.db",
+	tmp = new ConfigurationKey("Control.NumSQLTries","3",
+		"attempts",
+		ConfigurationKey::DEVELOPER,
+		ConfigurationKey::VALRANGE,
+		"1:10",// educated guess
+		false,
+		"Number of times to retry SQL queries before declaring a database access failure."
+	);
+	map[tmp->getName()] = *tmp;
+	delete tmp;
+
+	tmp = new ConfigurationKey("Control.Reporting.PhysStatusTable","/var/run/OpenBTS/ChannelTable.db",
 		"",
 		ConfigurationKey::CUSTOMERWARN,
 		ConfigurationKey::FILEPATH,
@@ -405,7 +507,7 @@ ConfigurationKeyMap getConfigurationKeys()
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
-	tmp = new ConfigurationKey("Control.Reporting.TMSITable","/var/run/TMSITable.db",
+	tmp = new ConfigurationKey("Control.Reporting.TMSITable","/var/run/OpenBTS/TMSITable.db",
 		"",
 		ConfigurationKey::CUSTOMERWARN,
 		ConfigurationKey::FILEPATH,
@@ -416,7 +518,31 @@ ConfigurationKeyMap getConfigurationKeys()
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
-	tmp = new ConfigurationKey("Control.Reporting.TransactionTable","/var/run/TransactionTable.db",
+	tmp = new ConfigurationKey("Control.TMSITable.MaxAge","576",
+		"",
+		ConfigurationKey::CUSTOMERWARN,
+		ConfigurationKey::VALRANGE,
+		"1:999999999",
+		false,	// is static?  Right now this is only done at startup so its kind of static.
+		"Maximum allowed age in hours for a TMSI entry in the TMSITable.  "
+		"This is not the authorization/registration expiry period, this is how long the BTS remembers assigned TMSIs.  "
+		"Currently old entries are only discarded at startup.  "
+	);
+	map[tmp->getName()] = *tmp;
+	delete tmp;
+
+	tmp = new ConfigurationKey("Control.Reporting.TransactionMaxCompletedRecords","100",
+		"record",
+		ConfigurationKey::DEVELOPER,
+		ConfigurationKey::VALRANGE,
+		"1:10000",
+		true,
+		"Maximum completed records to be stored for gathering by an external stats tool."
+	);
+	map[tmp->getName()] = *tmp;
+	delete tmp;
+
+	tmp = new ConfigurationKey("Control.Reporting.TransactionTable","/var/run/OpenBTS/TransactionTable.db",
 		"",
 		ConfigurationKey::CUSTOMERWARN,
 		ConfigurationKey::FILEPATH,
@@ -433,14 +559,14 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::VALRANGE,
 		"1:3",// educated guess
 		false,
-		"Decrease the RSSI by this amount to induce more power in the MS each time we fail to receive a response from it."
+		"Decrease the RSSI by this amount to induce more power in the MS each time we fail to receive a response from it on SACCH."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
 	tmp = new ConfigurationKey("Control.SMS.QueryRRLP","0",
 		"",
-		ConfigurationKey::CUSTOMER,
+		ConfigurationKey::DEVELOPER,
 		ConfigurationKey::BOOLEAN,
 		"",
 		false,
@@ -457,66 +583,12 @@ ConfigurationKeyMap getConfigurationKeys()
 		true,
 		"File path for SMSCB scheduling database.  "
 			"By default, this feature is disabled.  "
-			"To enable, specify a file path for the database e.g. /var/run/SMSCB.db.  "
+			"To enable, specify a file path for the database e.g. /var/run/OpenBTS/SMSCB.db.  "
 			"To disable again, execute \"unconfig Control.SMSCB.Table\"."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
-	tmp = new ConfigurationKey("Control.TestCall.AutomaticModeChange","0",
-		"",
-		ConfigurationKey::DEVELOPER,
-		ConfigurationKey::BOOLEAN,
-		"",
-		false,
-		"Automatically change the channel mode of a TCH/FACCH from signaling-only to speech-V1 before starting the fuzzing interface."
-	);
-	map[tmp->getName()] = *tmp;
-	delete tmp;
-
-	tmp = new ConfigurationKey("Control.TestCall.LocalPort","24020",
-		"",
-		ConfigurationKey::DEVELOPER,
-		ConfigurationKey::PORT,
-		"",
-		false,
-		"Port number part of source for L3 payloads received from the handset in fuzzing interface."
-	);
-	map[tmp->getName()] = *tmp;
-	delete tmp;
-
-	tmp = new ConfigurationKey("Control.TestCall.PollTime","100",
-		"milliseconds",
-		ConfigurationKey::DEVELOPER,
-		ConfigurationKey::VALRANGE,
-		"50:200(10)",// educated guess
-		false,
-		"Polling time of the fuzzing interface in milliseconds."
-	);
-	map[tmp->getName()] = *tmp;
-	delete tmp;
-
-	tmp = new ConfigurationKey("Control.TestCall.RemoteHost","127.0.0.1",
-		"",
-		ConfigurationKey::DEVELOPER,
-		ConfigurationKey::IPADDRESS,
-		"",
-		false,
-		"Host part of destination for L3 payloads received from the handset in fuzzing interface."
-	);
-	map[tmp->getName()] = *tmp;
-	delete tmp;
-
-	tmp = new ConfigurationKey("Control.TestCall.RemotePort","24021",
-		"",
-		ConfigurationKey::DEVELOPER,
-		ConfigurationKey::PORT,
-		"",
-		false,
-		"Port number part of destination for L3 payloads received from the handset in fuzzing interface."
-	);
-	map[tmp->getName()] = *tmp;
-	delete tmp;
 
 	tmp = new ConfigurationKey("Control.VEA","0",
 		"",
@@ -533,13 +605,13 @@ ConfigurationKeyMap getConfigurationKeys()
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
-	tmp = new ConfigurationKey("Control.WatchdogMinutes","60",
+	tmp = new ConfigurationKey("Control.WatchdogMinutes","0",
 		"minutes",
 		ConfigurationKey::DEVELOPER,
 		ConfigurationKey::VALRANGE,
-		"0:6000",// educated guess
+		"0:1440",
 		false,
-		"Number of minutes before the radio watchdog expires and OpenBTS is restarted."
+		"Number of minutes before the radio watchdog expires and OpenBTS is restarted, set to 0 to disable."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -551,8 +623,8 @@ ConfigurationKeyMap getConfigurationKeys()
 		"",
 		true,
 		"The list of DNS servers to be used by downstream clients.  "
-			"By default, DNS servers are taken from the host system.  "
-			"To override, specify a space-separated list of the DNS servers, in IP dotted notation, eg: 1.2.3.4 5.6.7.8.  "
+			"By default, DNS servers of the host system are used.  "
+			"To override, specify a space-separated list of DNS servers, in IP dotted notation, eg: 1.2.3.4 5.6.7.8.  "
 			"To use the host system DNS servers again, execute \"unconfig GGSN.DNS\"."
 	);
 	map[tmp->getName()] = *tmp;
@@ -611,7 +683,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::FILEPATH_OPT,
 		"",
 		true,
-		"If specified, internet traffic is logged to this file e.g. ggsn.log"
+		"If specified, internet traffic is logged to this file. E.g. ggsn.log."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -705,7 +777,7 @@ ConfigurationKeyMap getConfigurationKeys()
 			"Timer 3168 in the MS controls the wait time after sending a Packet Resource Request to initiate a TBF before giving up or reattempting a Packet Access Procedure, which may imply sending a new RACH.  "
 				"This code is broadcast to the MS in the C0T0 beacon in the GPRS Cell Options IE.  "
 				"See GSM 04.60 12.24.  "
-				"Range 0..7 to represent 0.5sec to 4sec in 0.5sec steps."
+				"Range 0..7, representing values from 0.5sec to 4sec in 0.5sec steps."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -733,11 +805,11 @@ ConfigurationKeyMap getConfigurationKeys()
 
 	tmp = new ConfigurationKey("GPRS.ChannelCodingControl.RSSI","-40",
 		"dB",
-		ConfigurationKey::DEVELOPER,
+		ConfigurationKey::CUSTOMERTUNE,
 		ConfigurationKey::VALRANGE,
 		"-65:-15",// educated guess
 		false,
-		"If the initial unlink signal strength is less than this amount in DB GPRS uses a lower bandwidth but more robust encoding CS-1.  "
+		"If the initial unlink signal strength is less than this amount in dB, GPRS uses a lower bandwidth but more robust encoding CS-1.  "
 			"This value should normally be GSM.Radio.RSSITarget + 10 dB."
 	);
 	map[tmp->getName()] = *tmp;
@@ -770,7 +842,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::CUSTOMERTUNE,
 		ConfigurationKey::VALRANGE,
 		"0:7",
-		false,
+		true,
 		"Minimum number of channels allocated for GPRS service on ARFCN C0."
 	);
 	map[tmp->getName()] = *tmp;
@@ -781,7 +853,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::CUSTOMERTUNE,
 		ConfigurationKey::VALRANGE,
 		"0:100",
-		false,
+		true,
 		"Minimum number of channels allocated for GPRS service on ARFCNs other than C0."
 	);
 	map[tmp->getName()] = *tmp;
@@ -800,24 +872,31 @@ ConfigurationKeyMap getConfigurationKeys()
 	delete tmp;
 #endif
 
-	tmp = new ConfigurationKey("GPRS.Codecs.Downlink","14",
+	// (pat 10-2013) Added commas in this list to make it more clear that the value is a list.
+	// It does not matter whether commas appear in the string or not,
+	// only appearance or non-appearance of the digits '1' .. '4' is significant.
+	// You could even stick in "CS1,CS4" if the regular expression allowed it.
+	tmp = new ConfigurationKey("GPRS.Codecs.Downlink","1,4",
 		"",
 		ConfigurationKey::DEVELOPER,
-		ConfigurationKey::STRING,
-		"^1{0,1}2{0,1}3{0,1}4{0,1}$",// "1234" with each number optional
+		ConfigurationKey::STRING_OPT,
+		//"^1{0,1}2{0,1}3{0,1}4{0,1}$",// "1234" with each number optional
+		"^[CS1234,]*$",	// "1,2,3,4" with each number optional, or CS1,CS2,CS3,CS4.
 		false,
-		"List of allowed GPRS downlink codecs 1..4 for CS-1..CS-4.  Currently, only 1 and 4 are supported e.g. 14."
+		"An empty value specifies GPRS may use all available codecs.  "
+		"Otherwise list of allowed GPRS downlink codecs 1..4 for CS-1..CS-4.  Currently, only 1 and 4 are supported e.g. 1,4."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
-	tmp = new ConfigurationKey("GPRS.Codecs.Uplink","14",
+	tmp = new ConfigurationKey("GPRS.Codecs.Uplink","1,4",
 		"",
 		ConfigurationKey::DEVELOPER,
-		ConfigurationKey::STRING,
-		"^1{0,1}2{0,1}3{0,1}4{0,1}$",// "1234" with each number optional
+		ConfigurationKey::STRING_OPT,
+		"^[CS1234,]*$",
 		false,
-		"List of allowed GPRS uplink codecs 1..4 for CS-1..CS-4.  Currently, only 1 and 4 are supported e.g. 14."
+		"An empty value specifies GPRS may use all available codecs.  "
+		"Otherwise list of allowed GPRS uplink codecs 1..4 for CS-1..CS-4.  Currently, only 1 and 4 are supported e.g. 1,4."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -828,7 +907,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::VALRANGE,
 		"5:15",// educated guess
 		false,
-		"Maximum number of assign messages sent"
+		"Maximum number of assign messages sent."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -841,7 +920,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		false,
 		"Counts unused USF responses to detect nonresponsive MS.  "
 			"Should be > 8.  "
-			"See GSM04.60 sec 13."
+			"See GSM04.60 Sec 13."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -864,8 +943,8 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::VALRANGE,
 		"6:18",// educated guess
 		false,
-		"Counts unused RRBP responses to detect nonresponsive MS. "
-			"See GSM04.60 sec 13."
+		"Counts unused RRBP responses to detect nonresponsive MS.  "
+			"See GSM04.60 Sec 13."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -876,7 +955,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::VALRANGE,
 		"3:9",// educated guess
 		false,
-		"Maximum number of reassign messages sent"
+		"Maximum number of reassign messages sent."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -887,7 +966,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::VALRANGE,
 		"3:8",// educated guess
 		false,
-		"Maximum number of TBF release messages sent"
+		"Maximum number of TBF release messages sent."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -911,6 +990,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		false,
 		"How often to send keep-alive messages for persistent TBFs in milliseconds; must be long enough to avoid simultaneous in-flight duplicates, and short enough that MS gets one every 5 seconds.  "
 			"GSM 5.08 10.2.2 indicates MS must get a block every 360ms"
+			// (oley) our allowed value range does not permit the recommended value of 360ms. Is this intentional?
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -927,13 +1007,12 @@ ConfigurationKeyMap getConfigurationKeys()
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
-	tmp = new ConfigurationKey("GPRS.Enable","1",
-
+	tmp = new ConfigurationKey("GPRS.Enable","0",
 		"",
 		ConfigurationKey::CUSTOMER,
 		ConfigurationKey::BOOLEAN,
 		"",
-		false,
+		true,
 		"If enabled, GPRS service is advertised in the C0T0 beacon, and GPRS service may be started on demand.  "
 			"See also GPRS.Channels.*."
 	);
@@ -946,7 +1025,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::BOOLEAN,
 		"",
 		false,
-		"Enable recognition of local TLLI"
+		"Enable recognition of local TLLI."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -979,7 +1058,7 @@ ConfigurationKeyMap getConfigurationKeys()
 			"10|1.0",
 		false,
 		"MS power control parameter, unitless, in steps of 0.1, so a parameter of 5 is an alpha value of 0.5.  "
-			"Determines sensitivity of handset to variations in downlink RSSI.  "
+			"Determines sensitivity of handset to variations in downlink RXLEV.  "
 			"Valid range is 0...10 for alpha values of 0...1.0.  "
 			"See GSM 05.08 10.2.1."
 	);
@@ -993,7 +1072,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		"0:31",
 		false,
 		"MS power control parameter, in 2 dB steps.  "
-			"Determines baseline of handset uplink power relative to downlink RSSI. "
+			"Determines baseline of handset uplink power relative to downlink RXLEV.  "
 			"The optimum value will tend to be lower for BTS units with higher power output.  "
 			"This default assumes a balanced link with a BTS output of 2-4 W/ARFCN.  "
 			"Valid range is 0...31 for gamma values of 0...62 dB.  "
@@ -1052,7 +1131,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::VALRANGE,
 		"0:3",
 		true,
-		"Controls measurement reports and cell reselection mode (MS autonomous or under network control); should not be changed. "
+		"Controls measurement reports and cell reselection mode (MS autonomous or under network control); should not be changed.  "
 			"See GSM 5.08 10.1.4."
 	);
 	map[tmp->getName()] = *tmp;
@@ -1114,12 +1193,12 @@ ConfigurationKeyMap getConfigurationKeys()
 	delete tmp;
 
 	tmp = new ConfigurationKey("GPRS.RRBP.Min","0",
-		"?",
+		"reservations",
 		ConfigurationKey::DEVELOPER,
 		ConfigurationKey::VALRANGE,
 		"0:3",
 		false,
-		"Minimum value for RRBP reservations, range 0..3.  "
+		"Minimum value for Relative Reserved Block Period (RRBP) reservations, range 0..3.  "
 			"Should normally be 0.  "
 			"A non-zero value gives the MS more time to respond to the RRBP request."
 	);
@@ -1132,7 +1211,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::BOOLEAN,
 		"",
 		false,
-		"Enable TBF Reassignment"
+		"Enable TBF Reassignment."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -1148,6 +1227,7 @@ ConfigurationKeyMap getConfigurationKeys()
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
+#if 0	// (pat) obsolete
 	tmp = new ConfigurationKey("GPRS.SGSN.port","1920",
 		"",
 		ConfigurationKey::DEVELOPER,
@@ -1158,6 +1238,7 @@ ConfigurationKeyMap getConfigurationKeys()
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
+#endif
 
 	tmp = new ConfigurationKey("GPRS.TBF.Downlink.Poll1","10",
 		"blocks",
@@ -1176,8 +1257,8 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::BOOLEAN,
 		"",
 		false,
-		"Allow MS to request another uplink assignment at end up of uplink TBF. "
-			"See GSM 4.60 9.2.3.4"
+		"Allow MS to request another uplink assignment at end up of uplink TBF.  "
+			"See GSM 4.60 9.2.3.4."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -1188,7 +1269,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::VALRANGE,
 		"20000:40000",// educated guess
 		false,
-		"How long to try before giving up on a TBF."
+		"How long in milliseconds to try before giving up on a TBF."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -1199,7 +1280,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::VALRANGE,
 		"15:25",// educated guess
 		false,
-		"How many expired TBF structs to retain; they can be viewed with gprs list tbf -x"
+		"How many expired TBF structs to retain; they can be viewed with gprs list tbf -x."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -1214,7 +1295,7 @@ ConfigurationKeyMap getConfigurationKeys()
 			"3|Codec 3,"
 			"4|Codec 4",
 		false,
-		"If 0, no tbf retry, otherwise if a tbf fails it will be retried with this codec, numbered 1..4"
+		"If 0, no tbf retry, otherwise if a tbf fails it will be retried with this codec, numbered 1..4."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -1260,8 +1341,8 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::VALRANGE,
 		"2500:7500(100)",// educated guess
 		false,
-		"Nonresponsive uplink TBF resource release timer, in milliseconds. "
-			"See GSM04.60 sec 13."
+		"Nonresponsive uplink TBF resource release timer, in milliseconds.  "
+			"See GSM04.60 Sec 13."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -1272,8 +1353,8 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::VALRANGE,
 		"2500:7500(100)",// educated guess
 		false,
-		"Nonresponsive downlink TBF resource release timer, in milliseconds. "
-			"See GSM04.60 Section 13."
+		"Nonresponsive downlink TBF resource release timer, in milliseconds.  "
+			"See GSM04.60 Sec 13."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -1297,8 +1378,8 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::VALRANGE,
 		"2500:7500(100)",// educated guess
 		false,
-		"Nonresponsive downlink TBF resource release timer, in milliseconds. "
-			"See GSM04.60 Section 13."
+		"Nonresponsive downlink TBF resource release timer, in milliseconds.  "
+			"See GSM04.60 Sec 13."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -1320,36 +1401,52 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::VALRANGE,
 		"0:6000(100)",// educated guess
 		true,
-		"After completion, uplink TBFs are held open for this time in milliseconds.  "
-			"If non-zero, must be greater than GPRS.Uplink.KeepAlive. "
-			"This is broadcast in the beacon and it cannot be changed once BTS is started."
+		"After completion uplink TBFs are held open for this time in milliseconds.  "
+			"If non-zero, must be greater than GPRS.Uplink.KeepAlive.  "
+			"This is broadcast in the beacon and cannot be changed once BTS is started."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
-	tmp = new ConfigurationKey("GSM.CCCH.AGCH.QMax","5",
+	// (pat 8-30-2013)  We experienced a BTS lockup at Burning Man that I believe was caused
+	// by QMax == 5 being too high.  The BTS showed all channels being allocated but none being used.
+	// After RACH the MS listens to BCCH and CCCH for T3126, which is defined by equations
+	// in 4.08/44.018 11.1.1 and 3.3.1.1.2 where T = TxInteger 14, S = 41 from Table 3.3.1.1.2.1,
+	// and T3126 = T+26 = 96 "slots of the mobile station's RACH" or 5 secs, whichever is less.
+	// For the combination V beacon there 27 RACH slots / beacon frame, which is 253ms.
+	// (There is a picture in the Range workshop tutorial.)
+	// Since QMax is applied to each AGCH channel on the beacon separately, we dont even need
+	// to convert to time here.  96 / 27 = 3.5 is the maximum value allowed for QMax.
+	// This seems nonsensical to me so I may be missing something.
+	// Currently we have no way of distinguishing exactly when the RACH arrived relative to when the
+	// reply goes out, so I am rounding down, even though a value of 4 might allow at least some
+	// RACH to be answered in time.
+
+	tmp = new ConfigurationKey("GSM.CCCH.AGCH.QMax","3",
 		"queued access grants",
 		ConfigurationKey::CUSTOMERTUNE,
 		ConfigurationKey::VALRANGE,
-		"3:8",// educated guess
+		"2:8",// educated guess
 		false,
 		"Maximum number of access grants to be queued for transmission on AGCH before declaring congestion."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
+	// (pat) This value is broadcast on the beacon but not otherwise used.
+	// Therefore the only affect of changing it is to make the BTS nonfunctional.
 	tmp = new ConfigurationKey("GSM.CCCH.CCCH-CONF","1",
 		"",
-		ConfigurationKey::CUSTOMERTUNE,
+		ConfigurationKey::DEVELOPER,
 		ConfigurationKey::CHOICE,
 		"1|C-V Beacon,"
 			"2|C-IV Beacon",
 		true,
 		"CCCH configuration type.  "
+			"DO NOT CHANGE THIS.  Value is fixed by the implementation.  " // pat added
 			"See GSM 10.5.2.11 for encoding.  "
 			"Value of 1 means we are using a C-V beacon.  "
-			"Any other value selects a C-IV beacon.  "
-			"In C2.9 and earlier, the only allowed value is 1."
+			"Any other value selects a C-IV beacon."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -1397,7 +1494,7 @@ ConfigurationKeyMap getConfigurationKeys()
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
-	tmp = new ConfigurationKey("GSM.CellSelection.NCCsPermitted","1",
+	tmp = new ConfigurationKey("GSM.CellSelection.NCCsPermitted","0",
 		"",
 		ConfigurationKey::CUSTOMERWARN,
 		ConfigurationKey::VALRANGE,
@@ -1405,7 +1502,8 @@ ConfigurationKeyMap getConfigurationKeys()
 		false,
 		"NCCs Permitted.  "
 			"An 8-bit mask of allowed NCCs.  "
-			"Unless you are coordinating with another carrier, this should probably just select your own NCC."
+			"The NCC of your own network is automatically included.  "
+			"Unless you are coordinating with another carrier, this should be left at zero."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -1469,7 +1567,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		true,
 		"Number of Combination-VII timeslots to configure.  "
 			"The C-VII slot carries 8 SDCCHs, useful to handle high registration loads or SMS.  "
-			"If C0T0 is C-IV, which it always is in C2.9 and earlier,, you must have at least one C-VII also."
+			"If C0T0 is C-IV, you must also have at least one C-VII."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -1480,7 +1578,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::VALRANGE,
 		"0:10",// educated guess
 		false,
-		"Number of SDCCHs to reserve for non-LUR operations. "
+		"Number of SDCCHs to reserve for non-LUR operations.  "
 			"This can be used to force LUR transactions into a lower priority."
 	);
 	map[tmp->getName()] = *tmp;
@@ -1503,7 +1601,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::BOOLEAN,
 		"",
 		false,
-		"Encrypt traffic between phone and OpenBTS."
+		"Encrypt traffic between MS and OpenBTS."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -1553,15 +1651,24 @@ ConfigurationKeyMap getConfigurationKeys()
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
-	// (pat) This value interacts with "GPRS.ChannelCodingControl.RSSI" which selects the GPRS codec.
-	// In my opinion, if GPRS is enabled, we should handover to try to get the RSSI above GPRS.ChannelCodingControl.RSSI.
-	tmp = new ConfigurationKey("GSM.Handover.LocalRSSIMin","-80",
+	tmp = new ConfigurationKey("GSM.Timer.Handover.Holdoff","10",
+		"seconds",
+		ConfigurationKey::CUSTOMERTUNE,
+		ConfigurationKey::VALRANGE,
+		"1:120",
+		true,
+		"Handover will not be permitted until this time has elapsed after an initial channel seizure or handover."
+	);
+	map[tmp->getName()] = *tmp;
+	delete tmp;
+
+	tmp = new ConfigurationKey("GSM.Handover.LocalRSSIMin","-80",	// (pat) This option is misnamed.  It checks RXLEV reported by the MS, which is not RSSI.
 		"dBm",
 		ConfigurationKey::CUSTOMERTUNE,
 		ConfigurationKey::VALRANGE,
 		"-100:-60",// educated guess
 		false,
-		"Do not handover if downlink RSSI is above this level (in dBm), regardless of power difference."
+		"Do not handover if downlink RXLEV (reported by the MS) is above this level (in dBm), regardless of power difference."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -1585,7 +1692,8 @@ ConfigurationKeyMap getConfigurationKeys()
 		false,
 		"GSM basestation color code; lower 3 bits of the BSIC.  "
 			"BCC values in a multi-BTS network should be assigned so that BTS units with overlapping coverage do not share a BCC.  "
-			"This value will also select the training sequence used for all slots on this unit."
+			"This value will also select the training sequence used for all slots on this unit.",
+		ConfigurationKey::NEIGHBORSUNIQUE
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -1598,7 +1706,8 @@ ConfigurationKeyMap getConfigurationKeys()
 		false,
 		"GSM network color code; upper 3 bits of the BSIC.  "
 			"Assigned by your national regulator.  "
-			"Must be distinct from NCCs of other GSM operators in your area."
+			"Must be distinct from NCCs of other GSM operators in your area.",
+		ConfigurationKey::GLOBALLYSAME
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -1610,7 +1719,11 @@ ConfigurationKeyMap getConfigurationKeys()
 		"0:65535",
 		false,
 		"Cell ID, 16 bits.  "
-			"Should be unique."
+			"In some cases, the last digit of the cell id represents the sector id. "
+			"A last digit of 0 is used for an omnidirectional antenna.  "	
+			"A last digit of 1, 2, 3, etc indicates a sector of the multi-sector antenna.  "	
+			"Should be unique.",
+		ConfigurationKey::GLOBALLYUNIQUE
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -1623,7 +1736,8 @@ ConfigurationKeyMap getConfigurationKeys()
 		false,
 		"Location area code, 16 bits, values 0xFFxx are reserved.  "
 			"For multi-BTS networks, assign a unique LAC to each BTS unit.  "
-			"(That is not the normal procedure in conventional GSM networks, but is the correct procedure in OpenBTS networks.)"
+			"(This is not the normal procedure in conventional GSM networks, but is the correct procedure in OpenBTS networks.)",
+		ConfigurationKey::GLOBALLYUNIQUE
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -1635,7 +1749,8 @@ ConfigurationKeyMap getConfigurationKeys()
 		"^[0-9]{3}$",
 		false,
 		"Mobile country code; must be three digits.  "
-			"Defined in ITU-T E.212. 001 for test networks."
+			"Defined in ITU-T E.212. Value of 001 for test networks.",
+		ConfigurationKey::GLOBALLYSAME
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -1647,8 +1762,9 @@ ConfigurationKeyMap getConfigurationKeys()
 		"^[0-9]{2,3}$",
 		false,
 		"Mobile network code, two or three digits.  "
-			"Assigned by your national regulator. "
-			"01 for test networks."
+			"Assigned by your national regulator.  "
+			"01 for test networks.",
+		ConfigurationKey::GLOBALLYSAME
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -1657,21 +1773,25 @@ ConfigurationKeyMap getConfigurationKeys()
 		"",
 		ConfigurationKey::CUSTOMERSITE,
 		ConfigurationKey::STRING,
-		"^[[:alnum:]]+$",
+		"^[0-9a-zA-Z]+$",
 		false,
 		"Network short name, displayed on some phones.  "
-			"Optional but must be defined if you also want the network to send time-of-day."
+			"Optional but must be defined if you also want the network to send time-of-day.",
+		ConfigurationKey::GLOBALLYSAME
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
-	tmp = new ConfigurationKey("GSM.MS.Power.Damping","50",
-		"?damping value",
+	tmp = new ConfigurationKey("GSM.MS.Power.Damping","75",
+		"damping value in percent",
 		ConfigurationKey::CUSTOMERTUNE,
 		ConfigurationKey::VALRANGE,
-		"25:75",// educated guess
+		"0:100",
 		false,
-		"Damping value for MS power control loop."
+		"Damping value for MS power control loop in percent.   The ordered MS power is based on RSSI [Received Signal Strength Indication].  "
+		"A value of 100 here ignores RSSI entirely;  "
+		"a value of 0 causes the MS power to change instantaneously based on RSSI, which is inadvisable because it sets up power oscillations.  "
+		"The ordered MS power is then clamped between GSM.MS.Power.Max and GSM.MS.Power.Min."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -1680,7 +1800,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		"dBm",
 		ConfigurationKey::CUSTOMERTUNE,
 		ConfigurationKey::VALRANGE,
-		"5:100",// educated guess
+		"0:39",
 		false,
 		"Maximum commanded MS power level in dBm."
 	);
@@ -1691,7 +1811,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		"dBm",
 		ConfigurationKey::CUSTOMERTUNE,
 		ConfigurationKey::VALRANGE,
-		"5:100",// educated guess
+		"0:39",
 		false,
 		"Minimum commanded MS power level in dBm."
 	);
@@ -1736,6 +1856,30 @@ ConfigurationKeyMap getConfigurationKeys()
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
+	// (pat 8-2013) Added this to provide control over the RTP buffers.
+	// Originally the adaptive algorithm in the RTP library did not work very well, so you can over-ride it here.
+	// I turned off the RTP scheduler, and add the rtp timestamp-jump-callback, which vastly improved
+	// the audio quality so we probably do not need to goof with this any more.  However, it is useful to completely
+	// turn off the adaptive algorithm, which might work better than leaving it on.
+	// WARNING:  After a discontinuity in the transmit data stream, the receive data stream fails to resynchronize
+	// when this value is set much above 200 (I never determined the exact number), so I dont allow it.
+	tmp = new ConfigurationKey("GSM.SpeechBuffer","1",
+		"milliseconds",
+		ConfigurationKey::CUSTOMERTUNE,
+		ConfigurationKey::VALRANGE,
+		"0:200",
+		false,
+		"Size of speech buffer in milliseconds.  If set to 0, no RTP speech buffer is used.  "
+		"If set to 1, the RTP speech buffer size is determined adaptively.  "
+		"Any other value sets the speech buffer size.  "
+		"The speech buffer is needed to overcome jitter caused by natural variation in the internet traffic delay.  "
+		"Note that speech is noticeably delayed by this amount, so we want to keep it as low as possible and still have reasonably reliable delivery.  "
+		"The specified delay is in addition to the intrinsic buffering inside OpenBTS.  "
+		"This value is used only at the start of a call; changing it does not affect on-going calls.  "
+	);
+	map[tmp->getName()] = *tmp;
+	delete tmp;
+
 	tmp = new ConfigurationKey("GSM.Neighbors","",
 		"",
 		ConfigurationKey::CUSTOMERWARN,
@@ -1743,31 +1887,67 @@ ConfigurationKeyMap getConfigurationKeys()
 		"",
 		false,
 		"A list of IP addresses of neighbor BTSs available for handover.  "
-			"By default, this feature is disabled.  "
-			"To enable, specify a space-separated list of the BTS IP addresses, in IP dotted notation, eg: 1.2.3.4 5.6.7.8.  "
-			"To disable again, execute \"unconfig GSM.Neighbors\"."
+			"By default handover is disabled.  "
+			"To enable, specify a space-separated list of a maximum of 31 OpenBTS IP addresses in IP dotted notation, "
+			"optionally followed by a colon and the port number. E.g.: 1.2.3.4 5.6.7.8:16001.  "
+			"To disable again, execute \"unconfig GSM.Neighbors\".",
+		ConfigurationKey::NODESPECIFIC
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
-	tmp = new ConfigurationKey("GSM.Neighbors.NumToSend","8",
+	tmp = new ConfigurationKey("GSM.Neighbors.Averaging","4",
+		"reports",
+		ConfigurationKey::DEVELOPER,
+		ConfigurationKey::VALRANGE,
+		"0:100",
+		false,
+		"If non-zero, neighbor measurement reports are averaged.  To be considered for handover a neighbor must appear in 2 of the last GSM.Neighbors.Averaging measurement reports sent by the MS."
+	);
+	map[tmp->getName()] = *tmp;
+	delete tmp;
+
+
+	// (pat) This seems redundant with GSM.Neighbors, because if you want to limit the number of neighbors sent
+	// you can just leave them out of GSM.Neighbors.  But not quite - this is a limit on the number of neighbors
+	// from the GSM.Neighbors list who actually respond to the Peer ping.
+	// Why would you put bad IP addresses in the GSM.Neighbors list?  I dont know.
+	tmp = new ConfigurationKey("GSM.Neighbors.NumToSend","31",	// (pat) Increased from 8 to 31.  Dont know why it was limited.
 		"neighbors",
 		ConfigurationKey::CUSTOMERTUNE,
 		ConfigurationKey::VALRANGE,
-		"1:10",// educated guess
+		"0:31", 	// (pat) The measurement report (GSM 44.018 10.5.2.20) frequency index is 5 bits, but the value 31 has a special meaning for 3G so we avoid it, thus, max is 31 not 32.
+					// The value 0 would effectively disable handover.
 		false,
-		"Maximum number of neighbors to send to handset in a neighbor list."
+		"Maximum number of neighbors to send to handset in the neighbor list broadcast in the beacon."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
-	tmp = new ConfigurationKey("GSM.Ny1","5",
+	// (pat) 5 is way too low.  There is no penalty for making this too big, so I am increasing it a lot.
+	tmp = new ConfigurationKey("GSM.Ny1","50",
 		"repeats",
 		ConfigurationKey::CUSTOMERTUNE,
 		ConfigurationKey::VALRANGE,
-		"1:10",// educated guess
+		"1:200",// educated guess
 		true,
 		"Maximum number of repeats of the Physical Information Message during handover procedure, GSM 04.08 11.1.3."
+	);
+	map[tmp->getName()] = *tmp;
+	delete tmp;
+
+	tmp = new ConfigurationKey("GSM.RACH.AC","0x0400",
+		"",
+		ConfigurationKey::CUSTOMERWARN,
+		ConfigurationKey::CHOICE,
+		"0|Full Access,"
+			"0x0400|Emergency Calls Not Supported",
+		false,
+		"Access class flags.  "
+			"This is the raw parameter sent on the BCCH.  "
+			"See GSM 04.08 10.5.2.29 for encoding.  "
+			"Set to 0 to allow full access.  "
+			"Set to 0x0400 to indicate no support for emergency calls."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -1818,64 +1998,64 @@ ConfigurationKeyMap getConfigurationKeys()
 
 	tmp = new ConfigurationKey("GSM.RRLP.ACCURACY","40",
 		"",
-		ConfigurationKey::CUSTOMERTUNE,
+		ConfigurationKey::DEVELOPER,
 		ConfigurationKey::VALRANGE,
 		"20:60",// educated guess
 		false,
 		"Requested accuracy of location request. "
 			"K in r=10(1.1**K-1), where r is the accuracy in meters. "
-			"See 3GPP 03.32, sect 6.2"
+			"See 3GPP 03.32 Sec 6.2."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
 	tmp = new ConfigurationKey("GSM.RRLP.ALMANAC.ASSIST.PRESENT","0",
 		"",
-		ConfigurationKey::CUSTOMER,
+		ConfigurationKey::DEVELOPER,
 		ConfigurationKey::BOOLEAN,
 		"",
 		false,
-		"Send almanac info to mobile"
+		"Send almanac info to mobile."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
 	tmp = new ConfigurationKey("GSM.RRLP.ALMANAC.REFRESH.TIME","24.0",
 		"hours",
-		ConfigurationKey::CUSTOMERTUNE,
+		ConfigurationKey::DEVELOPER,
 		ConfigurationKey::VALRANGE,
 		"18.0:30.0(0.1)",// educated guess
 		false,
-		"How often the almanac is refreshed, in hours"
+		"How often the almanac is refreshed, in hours."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
 	tmp = new ConfigurationKey("GSM.RRLP.ALMANAC.URL","http://www.navcen.uscg.gov/?pageName=currentAlmanac&format=yuma",
 		"",
-		ConfigurationKey::CUSTOMERWARN,
+		ConfigurationKey::DEVELOPER,
 		ConfigurationKey::STRING,
-		"^(http|ftp)://[[:alnum:]_.-]",
+		"^(http|ftp)://[0-9a-zA-Z_.-]",
 		false,
-		"URL of almanac source."
+		"URL of the almanac source."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
 	tmp = new ConfigurationKey("GSM.RRLP.EPHEMERIS.ASSIST.COUNT","9",
 		"satellites",
-		ConfigurationKey::CUSTOMERTUNE,
+		ConfigurationKey::DEVELOPER,
 		ConfigurationKey::VALRANGE,
 		"6:12",// educated guess
 		false,
-		"number of satellites to include in navigation model"
+		"Number of satellites to include in navigation model."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
 	tmp = new ConfigurationKey("GSM.RRLP.EPHEMERIS.REFRESH.TIME","1.0",
 		"hours",
-		ConfigurationKey::CUSTOMERTUNE,
+		ConfigurationKey::DEVELOPER,
 		ConfigurationKey::VALRANGE,
 		"0.5:1.5(0.1)",// educated guess
 		false,
@@ -1886,9 +2066,9 @@ ConfigurationKeyMap getConfigurationKeys()
 
 	tmp = new ConfigurationKey("GSM.RRLP.EPHEMERIS.URL","ftp://ftp.trimble.com/pub/eph/CurRnxN.nav",
 		"",
-		ConfigurationKey::CUSTOMERWARN,
+		ConfigurationKey::DEVELOPER,
 		ConfigurationKey::STRING,
-		"^(http|ftp)://[[:alnum:]_.-]",
+		"^(http|ftp)://[0-9a-zA-Z_.-]",
 		false,
 		"URL of ephemeris source."
 	);
@@ -1897,20 +2077,20 @@ ConfigurationKeyMap getConfigurationKeys()
 
 	tmp = new ConfigurationKey("GSM.RRLP.RESPONSETIME","4",
 		"",
-		ConfigurationKey::CUSTOMERTUNE,
+		ConfigurationKey::DEVELOPER,
 		ConfigurationKey::VALRANGE,
 		"2:6",// educated guess
 		false,
-		"Mobile timeout. "
+		"Mobile timeout.  "
 			"(OpenBTS timeout is 130 sec = max response time + 2.) N in 2**N. "
-			"See 3GPP 04.31 sect A.2.2.1"
+			"See 3GPP 04.31 Sec A.2.2.1."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
 	tmp = new ConfigurationKey("GSM.RRLP.SEED.ALTITUDE","0",
 		"meters",
-		ConfigurationKey::CUSTOMERSITE,
+		ConfigurationKey::DEVELOPER,
 		ConfigurationKey::VALRANGE,
 		"-420:8850(5)",
 		false,
@@ -1921,33 +2101,33 @@ ConfigurationKeyMap getConfigurationKeys()
 
 	tmp = new ConfigurationKey("GSM.RRLP.SEED.LATITUDE","37.777423",
 		"degrees",
-		ConfigurationKey::CUSTOMERSITE,
+		ConfigurationKey::DEVELOPER,
 		ConfigurationKey::VALRANGE,
 		"-90.000000:90.000000",
 		false,
-		"Seed latitude in degrees.  "
-			"-90 (south pole) .. +90 (north pole)"
+		"Seed latitude in degrees: "
+			"-90 (south pole) .. +90 (north pole)."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
 	tmp = new ConfigurationKey("GSM.RRLP.SEED.LONGITUDE","-122.39807",
 		"degrees",
-		ConfigurationKey::CUSTOMERSITE,
+		ConfigurationKey::DEVELOPER,
 		ConfigurationKey::VALRANGE,
 		"-180.000000:180.000000",
 		false,
-		"Seed longitude in degrees.  "
-			"-180 (west of greenwich) .. 180 (east)"
+		"Seed longitude in degrees: "
+			"-180 (west of greenwich) .. +180 (east)."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
 	tmp = new ConfigurationKey("GSM.RRLP.SERVER.URL","",
 		"",
-		ConfigurationKey::CUSTOMERWARN,
+		ConfigurationKey::DEVELOPER,
 		ConfigurationKey::STRING_OPT,// audited
-		"^(http|ftp)://[[:alnum:]_.-]",
+		"^(http|ftp)://[0-9a-zA-Z_.-]",
 		false,
 		"URL of RRLP server.  "
 			"By default, this feature is disabled.  "
@@ -1961,7 +2141,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		"ARFCNs",
 		ConfigurationKey::CUSTOMERWARN,
 		ConfigurationKey::VALRANGE,
-		"1:10",// educated guess
+		"1:3",
 		true,
 		"The number of ARFCNs to use.  "
 			"The ARFCN set will be C0, C0+2, C0+4, etc."
@@ -1979,8 +2159,9 @@ ConfigurationKeyMap getConfigurationKeys()
 			"1900|PCS1900",
 		true,
 		"The GSM operating band.  "
-			"Valid values are 850 (GSM850), 900 (PGSM900), 1800 (DCS1800) and 1900 (PCS1900).  "
-			"For non-multiband units, this value is dictated by the hardware and should not be changed."
+			"Valid values are 850 for GSM850, 900 for PGSM900, 1800 for DCS1800 and 1900 for PCS1900.  "
+			"For non-multiband units, this value is dictated by the hardware and should not be changed.",
+		ConfigurationKey::GLOBALLYSAME
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -1989,10 +2170,11 @@ ConfigurationKeyMap getConfigurationKeys()
 		"",
 		ConfigurationKey::CUSTOMERSITE,
 		ConfigurationKey::CHOICE,
-		ConfigurationKey::getARFCNsString(),
+		getARFCNsString(900),
 		true,
 		"The C0 ARFCN.  "
-			"Also the base ARFCN for a multi-ARFCN configuration."
+			"Also the base ARFCN for a multi-ARFCN configuration.",
+		ConfigurationKey::NEIGHBORSUNIQUE
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -2005,8 +2187,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		false,
 		"Expected worst-case delay spread in symbol periods, roughly 3.7 us or 1.1 km per unit.  "
 			"This parameter is dependent on the terrain type in the installation area.  "
-			"Typical values are 1 for open terrain and small coverage areas.  "
-			"For large coverage areas, a value of 4 is strongly recommended.  "
+			"Typical values are: 1 for open terrain and small coverage areas, a value of 4 is strongly recommended for large coverage areas.  "
 			"This parameter has a large effect on computational requirements of the software radio; values greater than 4 should be avoided."
 	);
 	map[tmp->getName()] = *tmp;
@@ -2018,7 +2199,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::BOOLEAN,
 		"",
 		false,
-		"Does the Radio type require the full BSIC"
+		"Whether the Radio type requires the full BSIC."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -2047,6 +2228,8 @@ ConfigurationKeyMap getConfigurationKeys()
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
+	// (pat) This appears to have nothing to do with power management.
+	// It affects the T3122 (RACH holdoff timer) in a way that does not make any sense to me.
 	tmp = new ConfigurationKey("GSM.Radio.PowerManager.NumSamples","10",
 		"sample count",
 		ConfigurationKey::DEVELOPER,
@@ -2075,11 +2258,12 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::VALRANGE,
 		"1500:2500(100)",// educated guess
 		false,
-		"Sample period for the output power control loopm in milliseconds."
+		"Sample period for the output power control loop in milliseconds."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
+	// (pat) This is nonsense and should be removed.
 	tmp = new ConfigurationKey("GSM.Radio.PowerManager.TargetT3122","5000",
 		"milliseconds",
 		ConfigurationKey::DEVELOPER,
@@ -2103,15 +2287,16 @@ ConfigurationKeyMap getConfigurationKeys()
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
-	tmp = new ConfigurationKey("GSM.Radio.RxGain","0",
+	tmp = new ConfigurationKey("GSM.Radio.RxGain","47",
 		"dB",
 		ConfigurationKey::FACTORY,
 		ConfigurationKey::VALRANGE,
-		"0:75",// educated guess
+		"25:75",// educated guess
 		true,
 		"Receiver gain setting in dB.  "
-			"Ideal value is dictated by the hardware; 47 dB for RAD1, less for USRPs  "
-			"This database parameter is static but the receiver gain can be modified in real time with the CLI rxgain command."
+			"Ideal value is dictated by the hardware; 47 dB for RAD1.  "
+			"This database parameter is static but the receiver gain can be modified in real time with the CLI \"rxgain\" command.",
+		ConfigurationKey::NODESPECIFIC
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -2122,19 +2307,22 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::BOOLEAN,
 		"",
 		false,
-		"Tell the phone to show the country name based on the MCC."
+		"Tell the MS to show the country name based on the MCC."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
-	tmp = new ConfigurationKey("GSM.Timer.T3103","5000",
+	// (pat) 5 seconds is not enough.  A handover failure on the Blackberry takes exactly 10 seconds.
+	// There is no real penalty for making this bigger, because all it does is kill the channel when it expires,
+	// so upping this to 12 seconds.
+	tmp = new ConfigurationKey("GSM.Timer.T3103","12000",
 		"milliseconds",
 		ConfigurationKey::DEVELOPER,
 		ConfigurationKey::VALRANGE,
-		"2500:7500(100)",// educated guess
+		"2000:30000(100)",
 		true,
 		"Handover timeout in milliseconds, GSM 04.08 11.1.2.  "
-			"This is the timeout for a handset to sieze a channel during handover."
+			"This is the timeout for a handset to seize a channel during handover."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -2145,7 +2333,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::VALRANGE,
 		"25:75(5)",// educated guess
 		true,
-		"Milliseconds for handset to respond to physical information. "
+		"Milliseconds for handset to respond to physical information.  "
 			"GSM 04.08 11.1.2."
 	);
 	map[tmp->getName()] = *tmp;
@@ -2164,31 +2352,37 @@ ConfigurationKeyMap getConfigurationKeys()
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
+	// (pat) It is unfortunate that this is specified in msecs.
 	tmp = new ConfigurationKey("GSM.Timer.T3122Max","255000",
 		"milliseconds",
 		ConfigurationKey::DEVELOPER,
 		ConfigurationKey::VALRANGE,
-		"127500:382500(1000)",// educated guess
+		"10000:255000(1000)",
 		false,
-		"Maximum allowed value for T3122, the RACH holdoff timer, in milliseconds."
+		"Maximum allowed value for T3122, the RACH holdoff timer, in milliseconds.  "
+		"This timer is sent to the MS with a granularity of seconds in the range 1-255.  GSM 4.08 10.5.2.43."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
-	tmp = new ConfigurationKey("GSM.Timer.T3122Min","2000",
+	// (pat) It is unfortunate that this is specified in msecs.
+	tmp = new ConfigurationKey("GSM.Timer.T3122Min","10000",	// 2-2014: Pat upped from 2 to 10 seconds.
 		"milliseconds",
 		ConfigurationKey::DEVELOPER,
 		ConfigurationKey::VALRANGE,
-		"1000:3000(100)",// educated guess
+		"1000:255000(1000)",
 		false,
-		"Minimum allowed value for T3122, the RACH holdoff timer, in milliseconds."
+		"Minimum allowed value for T3122, the RACH holdoff timer, in milliseconds.  "
+		"GSM 4.08 10.5.2.43. This timer is sent to the MS with a granularity of seconds in the range 1-255.  "
+		"The purpose is to postpone the MS RACH procedure until an SDCCH available, so there is no point making it any smaller than "
+		"the expected availability of the SDCCH, which will take several seconds."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
-	tmp = new ConfigurationKey("GSM.Timer.T3212","30",
+	tmp = new ConfigurationKey("GSM.Timer.T3212","0",
 		"minutes",
-		ConfigurationKey::DEVELOPER,
+		ConfigurationKey::CUSTOMERTUNE,
 		ConfigurationKey::VALRANGE,
 		"0:1530(6)",
 		false,
@@ -2200,18 +2394,18 @@ ConfigurationKeyMap getConfigurationKeys()
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
-	tmp = new ConfigurationKey("Peering.Neighbor.RefreshAge","60000",
-		"milliseconds",
+	tmp = new ConfigurationKey("Peering.Neighbor.RefreshAge","60",
+		"seconds",
 		ConfigurationKey::CUSTOMERTUNE,
 		ConfigurationKey::VALRANGE,
-		"30000:90000(1000)",// educated guess
+		"10:3600",// educated guess
 		false,
-		"Milliseconds before refreshing parameters from a neighbor."
+		"Seconds before refreshing parameters from a neighbor."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
-	tmp = new ConfigurationKey("Peering.NeighborTable.Path","/var/run/NeighborTable.db",
+	tmp = new ConfigurationKey("Peering.NeighborTable.Path","/var/run/OpenBTS/NeighborTable.db",
 		"",
 		ConfigurationKey::CUSTOMERWARN,
 		ConfigurationKey::FILEPATH,
@@ -2233,24 +2427,27 @@ ConfigurationKeyMap getConfigurationKeys()
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
-	tmp = new ConfigurationKey("Peering.ResendCount","5",
+	// (pat) These Peering params will go away entirely when we switch the Peer interface to SIP.
+	// (pat) The product of ResendTimeout and ResendCount needs to be larger than twice the maximum possible internet rount-trip delay.
+	// (pat) It does not hurt to send extra messages.
+	tmp = new ConfigurationKey("Peering.ResendCount","20",
 		"attempts",
-		ConfigurationKey::CUSTOMERTUNE,
+		ConfigurationKey::DEVELOPER, // (pat) This Peering params should not be customer tunable.
 		ConfigurationKey::VALRANGE,
-		"3:8",// educated guess
+		"3:40",// educated guess
 		false,
-		"Number of tries to send message over the peer interface before giving up"
+		"Number of tries to send message over the peer interface before giving up."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
 	tmp = new ConfigurationKey("Peering.ResendTimeout","100",
 		"milliseconds",
-		ConfigurationKey::CUSTOMERTUNE,
+		ConfigurationKey::DEVELOPER, // (pat) This Peering params should not be customer tunable.
 		ConfigurationKey::VALRANGE,
-		"50:100(10)",// educated guess
+		"50:1000(10)",// educated guess
 		false,
-		"Milliseconds before resending a message on the peer interface"
+		"Milliseconds before resending a message on the peer interface."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -2262,7 +2459,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		"25:200",// educated guess
 		true,
 		"Range of RTP port pool.  "
-			"Pool is RTP.Start to RTP.Range-1."
+			"Pool is RTP.Start to RTP.Range - 1."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -2274,7 +2471,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		"",
 		true,
 		"Base of RTP port pool.  "
-			"Pool is RTP.Start to RTP.Range-1."
+			"Pool is RTP.Start to RTP.Range - 1."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -2285,7 +2482,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::BOOLEAN,
 		"",
 		false,
-		"Add layer-3 messages to the GGSN.Logfile, if any."
+		"Add layer 3 messages to the GGSN.Logfile, if any."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -2313,17 +2510,16 @@ ConfigurationKeyMap getConfigurationKeys()
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
-	tmp = new ConfigurationKey("SGSN.Timer.RAUpdate","3240",
+	tmp = new ConfigurationKey("SGSN.Timer.RAUpdate","0",
 		"seconds",
 		ConfigurationKey::DEVELOPER,
 		ConfigurationKey::VALRANGE,
-		"0:11160(2)",   // This is the allowed range of times expressed by the dopey GPRS Timer IE.  Max is 31 deci-hours.
+		"0:11160(2)",	// (pat) 0 deactivates, up to 31 deci-hours which is 11160 seconds.  Minimum increment is 2 seconds.
 		false,
 		"Also known as T3312, 3GPP 24.008 4.7.2.2.  "
-			"How often the MS reports into the SGSN when it is idle, in seconds.  "
+			"How often MS reports into the SGSN when it is idle, in seconds.  "
 			"Setting to 0 or >12000 deactivates entirely, i.e., sets the timer to effective infinity.  "
-			"Note: to prevent GPRS Routing Area Updates you must set both this and GSM.Timer.T3212 to 0. "
-
+			"Note: to prevent GPRS Routing Area Updates you must set both this and GSM.Timer.T3212 to 0."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -2362,13 +2558,28 @@ ConfigurationKeyMap getConfigurationKeys()
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
+	// (pat) Geez, it is RFC2976, not 2967, and has been replaced by RFC6086
+	// I am deprecating this, but I did not feel I could remove it because it might be in use in existing
+	// configs, so I marked it developer only.
 	tmp = new ConfigurationKey("SIP.DTMF.RFC2967","0",
+		"",
+		ConfigurationKey::DEVELOPER,
+		ConfigurationKey::BOOLEAN,
+		"",
+		false,
+		"Obsolete; incorrect RFC number.  Use SIP.DTMF.RFC2976."
+	);
+	map[tmp->getName()] = *tmp;
+	delete tmp;
+
+	// Note that RFC2976 is deprecated by RFC6086.  These discuss SIP INFO in general, not DTMF specifically.
+	tmp = new ConfigurationKey("SIP.DTMF.RFC2976","0",
 		"",
 		ConfigurationKey::CUSTOMERWARN,
 		ConfigurationKey::BOOLEAN,
 		"",
 		false,
-		"Use RFC-2967 (SIP INFO method) for in-call DTMF."
+		"Use RFC-2976 (SIP INFO method) for in-call DTMF."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -2380,7 +2591,8 @@ ConfigurationKeyMap getConfigurationKeys()
 		"",
 		true,
 		"IP address of the OpenBTS machine as seen by its proxies.  "
-			"If these are all local, this can be localhost."
+			"If these are all local, this can be localhost.",
+		ConfigurationKey::NODESPECIFIC
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -2407,14 +2619,28 @@ ConfigurationKeyMap getConfigurationKeys()
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
+
+	// (pat) 5-1-2013
+	tmp = new ConfigurationKey("SIP.Proxy.Mode","",	// name and default value
+		"",		// units
+		ConfigurationKey::DEVELOPER,	// visiblity
+		ConfigurationKey::CHOICE_OPT,	// type
+		"direct",					// validation choices.  These are comma separated
+		false,		// is static?
+		"If set to direct, then direct BTS to BTS calls are permitted without an intervening SIP switch, for example, no asterisk needed."
+	);
+	map[tmp->getName()] = *tmp;
+	delete tmp;
+
 	tmp = new ConfigurationKey("SIP.Proxy.Registration","127.0.0.1:5064",
 		"",
 		ConfigurationKey::CUSTOMERWARN,
-		ConfigurationKey::IPANDPORT,
+		ConfigurationKey::HOSTANDPORT,
 		"",
 		false,
-		"The IP host and port of the proxy to be used for registration and authentication.  "
-			"This should normally be the subscriber registry SIP interface, not Asterisk."
+		"The hostname or IP address and port of the proxy to be used for registration and authentication.  "
+			"This should normally be the subscriber registry SIP interface, not Asterisk.",
+		ConfigurationKey::GLOBALLYSAME
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -2422,11 +2648,12 @@ ConfigurationKeyMap getConfigurationKeys()
 	tmp = new ConfigurationKey("SIP.Proxy.SMS","127.0.0.1:5063",
 		"",
 		ConfigurationKey::CUSTOMERWARN,
-		ConfigurationKey::IPANDPORT,
+		ConfigurationKey::HOSTANDPORT,
 		"",
 		false,
-		"The IP host and port of the proxy to be used for text messaging.  "
-			"This is smqueue, for example."
+		"The hostname or IP address and port of the proxy to be used for text messaging.  "
+			"This is smqueue, for example.",
+		ConfigurationKey::GLOBALLYSAME
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -2434,11 +2661,26 @@ ConfigurationKeyMap getConfigurationKeys()
 	tmp = new ConfigurationKey("SIP.Proxy.Speech","127.0.0.1:5060",
 		"",
 		ConfigurationKey::CUSTOMERWARN,
-		ConfigurationKey::IPANDPORT,
+		ConfigurationKey::HOSTANDPORT,
 		"",
 		false,
-		"The IP host and port of the proxy to be used for normal speech calls.  "
-			"This is Asterisk, for example."
+		"The hostname or IP address and port of the proxy to be used for normal speech calls.  "
+			"This is Asterisk, for example.",
+		ConfigurationKey::GLOBALLYSAME
+	);
+	map[tmp->getName()] = *tmp;
+	delete tmp;
+
+	tmp = new ConfigurationKey("SIP.Proxy.USSD","",
+		"",
+		ConfigurationKey::CUSTOMERWARN,
+		ConfigurationKey::HOSTANDPORT_OPT,
+		"",
+		false,
+		"The hostname or IP address and port of the proxy to be used for USSD, "
+			"or \"testmode\" to test by reflecting USSD messages back to the handset.  "
+			"To disable USSD, execute \"unconfig SIP.Proxy.USSD\".",
+		ConfigurationKey::GLOBALLYSAME
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -2461,7 +2703,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::BOOLEAN,
 		"",
 		false,
-		"Send 100 Trying response to SIP MESSAGE, even though that violates RFC-3428."
+		"Send \"100 Trying\" response to SIP MESSAGE, even though that violates RFC-3428."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -2475,7 +2717,8 @@ ConfigurationKeyMap getConfigurationKeys()
 		"The SMSC handler in smqueue.  "
 			"This is the entity that handles full 3GPP MIME-encapsulted TPDUs.  "
 			"If not defined, use direct numeric addressing.  "
-			"The value should be disabled with \"unconfig SIP.SMSC\" if SMS.MIMEType is \"text/plain\" or set to \"smsc\" if SMS.MIMEType is \"application/vnd.3gpp\"."
+			"The value should be disabled with \"unconfig SIP.SMSC\" if SMS.MIMEType is \"text/plain\" or set to \"smsc\" if SMS.MIMEType is \"application/vnd.3gpp\".",
+		ConfigurationKey::GLOBALLYSAME
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -2555,75 +2798,9 @@ ConfigurationKeyMap getConfigurationKeys()
 			"text/plain",
 		false,
 		"This is the MIME Type that OpenBTS will use for RFC-3428 SIP MESSAGE payloads.  "
-			"Valid values are \"application/vnd.3gpp.sms\" and \"text/plain\"."
+			"Valid values are \"application/vnd.3gpp.sms\" and \"text/plain\".",
+		ConfigurationKey::GLOBALLYSAME
 	);
-	map[tmp->getName()] = *tmp;
-	delete tmp;
-
-	tmp = new ConfigurationKey("SubscriberRegistry.A3A8","/OpenBTS/comp128",
-		"",
-		ConfigurationKey::CUSTOMERWARN,
-		ConfigurationKey::FILEPATH,
-		"",
-		false,
-		"Path to the program that implements the A3/A8 algorithm."
-	);
-	map[tmp->getName()] = *tmp;
-	delete tmp;
-
-	tmp = new ConfigurationKey("SubscriberRegistry.db","/var/lib/asterisk/sqlite3dir/sqlite3.db",
-		"",
-		ConfigurationKey::CUSTOMERWARN,
-		ConfigurationKey::FILEPATH,
-		"",
-		false,
-		"The location of the sqlite3 database holding the subscriber registry."
-	);
-	map[tmp->getName()] = *tmp;
-	delete tmp;
-
-	tmp = new ConfigurationKey("SubscriberRegistry.Manager.Title","Subscriber Registry",
-		"",
-		ConfigurationKey::CUSTOMER,
-		ConfigurationKey::STRING,
-		"^[[:print:]]+$",
-		false,
-		"Title text to be displayed on the subscriber registry manager."
-	);
-	map[tmp->getName()] = *tmp;
-	delete tmp;
-
-	tmp = new ConfigurationKey("SubscriberRegistry.Manager.VisibleColumns","name username type context host",
-		"",
-		ConfigurationKey::CUSTOMERTUNE,
-		ConfigurationKey::STRING,
-		"^(name){0,1} (username){0,1} (type){0,1} (context){0,1} (host){0,1}$",
-		false,
-		"A space separated list of columns to display in the subscriber registry manager."
-	);
-
-	tmp = new ConfigurationKey("SubscriberRegistry.Port","5064",
-		"",
-		ConfigurationKey::CUSTOMERWARN,
-		ConfigurationKey::PORT,
-		"",
-		false,
-		"Port used by the SIP Authentication Server. NOTE: In some older releases (pre-2.8.1) this is called SIP.myPort."
-	);
-	map[tmp->getName()] = *tmp;
-	delete tmp;
-
-	tmp = new ConfigurationKey("SubscriberRegistry.UpstreamServer","",
-		"",
-		ConfigurationKey::CUSTOMERWARN,
-		ConfigurationKey::STRING_OPT,// audited
-		"",
-		false,
-		"URL of the subscriber registry HTTP interface on the upstream server.  "
-			"By default, this feature is disabled.  "
-			"To enable, specify a server URL eg: http://localhost/cgi/subreg.cgi.  "
-			"To disable again, execute \"unconfig SubscriberRegistry.UpstreamServer\"."
-			);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
@@ -2647,7 +2824,8 @@ ConfigurationKeyMap getConfigurationKeys()
 		"Bursts received at the physical layer below this threshold are automatically ignored.  "
 			"Values in dB.  "
 			"Set at the factory.  "
-			"Do not adjust without proper calibration."
+			"Do not adjust without proper calibration.",
+		ConfigurationKey::NODESPECIFIC
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -2669,10 +2847,11 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::VALRANGE,
 		"64:192",
 		true,
-		"Fine-tuning adjustment for the transceiver master clock.  "
+		"Fine-tuning adjustment for the Transceiver master clock.  "
 			"Roughly 170 Hz/step.  "
 			"Set at the factory.  "
-			"Do not adjust without proper calibration."
+			"Do not adjust without proper calibration.",
+		ConfigurationKey::NODESPECIFIC
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -2683,7 +2862,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::VALRANGE,
 		"5:15",// educated guess
 		false,
-		"How long to wait during a read operation from the transceiver before giving up."
+		"How long to wait during a read operation from the Transceiver before giving up."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -2695,7 +2874,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::VALRANGE,
 		"1:3",// educated guess
 		false,
-		"How long to wait during system startup before checking to see if the transceiver can be reached."
+		"How long to wait during system startup before checking to see if the Transceiver can be reached."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -2706,9 +2885,10 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::VALRANGE,
 		"0:100",// educated guess
 		true,
-		"Hardware-specific gain adjustment for transmitter, matched to the power amplifier, expessed as an attenuationi in dB.  "
+		"Hardware-specific gain adjustment for transmitter, matched to the power amplifier, expessed as an attenuation in dB.  "
 			"Set at the factory.  "
-			"Do not adjust without proper calibration."
+			"Do not adjust without proper calibration.",
+		ConfigurationKey::NODESPECIFIC
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -2720,7 +2900,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::STRING,
 		"",
 		false,
-		"Extra arguments for the Transceiver"
+		"Extra arguments for the Transceiver."
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
@@ -2730,7 +2910,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::DEVELOPER,
 		ConfigurationKey::VALRANGE,
 		"0:100(5)",// educated guess
-		true,
+		false,	// this option takes effect immediately
 		"Probability (0-100) of dropping any downlink frame to test robustness."
 	);
 	map[tmp->getName()] = *tmp;
@@ -2741,7 +2921,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		ConfigurationKey::DEVELOPER,
 		ConfigurationKey::VALRANGE,
 		"0:100(5)",// educated guess
-		true,
+		false,	// this option takes effect immediately
 		"Probability (0-100) of dropping any uplink frame to test robustness."
 	);
 	map[tmp->getName()] = *tmp;
@@ -2771,3 +2951,4 @@ ConfigurationKeyMap getConfigurationKeys()
 
 	return map;
 }
+

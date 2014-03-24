@@ -21,8 +21,9 @@
 #define RADIORESOURCE_H
 
 #include <list>
-#include <GSML3CommonElements.h>
 #include <Interthread.h>
+#include "ControlCommon.h"
+#include <GSML3CommonElements.h>
 
 
 namespace GSM {
@@ -33,6 +34,7 @@ class L3PagingResponse;
 class L3AssignmentComplete;
 class L3HandoverComplete;
 class L3HandoverAccess;
+class L3MeasurementResults;
 };
 
 namespace Control {
@@ -47,11 +49,11 @@ class TransactionEntry;
 	@param measurements The measurement results from the SACCH.
 	@param SACCH The SACCH in question.
 */
-void HandoverDetermination(const GSM::L3MeasurementResults &measurements, GSM::SACCHLogicalChannel* SACCH);
+void HandoverDetermination(const GSM::L3MeasurementResults &measurements, float myRxLev, GSM::SACCHLogicalChannel* SACCH);
 
 
 /** Find and complete the in-process transaction associated with a paging repsonse. */
-void PagingResponseHandler(const GSM::L3PagingResponse*, GSM::LogicalChannel*);
+void PagingResponseHandler(const GSM::L3PagingResponse*, L3LogicalChannel*);
 
 /** Find and compelte the in-process transaction associated with a completed assignment. */
 void AssignmentCompleteHandler(const GSM::L3AssignmentComplete*, GSM::TCHFACCHLogicalChannel*);
@@ -60,7 +62,8 @@ void AssignmentCompleteHandler(const GSM::L3AssignmentComplete*, GSM::TCHFACCHLo
 bool SaveHandoverAccess(unsigned handoverReference, float RSSI, float timingError, const GSM::Time& timestamp);
 
 /** Process the handover access; returns when the transaction is cleared. */
-void ProcessHandoverAccess(GSM::TCHFACCHLogicalChannel *TCH);
+void ProcessHandoverAccess(L3LogicalChannel *chan);
+bool outboundHandoverTransfer(TranEntry* transaction, L3LogicalChannel *TCH);
 
 /**@ Access Grant mechanisms */
 //@{
@@ -109,44 +112,19 @@ void* AccessGrantServiceLoop(void*);
 //@{
 
 /** An entry in the paging list. */
-class PagingEntry {
 
-	private:
+struct NewPagingEntry {
+	bool mWantCS;			// true for CS service requested, false for anything else, which is SMS.
+	std::string mImsi;		// Always provided.
+	TMSI_t mTmsi;			// Provided if known and we are sure it has been assigned to the MS.
+	// Such a clever language.
+	NewPagingEntry(bool wWantCS, std::string &wImsi, TMSI_t &wTmsi) : mWantCS(wWantCS), mImsi(wImsi), mTmsi(wTmsi) {}
 
-	GSM::L3MobileIdentity mID;		///< The mobile ID.
-	GSM::ChannelType mType;			///< The needed channel type.
-	unsigned mTransactionID;		///< The associated transaction ID.
-	Timeval mExpiration;			///< The expiration time for this entry.
-
-	public:
-
-	/**
-		Create a new entry, with current timestamp.
-		@param wID The ID to be paged.
-		@param wLife The number of milliseconds to keep paging.
-	*/
-	PagingEntry(const GSM::L3MobileIdentity& wID, GSM::ChannelType wType,
-			unsigned wTransactionID, unsigned wLife)
-		:mID(wID),mType(wType),mTransactionID(wTransactionID),mExpiration(wLife)
-	{}
-
-	/** Access the ID. */
-	const GSM::L3MobileIdentity& ID() const { return mID; }
-
-	/** Access the channel type needed. */
-	GSM::ChannelType type() const { return mType; }
-
-	unsigned transactionID() const { return mTransactionID; }
-
-	/** Renew the timer. */
-	void renew(unsigned wLife) { mExpiration = Timeval(wLife); }
-
-	/** Returns true if the entry is expired. */
-	bool expired() const { return mExpiration.passed(); }
-
+	GSM::ChannelType getChanType();
+	GSM::L3MobileIdentity getMobileId();
 };
+typedef std::vector<NewPagingEntry> NewPagingList_t;
 
-typedef std::list<PagingEntry> PagingEntryList;
 
 
 /**
@@ -160,9 +138,6 @@ class Pager {
 
 	private:
 
-	PagingEntryList mPageIDs;				///< List of ID's to be paged.
-	mutable Mutex mLock;					///< Lock for thread-safe access.
-	Signal mPageSignal;						///< signal to wake the paging loop
 	Thread mPagingThread;					///< Thread for the paging loop.
 	volatile bool mRunning;
 
@@ -175,34 +150,7 @@ class Pager {
 	/** Set the output FIFO and start the paging loop. */
 	void start();
 
-	/**
-		Add a mobile ID to the paging list.
-		@param addID The mobile ID to be paged.
-		@param chanType The channel type to be requested.
-		@param transaction The transaction record, which will be modified.
-		@param wLife The paging duration in ms, default is SIP Timer B.
-	*/
-	void addID(
-		const GSM::L3MobileIdentity& addID,
-		GSM::ChannelType chanType,
-		TransactionEntry& transaction,
-		unsigned wLife=gConfig.getNum("GSM.Timer.T3113")
-	);
-
-	/**
-		Remove a mobile ID.
-		This is used to stop the paging when a phone responds.
-		@return The transaction ID associated with this entry.
-	*/
-	unsigned removeID(const GSM::L3MobileIdentity&);
-
 	private:
-
-	/**
-		Traverse the paging list, paging all IDs.
-		@return Number of IDs paged.
-	*/
-	unsigned pageAll();
 
 	/** A loop that repeatedly calls pageAll. */
 	void serviceLoop();
@@ -214,9 +162,6 @@ public:
 
 	/** return size of PagingEntryList */
 	size_t pagingEntryListSize();
-
-	/** Dump the paging list to an ostream. */
-	void dump(std::ostream&) const;
 };
 
 

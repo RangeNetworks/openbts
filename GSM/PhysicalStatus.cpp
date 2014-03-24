@@ -2,7 +2,7 @@
 
 /*
 * Copyright 2010 Kestrel Signal Processing, Inc.
-* Copyright 2011, 2012 Range Networks, Inc.
+* Copyright 2011, 2012, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
@@ -87,7 +87,7 @@ PhysicalStatus::~PhysicalStatus()
 	if (mDB) sqlite3_close(mDB);
 }
 
-bool PhysicalStatus::createEntry(const LogicalChannel* chan)
+bool PhysicalStatus::createEntry(const L2LogicalChannel* chan)
 {
 	assert(mDB);
 	assert(chan);
@@ -110,7 +110,7 @@ bool PhysicalStatus::createEntry(const LogicalChannel* chan)
 	return false;
 }
 
-bool PhysicalStatus::setPhysical(const LogicalChannel* chan,
+bool PhysicalStatus::setPhysical(const L2LogicalChannel* chan,
 								const L3MeasurementResults& measResults)
 {
 	// TODO -- It would be better if the argument what just the channel
@@ -134,7 +134,7 @@ bool PhysicalStatus::setPhysical(const LogicalChannel* chan,
 		std::vector<unsigned> ARFCNList = gNeighborTable.ARFCNList();
 		size_t sz = ARFCNList.size();
 		if (sz!=0) {
-			if (CN<sz) ARFCN=ARFCNList[CN];
+			if (CN<(int)sz) ARFCN=ARFCNList[CN];
 			else { LOG(NOTICE) << "BCCH index " << CN << " does not match ARFCN list of size " << sz; }
 		} else {
 			LOG(DEBUG) << "empty measurement list";
@@ -142,6 +142,7 @@ bool PhysicalStatus::setPhysical(const LogicalChannel* chan,
 	}
 
 	char query[500];
+	MSPhysReportInfo *phys = chan->getPhysInfo();
 
 	if (ARFCN<0) {
 		sprintf(query,
@@ -162,8 +163,8 @@ bool PhysicalStatus::setPhysical(const LogicalChannel* chan,
 			measResults.RXLEV_SUB_SERVING_CELL_dBm(),
 			measResults.RXQUAL_FULL_SERVING_CELL_BER(),
 			measResults.RXQUAL_SUB_SERVING_CELL_BER(),
-			chan->RSSI(), chan->timingError(),
-			chan->actualMSPower(), chan->actualMSTiming(),
+			phys->RSSI(), phys->timingError(),
+			phys->actualMSPower(), phys->actualMSTiming(),
 			chan->FER(),
 			(unsigned)time(NULL),
 			chan->ARFCN(),
@@ -189,8 +190,8 @@ bool PhysicalStatus::setPhysical(const LogicalChannel* chan,
 			measResults.RXLEV_SUB_SERVING_CELL_dBm(),
 			measResults.RXQUAL_FULL_SERVING_CELL_BER(),
 			measResults.RXQUAL_SUB_SERVING_CELL_BER(),
-			chan->RSSI(), chan->timingError(),
-			chan->actualMSPower(), chan->actualMSTiming(),
+			phys->RSSI(), phys->timingError(),
+			phys->actualMSPower(), phys->actualMSTiming(),
 			chan->FER(),
 			(unsigned)time(NULL),
 			chan->ARFCN(),

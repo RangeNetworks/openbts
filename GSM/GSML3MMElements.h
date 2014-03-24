@@ -3,6 +3,7 @@
 /*
 * Copyright 2008-2010 Free Software Foundation, Inc.
 * Copyright 2010 Kestrel Signal Processing, Inc.
+* Copyright 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
@@ -28,23 +29,28 @@
 namespace GSM {
 
 /** CM Service Type, GSM 04.08 10.5.3.3 */
+// (pat) This is used to identify the type of TransactionEntry, and so has been extended by Range with non-standard codes
+// to identify all possible types of TransactionEntry.
 class L3CMServiceType : public L3ProtocolElement {
 
 	public:
-
 	enum TypeCode {
 		UndefinedType=0,
 		MobileOriginatedCall=1,
+		EmergencyCall=2,
 		ShortMessage=4,							///< specifically, MO-SMS
 		SupplementaryService=8,
 		VoiceCallGroup=9,
 		VoiceBroadcast=10,
-		LocationService=11,
+		LocationService=11,		// (pat) See GSM 04.71.  Has nothing to do with MM Location Update.
+
 		MobileTerminatedCall=100,				///< non-standard code
 		MobileTerminatedShortMessage=101,		///< non-standard code
 		TestCall=102,			///< non-standard code
 		HandoverCall=103,		///< non-standard code
-		FuzzCall=104,			///< non-standard code
+		FuzzCallTch=104,			///< non-standard code
+		FuzzCallSdcch=105,			///< non-standard code
+		LocationUpdateRequest=106, ///< non-standard code
 	};
 		
 	private:
@@ -59,6 +65,15 @@ class L3CMServiceType : public L3ProtocolElement {
 
 	TypeCode type() const { return mType; }
 
+	// Is it any call-control service type?
+	bool isCC() const { return mType == MobileOriginatedCall || mType == EmergencyCall || mType == MobileTerminatedCall; }
+
+	// Is it any call-control service type?
+	bool isSMS() const { return mType == ShortMessage || mType == MobileTerminatedShortMessage; }
+
+	// Is it any type of MM specific service type?
+	bool isMM() const { return mType == LocationUpdateRequest; }
+
 	bool operator==(const L3CMServiceType& other) const
 		{ return mType == other.mType; }
 
@@ -66,36 +81,74 @@ class L3CMServiceType : public L3ProtocolElement {
 		{ return mType != other.mType; }
 	
 	size_t lengthV() const { return 0; }	
-	void writeV(L3Frame&, size_t&) const { assert(0); }
+	void writeV(L3Frame&, size_t&) const { devassert(0); }
 	void parseV(const L3Frame &src, size_t &rp);
-	void parseV(const L3Frame&, size_t&, size_t) { assert(0); }
+	void parseV(const L3Frame&, size_t&, size_t) { devassert(0); }
 	void text(std::ostream&) const;
 
 };
 
+typedef L3CMServiceType::TypeCode CMServiceTypeCode;
 
-std::ostream& operator<<(std::ostream& os, L3CMServiceType::TypeCode code);
+
+std::ostream& operator<<(std::ostream& os, CMServiceTypeCode code);
 
 
 /** RejectCause, GSM 04.08 10.5.3.6 */
+// Better: 24.008 10.5.3.6
+// This is the Mobility Management reject cause.
+// For RR causes see L3RRCause, and for CC Causes see L3Cause.
 class L3RejectCause : public L3ProtocolElement {
+	public:
+	enum RejectCause {
+		Zero = 0,			// This is NOT a GSM RejectCause, it is our unspecified value.
+		IMSIUnknownInHLR = 2,
+		IllegalMS = 3,
+		IMSIUnknownInVLR =  4,
+		IMEINotAccepted =  5,
+		IllegalME = 6,
+		PLMNNotAllowed = 0xb,
+		LocationAreaNotAllowed = 0xc,
+		RoamingNotAllowedInLA =  0xd,		// Roaming not allowed in this Location Area
+		NoSuitableCellsInLA = 0xf,
+		NetworkFailure =  0x11,
+		MACFailure =  0x14,
+		SynchFailure =  0x15,
+		Congestion =  0x16,
+		GSMAuthenticationUnacceptable = 0x17,
+		NotAuthorizedInCSG = 0x19,
+		ServiceOptionNotSupported = 0x20,
+		RequestedServiceOptionNotSubscribed = 0x21,
+		ServiceOptionTemporarilyOutOfOrder = 0x22,
+		CallCannotBeIdentified = 0x26,
+		// 0x30 - 0x3f : retry upon entry into a new cell ???
+		SemanticallyIncorrectMessage = 0x5f,
+		InvalidMandatoryInformation = 0x60,
+		MessageTypeInvalid = 0x61,			// Message type non-existent or not implemented
+		MessageTypeNotCompatibleWithProtocolState = 0x62,
+		IEInvalid = 0x63,						// IE non-existent or not implemented
+		ConditionalIEError = 0x64,
+		MessageNotCompatibleWithProtocolState = 0x65,
+		ProtocolErrorUnspecified = 0x6f
+	};
 
 private:
-
-	int mRejectCause;
+	RejectCause mRejectCause;
 
 public:
 	
-	L3RejectCause( const int wRejectCause=0 )
+	L3RejectCause( const RejectCause wRejectCause=Zero )
 		:L3ProtocolElement(),mRejectCause(wRejectCause)
 	{}
 
 	size_t lengthV() const { return 1; }	
 	void writeV( L3Frame& dest, size_t &wp ) const;
-	void parseV(const L3Frame&, size_t&) { assert(0); }
-	void parseV(const L3Frame&, size_t& , size_t) { assert(0); }
+	void parseV(const L3Frame&, size_t&);
+	void parseV(const L3Frame&, size_t& , size_t) { devassert(0); }
 	void text(std::ostream&) const;
 };
+
+typedef L3RejectCause::RejectCause MMRejectCause;
 
 
 
@@ -131,8 +184,8 @@ public:
 			return 1+(strlen(mName)*7+7)/8;
 	}
 	void writeV(L3Frame& dest, size_t &wp) const;
-	void parseV(const L3Frame&, size_t&) { assert(0); }
-	void parseV(const L3Frame&, size_t& , size_t) { assert(0); }
+	void parseV(const L3Frame&, size_t&) { devassert(0); }
+	void parseV(const L3Frame&, size_t& , size_t) { devassert(0); }
 	void text(std::ostream&) const;
 };
 
@@ -174,7 +227,7 @@ public:
 	size_t lengthV() const { return 7; }
 	void writeV(L3Frame&, size_t&) const;
 	void parseV(const L3Frame& src, size_t &rp);
-	void parseV(const L3Frame&, size_t& , size_t) { assert(0); }
+	void parseV(const L3Frame&, size_t& , size_t) { devassert(0); }
 	void text(std::ostream&) const;
 };
 
@@ -195,8 +248,8 @@ class L3RAND : public L3ProtocolElement {
 
 	size_t lengthV() const { return 16; }
 	void writeV(L3Frame&, size_t&) const;
-	void parseV(const L3Frame&, size_t&) { assert(0); }
-	void parseV(const L3Frame&, size_t& , size_t) { assert(0); }
+	void parseV(const L3Frame&, size_t&) { devassert(0); }
+	void parseV(const L3Frame&, size_t& , size_t) { devassert(0); }
 	void text(std::ostream&) const;
 };
 
@@ -219,9 +272,9 @@ class L3SRES : public L3ProtocolElement {
 	uint32_t value() const { return mValue; }
 
 	size_t lengthV() const { return 4; }
-	void writeV(L3Frame&, size_t&) const { assert(0); }
+	void writeV(L3Frame&, size_t&) const { devassert(0); }
 	void parseV(const L3Frame&, size_t&);
-	void parseV(const L3Frame&, size_t& , size_t) { assert(0); }
+	void parseV(const L3Frame&, size_t& , size_t) { devassert(0); }
 	void text(std::ostream&) const;
 };
 

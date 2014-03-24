@@ -1,0 +1,24 @@
+#!/bin/bash
+
+INSTALL_DIR=/OpenBTS
+DATE=$(date --rfc-3339='date')
+BACKUP_DIR=$INSTALL_DIR/backup_$DATE
+CONFIG_BACKUP=/etc/OpenBTS/OpenBTS.dump-$DATE
+
+if [ ! -e $BACKUP_DIR ]; then
+        mkdir $BACKUP_DIR/
+
+        mv $INSTALL_DIR/OpenBTS $BACKUP_DIR/
+        mv $INSTALL_DIR/transceiver $BACKUP_DIR/
+fi
+
+
+
+if [ ! -e $CONFIG_BACKUP ]; then
+	sqlite3 /etc/OpenBTS/OpenBTS.db ".dump" > $CONFIG_BACKUP
+fi
+
+sqlite3 /etc/OpenBTS/OpenBTS.db ".read /etc/OpenBTS/OpenBTS_3.0.0.sql" &>/dev/null
+
+
+

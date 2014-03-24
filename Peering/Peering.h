@@ -12,11 +12,15 @@
 #include <Sockets.h>
 #include <Timeval.h>
 #include <Globals.h>
+#include <Utils.h>
+//#include <ControlTransfer.h>
+#include <GSML3RRElements.h>
 
 
 namespace Control {
-class TransactionEntry;
-}
+class TranEntry;
+class HandoverEntry;
+};
 
 
 
@@ -78,6 +82,21 @@ class PeerInterface {
 	Thread mServer1;
 	Thread mServer2;
 
+	/**
+		Send a message repeatedly until the ACK arrives.
+		@param transaction Carries the peer address and transaction ID.
+		@param message The IND message to send.
+		@erturn true on ack, false on timeout
+	*/
+	// (pat) Made this private and put the methods that use it in Peering.cpp
+	bool sendUntilAck(const Control::HandoverEntry*, const char* message);
+	/**
+		Send a message on the peering interface.
+		@param IP The IP address of the remote peer.
+		@param The message to send.
+	*/
+	void sendMessage(const struct ::sockaddr_in* peer, const char* message);
+
 	public:
 
 	/** Initialize the interface.  */
@@ -92,26 +111,10 @@ class PeerInterface {
 
 	void sendNeighborParamsRequest(const struct ::sockaddr_in* peer);
 
-	/**
-		Send a message on the peering interface.
-		@param IP The IP address of the remote peer.
-		@param The message to send.
-	*/
-	void sendMessage(const struct ::sockaddr_in* peer, const char* message);
-
-	/**
-		Send a message repeatedly until the ACK arrives.
-		@param transaction Carries the peer address and transaction ID.
-		@param message The IND message to send.
-		@erturn true on ack, false on timeout
-	*/
-	bool sendUntilAck(const Control::TransactionEntry*, const char* message);
-
 	/** Remove a FIFO with the given transaction ID. */
 	void removeFIFO(unsigned transactionID) { mFIFOMap.removeFIFO(transactionID); }
 
 
-	private:
 
 	void drive();
 
@@ -145,12 +148,23 @@ class PeerInterface {
 	/** Process IND HANDOVER_FAILURE */
 	void processHandoverFailure(const struct sockaddr_in* peer, const char* message);
 
+	public:
+
+	/** Send IND HANDOVER_COMPLETE */
+	void sendHandoverComplete(const Control::HandoverEntry* hop);
+
+	/** Send IND HANDOVER_FAILURE */
+	void sendHandoverFailure(const Control::HandoverEntry *hop,GSM::RRCause cause,unsigned holdoff);
+
+	/** Send REQ HANDOVER */
+	bool sendHandoverRequest(string peer, const RefCntPointer<Control::TranEntry> tran);
+
 	//@}
 };
 
 
 
-} //namespace
+}; //namespace
 
 extern Peering::PeerInterface gPeerInterface;
 

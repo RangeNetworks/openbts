@@ -69,5 +69,5 @@ GPL releases of OpenBTS use the following GPL components that must be
 licensed, removed or replaced for non-GPL distributions: readline.
 
 GPL releases of OpenBTS use the following LGPL components that must be
-licensed or linked dynamically for non-GPL distributions: libosip2, liportp2.
+licensed or linked dynamically for non-GPL distributions: liportp2.
 

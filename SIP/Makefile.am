@@ -21,20 +21,26 @@
 include $(top_srcdir)/Makefile.common
 
 AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES) \
-	     -I$(OSIP_INCLUDEDIR) $(OSIP_CPPFLAGS) \
 	     -I$(ORTP_INCLUDEDIR) $(ORTP_CPPFLAGS)
 AM_CXXFLAGS = -Wall -Wextra
 
 noinst_LTLIBRARIES = libSIP.la
 
 libSIP_la_SOURCES = \
-	SIPEngine.cpp \
-	SIPInterface.cpp \
+	SIPParse.cpp \
 	SIPMessage.cpp \
-	SIPUtility.cpp
+	SIPDialog.cpp \
+	SIP2Interface.cpp \
+	SIPBase.cpp \
+	SIPUtility.cpp \
+	SIPTransaction.cpp
 
 noinst_HEADERS = \
-	SIPEngine.h \
-	SIPInterface.h \
+	SIPParse.h \
+	SIPBase.h \
+	SIPDialog.h \
+	SIPTransaction.h \
+	SIP2Interface.h \
 	SIPMessage.h \
-	SIPUtility.h
+	SIPUtility.h \
+	SIPExport.h

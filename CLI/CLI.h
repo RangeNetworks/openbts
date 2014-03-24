@@ -1,5 +1,5 @@
 /*
-* Copyright 2009 Free Software Foundation, Inc.
+* Copyright 2009, 2014 Free Software Foundation, Inc.
 *
 * This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
 *
@@ -24,9 +24,19 @@
 
 namespace CommandLine {
 
+enum CLIStatus { SUCCESS=0,
+	BAD_NUM_ARGS=1,
+	BAD_VALUE=2,
+	NOT_FOUND=3,
+	TOO_MANY_ARGS=4,
+	FAILURE=5,
+	CLI_EXIT=-1
+	};
+
 
 /** A table for matching strings to actions. */
-typedef std::map<std::string,int (*)(int,char**,std::ostream&)> ParseTable;
+typedef CLIStatus (*CLICommand)(int,char**,std::ostream&);
+typedef std::map<std::string,CLICommand> ParseTable;
 
 /** The help table. */
 typedef std::map<std::string,std::string> HelpTable;
@@ -47,10 +57,11 @@ class Parser {
 		Process a command line.
 		@return 0 on sucess, -1 on exit request, error codes otherwise
 	*/
-	int process(const char* line, std::ostream& os) const;
+	CLIStatus process(const char* line, std::ostream& os) const;
+	void startCommandLine();	// (pat) Start a simple command line processor.
 
 	/** Add a command to the parsing table. */
-	void addCommand(const char* name, int (*func)(int,char**,std::ostream&), const char* helpString)
+	void addCommand(const char* name, CLICommand func, const char* helpString)
 		{ mParseTable[name] = func; mHelpTable[name]=helpString; }
 
 	ParseTable::const_iterator begin() const { return mParseTable.begin(); }
@@ -68,14 +79,13 @@ class Parser {
 		@os output stream
 		@return status code
 	*/
-	int execute(char* line, std::ostream& os) const;
+	CLIStatus execute(char* line, std::ostream& os) const;
 
 };
 
+extern CLIStatus printChansV4(std::ostream& os,bool showAll, bool longList = false, bool tabSeparated = false);
 
-
-} 	// CLI
-
+} 	// namespace CommandLine
 
 
 #endif

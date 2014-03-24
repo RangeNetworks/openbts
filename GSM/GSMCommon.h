@@ -41,37 +41,8 @@ namespace GSM {
 /* forward references */
 class L1FEC;
 class L2LAPDm;
-class L3Processor;
-class LogicalChannel;
+//class L3Processor;
 class L2Header;
-
-/** Call states based on GSM 04.08 5 and ITU-T Q.931 */
-enum CallState {
-	NullState,
-	Paging,
-	AnsweredPaging,
-	MOCInitiated,
-	MOCProceeding,
-	MTCConfirmed,
-	CallReceived,
-	CallPresent,
-	ConnectIndication,
-	Active,
-	DisconnectIndication,
-	ReleaseRequest,
-	SMSDelivering,
-	SMSSubmitting,
-	HandoverInbound,
-	HandoverProgress,
-	HandoverOutbound,
-	BusyReject,
-};
-
-
-/** Return a human-readable string for a GSM::CallState. */
-const char* CallStateString(CallState state);
-
-std::ostream& operator<<(std::ostream& os, CallState state);
 
 
 /** A base class for GSM exceptions. */
@@ -92,13 +63,13 @@ inline void sleepFrame()
 
 
 /** GSM Training sequences from GSM 05.02 5.2.3. */
-extern const BitVector gTrainingSequence[];
+extern const BitVector2 gTrainingSequence[];
 
 /** C0T0 filler burst, GSM 05.02, 5.2.6 */
-extern const BitVector gDummyBurst;
+extern const BitVector2 gDummyBurst;
 
 /** Random access burst synch. sequence */
-extern const BitVector gRACHSynchSequence;
+extern const BitVector2 gRACHSynchSequence;
 
 enum GSMAlphabet {
 	ALPHABET_7BIT,
@@ -136,8 +107,8 @@ const unsigned T200ms = 900;		///< LAPDm ACK timeout, set for typical turnaround
 //@}
 /**@name GSM timeouts for radio resource management, GSM 04.08 11.1. */
 //@{
-const unsigned T3101ms = 4000;		///< L1 timeout for SDCCH assignment
-const unsigned T3107ms = 3000;		///< L1 timeout for TCH/FACCH assignment
+const unsigned T3101ms = 4000;		///< L1 timeout for SDCCH assignment (pat) Started on Immediate Assignment, stopped when MS siezes channel.
+const unsigned T3107ms = 3000;		///< L1 timeout for TCH/FACCH assignment (pat) or any change of channel assignment.
 const unsigned T3109ms = 30000;		///< L1 timeout for an existing channel
 const unsigned T3111ms = 2*T200ms;	///< L1 timeout for reassignment of a channel
 //@}
@@ -304,17 +275,18 @@ std::ostream& operator<<(std::ostream& os, TypeAndOffset);
 enum L3PD {
 	L3GroupCallControlPD=0x00,
 	L3BroadcastCallControlPD=0x01,
-	L3PDSS1PD=0x02,
-	L3CallControlPD=0x03,
-	L3PDSS2PD=0x04,
+	// L3PDSS1PD=0x02,		// 2 is EPS (4G) session management
+	L3CallControlPD=0x03,	// call control, call related SSD [Supplementary Service Data] messages.
+	// L3PDSS2PD=0x04,			// 4 is GPRS Transparent Transport Protocol.
 	L3MobilityManagementPD=0x05,
 	L3RadioResourcePD=0x06,
+	// 7 is EPS (4G) mobility mananagement messages.
 	L3GPRSMobilityManagementPD=0x08,
 	L3SMSPD=0x09,
 	L3GPRSSessionManagementPD=0x0a,
-	L3NonCallSSPD=0x0b,
-	L3LocationPD=0x0c,
-	L3ExtendedPD=0x0e,
+	L3NonCallSSPD=0x0b,		// non-call SSD [Supplementary Service Data] messages.
+	L3LocationPD=0x0c,		// Location services specified in 3GPP TS 44.071
+	L3ExtendedPD=0x0e,		// reserved to extend PD to a full octet.
 	L3TestProcedurePD=0x0f,
 	L3UndefinedPD=-1
 };
@@ -625,8 +597,11 @@ class Z100Timer {
 	*/
 	void wait() const;
 };
+std::ostream& operator<<(std::ostream& os, const Z100Timer&);
 
 
+std::string data2hex(const unsigned char *data, unsigned nbytes);
+std::string inline data2hex(const char *data, unsigned nbytes) { return data2hex((const unsigned char*)data,nbytes); }
 
 
 

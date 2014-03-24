@@ -1,5 +1,5 @@
 /*
-* Copyright 2011 Range Networks, Inc.
+* Copyright 2011, 2014 Range Networks, Inc.
 * All Rights Reserved.
 *
 * This software is distributed under multiple licenses;
@@ -1532,7 +1532,7 @@ void RachInfo::serviceRach()
 		pa->setPacketPowerOptions(GetPowerAlpha(),GetPowerGamma());
 
 		GPRSLOG(1) << "GPRS serviceRACH sending L3ImmediateAssignment:" << result;
-		AGCH->send(result);
+		AGCH->l2sendm(result);
 		break;
 	}
 	default:

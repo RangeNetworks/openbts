@@ -3,6 +3,7 @@
 /*
 * Copyright 2008, 2009, 2010 Free Software Foundation, Inc.
 * Copyright 2010 Kestrel Signal Processing, Inc.
+* Copyright 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
@@ -25,15 +26,17 @@
 
 #include <sys/types.h>
 #include <pthread.h>
+#include <semaphore.h>
 
 #include <iostream>
+#include <map>
 
 #include "GSML1FEC.h"
 #include "GSMSAPMux.h"
 #include "GSML2LAPDm.h"
 #include "GSML3RRElements.h"
 #include "GSMTDMA.h"
-#include <TransactionTable.h>
+#include <L3LogicalChannel.h>
 
 #include <Logger.h>
 
@@ -41,19 +44,13 @@ class ARFCNManager;
 class UDPSocket;
 
 
-//namespace Control {
-//class TransactionEntry;
-//};
-
-
 namespace GSM {
-
-typedef InterthreadQueue<Control::TransactionEntry> TransactionFIFO;
 
 class SACCHLogicalChannel;
 class L3Message;
 class L3RRMessage;
 class L3SMSCBMessage;
+class L2LogicalChannel;
 
 
 /**
@@ -62,10 +59,17 @@ class L3SMSCBMessage;
 	The layered structure of GSM is defined in GSM 04.01 7, as well as many other places.
 	The concept of the logical channel and the channel types are defined in GSM 04.03.
 	This is virtual class; specific channel types are subclasses.
+	(pat) This class is used for both DCCH and SACCH.  The DCCH can be TCH+FACCH or SDCCH.
+	SACCH is a slave LogicalChannel always associated with a DCCH LogicalChannel.
+	(pat) About Channel Establishment:  See more comments at L3LogicalChannel.
 */
-// (pat) It would be nice to break this into two classes: one that has the base functionality
-// that GPRS will not use, and one with all the RR specific channel stuff.
-class LogicalChannel {
+
+// (pat) This class is a GSM-specific dedicated logical channel, meaning that at any given time the channel is connected to just one MS.
+// GPRS and UMTS do not use dedicated logical channels, rather they use shared resources in layer 2, and in fact they dont
+// even really have a logical channel type entity in layer 2.
+// Therefore I split this class into L2 and L3 portions, where the L3LogicalChannel is common with UMTS and managed in the Control directory.
+// This L2LogicalChannel is rarely referenced outside this directory; primarily just to send L3 level handover information to a Peer.
+class L2LogicalChannel : public Control::L3LogicalChannel {
 	
 protected:	
 
@@ -73,24 +77,19 @@ protected:
 	//@{
 	L1FEC *mL1;			///< L1 forward error correction
 	SAPMux mMux;		///< service access point multiplex
+	// (pat) mL2 is redundant with SAPMux mUpstream[].
 	L2DL *mL2[4];		///< data link layer state machines, one per SAP
 	//@}
 
 	SACCHLogicalChannel *mSACCH;	///< The associated SACCH, if any.
-
-	/**
-		A FIFO of inbound transactions intiated in the SIP layers on an already-active channel.
-		Unlike most interthread FIFOs, do *NOT* delete the pointers that come out of it.
-	*/
-	TransactionFIFO mTransactionFIFO;
-
+									// (pat) The reverse pointer is SACCHLogicalChannel::mHost.
 public:
 
 	/**
 		Blank initializer just nulls the pointers.
 		Specific sub-class initializers allocate new components as needed.
 	*/
-	LogicalChannel()
+	L2LogicalChannel()
 		:mL1(NULL),mSACCH(NULL)
 	{
 		for (int i=0; i<4; i++) mL2[i]=NULL;
@@ -99,7 +98,7 @@ public:
 
 	
 	/** The destructor doesn't do anything since logical channels should not be destroyed. */
-	virtual ~LogicalChannel() {};
+	virtual ~L2LogicalChannel() {};
 	
 
 	/**@name Accessors. */
@@ -120,13 +119,17 @@ public:
 	virtual void setPhy(float wRSSI, float wTimingError, double wTimestamp);
 
 	/* Set L1 physical parameters from an existing logical channel. */
-	virtual void setPhy(const LogicalChannel&);
+	virtual void setPhy(const L2LogicalChannel&);
 
 	virtual const L3MeasurementResults& measurementResults() const;
 
 	/**@name L3 interfaces */
 	//@{
 
+	// (pat) This function is only applicable on channels that use LAPDm.
+	// There is a fifo on LAPDm uplkink so this is only blocking if the fifo is empty.
+	// For the GSM version of l3rewrite we are going to add a SIP notification to this queue,
+	// so it should be moved from LAPDm to this class.
 	/**
 		Read an L3Frame from SAP0 uplink, blocking, with timeout.
 		The caller is responsible for deleting the returned pointer.
@@ -135,8 +138,13 @@ public:
 		@param SAPI The service access point indicator from which to read.
 		@return A pointer to an L3Frame, to be deleted by the caller, or NULL on timeout.
 	*/
-	virtual L3Frame * recv(unsigned timeout_ms = 15000, unsigned SAPI=0)
-		{ assert(mL2[SAPI]); return mL2[SAPI]->readHighSide(timeout_ms); }
+	virtual L3Frame * l2recv(unsigned timeout_ms = 15000, unsigned SAPI=0)
+	{
+		assert(mL2[SAPI]);
+		L3Frame *result = mL2[SAPI]->l2ReadHighSide(timeout_ms);
+		if (result) { LOG(DEBUG) <<descriptiveString()<<LOGVAR(SAPI) <<LOGVAR(timeout_ms) <<LOGVAR(result); }
+		return result;
+	}
 
 	/**
 		Send an L3Frame on downlink.
@@ -144,16 +152,17 @@ public:
 		@param frame The L3Frame to be sent.
 		@param SAPI The service access point indicator.
 	*/
-	virtual void send(const L3Frame& frame, unsigned SAPI=0)
+	virtual void l2sendf(const L3Frame& frame, SAPI_t SAPI=SAPI0)
 	{
 		// (pat) Note that writeHighSide is overloaded per class hierarchy, and is also used
 		// for entirely unrelated classes, which are distinguishable (by humans,
 		// not by the compiler, which considers them unrelated functions)
 		// by arguments of L3Frame or L2Frame.
+		// Update: I have renamed some of of the L3->L2 methods to l2WriteHighSide.
 		//
-		// For traffic channels:
-		// This function calls virtual L2DL::writeHighSide(L3Frame) which I think maps
-		// to L2LAPDm::writeHighSide() which interprets the primitive, and then
+		// For DCCH channels (FACCH, SACCH, SDCCH):
+		// This function calls virtual L2DL::l2WriteHighSide(L3Frame) which I think maps
+		// to L2LAPDm::l2WriteHighSide() which interprets the primitive, and then
 		// sends traffic data through sendUFrameUI(L3Frame) which creates an L2Frame
 		// and sends it through several irrelevant functions to L2LAPDm::writeL1
 		// which calls (SAPMux)mDownstream->SAPMux::writeHighSide(L2Frame),
@@ -189,8 +198,8 @@ public:
 		// burst time to L1Encoder::mNextWriteTime and
 		// calls (ARFCNManager*)mDownStream->writeHighSideTx() which writes to the socket.
 		assert(mL2[SAPI]);
-		LOG(DEBUG) << "SAP"<< SAPI << " " << frame;
-		mL2[SAPI]->writeHighSide(frame);
+		LOG(INFO) <<channelDescription() <<LOGVAR(SAPI) <<LOGVAR(chtype()) <<" " <<frame;
+		mL2[SAPI]->l2WriteHighSide(frame);
 	}
 
 	/**
@@ -198,32 +207,27 @@ public:
 		@param prim The primitive to send.
 		@pram SAPI The service access point on which to send.
 	*/
-	virtual void send(const GSM::Primitive& prim, unsigned SAPI=0)
-		{ assert(mL2[SAPI]); mL2[SAPI]->writeHighSide(L3Frame(prim)); }
-
-	/**
-		Initiate a transaction from the SIP side on an already-active channel.
-	(*/
-	virtual void addTransaction(Control::TransactionEntry* transaction);
+	// (pat) This is never over-ridden except for testing.
+	virtual void l2sendp(const GSM::Primitive& prim, SAPI_t SAPI=SAPI0)
+		{ assert(mL2[SAPI]); mL2[SAPI]->l2WriteHighSide(L3Frame(SAPI,prim)); }
 
 	/**
 		Serialize and send an L3Message with a given primitive.
 		@param msg The L3 message.
 		@param prim The primitive to use.
 	*/
-	virtual void send(const L3Message& msg,
+	// (pat) This is never over-ridden except for testing.
+	virtual void l2sendm(const L3Message& msg,
 			const GSM::Primitive& prim=DATA,
-			unsigned SAPI=0);
+			SAPI_t SAPI=SAPI0);
 
 	/**
 		Block on a channel until a given primitive arrives.
 		Any payload is discarded.  Block indefinitely, no timeout.
 		@param primitive The primitive to wait for.
 	*/
-	void waitForPrimitive(GSM::Primitive primitive);
-
-	/** Block until a HANDOVER_ACCESS or ESTABLISH arrives. */
-	L3Frame* waitForEstablishOrHandover();
+	// unused
+	//void waitForPrimitive(GSM::Primitive primitive);
 
 	/**
 		Block on a channel until a given primitive arrives.
@@ -232,7 +236,8 @@ public:
 		@param timeout_ms The timeout in milliseconds.
 		@return True on success, false on timeout.
 	*/
-	bool waitForPrimitive(GSM::Primitive primitive, unsigned timeout_ms);
+	// unused
+	//bool waitForPrimitive(GSM::Primitive primitive, unsigned timeout_ms);
 
 
 
@@ -242,13 +247,19 @@ public:
 	//@{
 
 	/** Write a received radio burst into the "low" side of the channel. */
-	virtual void writeLowSide(const RxBurst& burst) { assert(mL1); mL1->writeLowSideRx(burst); }
+	// (pat) What the heck?  This method makes no sense and is not used anywhere.
+	// The operative virtual writeLowSide method is in class L2DL;
+	//virtual void writeLowSide(const RxBurst& burst) { assert(mL1); mL1->writeLowSideRx(burst); }
 
 	/** Return true if the channel is safely abandoned (closed or orphaned). */
 	virtual bool recyclable() const { assert(mL1); return mL1->recyclable(); }
 
 	/** Return true if the channel is active. */
 	virtual bool active() const { assert(mL1); return mL1->active(); }
+
+	// (pat 8-2013) Return the LAPDm state of the main SAPI0 for reporting in the CLI;
+	// on channels without LAPDm it would return an empty string, except it will never be called for such cases.
+	LAPDState getLapdmState() const;
 
 	/** The TDMA parameters for the transmit side. */
 	// (pat) This lovely function is unused.  Use L1Encoder::mapping()
@@ -264,6 +275,8 @@ public:
 	/** ARFCN */ /* TODO: Use this, or when obtaining the physical info use ARFCN from a diff location? */
 	unsigned ARFCN() const { assert(mL1); return mL1->ARFCN(); }
 
+	bool radioFailure() const { assert(mL1); return mL1->radioFailure(); }
+
 	/**@name Channel stats from the physical layer */
 	//@{
 	/** Carrier index. */
@@ -272,18 +285,11 @@ public:
 	unsigned TN() const { assert(mL1); return mL1->TN(); }
 	/** Receive FER. */
 	float FER() const { assert(mL1); return mL1->FER(); }
-	/** RSSI wrt full scale. */
-	virtual float RSSI() const;
-	/** Uplink timing error. */
-	virtual float timingError() const;
-	/** System timestamp of RSSI and TA */
-	virtual double timestamp() const;
-	/** Actual MS uplink power. */
-	virtual int actualMSPower() const;
-	/** Actual MS uplink timing advance. */
-	virtual int actualMSTiming() const;
+	DecoderStats getDecoderStats() const { return mL1->decoder()->getDecoderStats(); }
+	// Obtains SACCH reporting info.
+	virtual MSPhysReportInfo *getPhysInfo() const;
 	/** Control whether to accept a handover. */
-	void handoverPending(bool flag) { assert(mL1); mL1->handoverPending(flag); }
+	HandoverRecord& handoverPending(bool flag, unsigned handoverRef) { assert(mL1); return mL1->handoverPending(flag, handoverRef); }
 	//@}
 
 	//@} // L1
@@ -303,11 +309,20 @@ public:
 	void downstream(ARFCNManager* radio);
 
 	/** Return the channel type. */
-	virtual ChannelType type() const =0;
+	virtual ChannelType chtype() const =0;
 
 	/**
 		Make the channel ready for a new transaction.
 		The channel is closed with primitives from L3.
+		(pat) LogicalChannel::open() calls: L1FEC::open(), L1Encoder::open(), L1Encoder::open(), none of which do much but reset the L1 layer classes.
+		If there is an associated SACCH, that is opened too.
+		On channels with LAPDm, which are: TCHFACCH, SDCCH and SACCH:
+		LogicalChannel::open() also calls L2LAPDm::l2open() on each SAP endpoint, which has a side effect of starting to send idle frames in downlink.
+		After open, an ESTABLISH primitive may be sent on the channel to indicate when SABM mode is established.
+		In downlink: only for MT-SMS, an ESTABLISH primitive is sent to establish LAPDm SABM mode, which is used only on SAP 3, which is used
+			only for SMS messages in OpenBTS.
+		In uplink: the MS always establishes SABM mode.  After the open(), when the first good frame arrives,
+		an ESTABLISH primitive is sent upstream toward L3, which will notify the DCCHDispatcher to start looking for messages.
 	*/
 	virtual void open();
 
@@ -329,13 +344,13 @@ public:
 	virtual void connect();
 
 	public:
-	bool inUseByGPRS() { return mL1->inUseByGPRS(); }
-
+	bool inUseByGPRS() const { return mL1->inUseByGPRS(); }
 	bool decryptUplink_maybe(string wIMSI, int wA5Alg) { return mL1->decoder()->decrypt_maybe(wIMSI, wA5Alg); }
 };
 
 
-std::ostream& operator<<(std::ostream&, const LogicalChannel&);
+std::ostream& operator<<(std::ostream&, const L2LogicalChannel&);
+std::ostream& operator<<(std::ostream&os, const L2LogicalChannel*ch);
 
 
 /**
@@ -346,7 +361,7 @@ std::ostream& operator<<(std::ostream&, const LogicalChannel&);
 	allocation of a TCH.  The bit rate of a SDCCH is 598/765 kbit/s. 
 "
 */
-class SDCCHLogicalChannel : public LogicalChannel {
+class SDCCHLogicalChannel : public L2LogicalChannel {
 
 	public:
 	
@@ -355,7 +370,7 @@ class SDCCHLogicalChannel : public LogicalChannel {
 		unsigned wTN,
 		const CompleteMapping& wMapping);
 
-	ChannelType type() const { return SDCCHType; }
+	ChannelType chtype() const { return SDCCHType; }
 };
 
 
@@ -367,21 +382,48 @@ class SDCCHLogicalChannel : public LogicalChannel {
 	This is a virtual base class this is extended for CCCH & BCCH.
 	See GSM 04.06 4.1.1, 4.1.3.
 */
-class NDCCHLogicalChannel : public LogicalChannel {
+class NDCCHLogicalChannel : public L2LogicalChannel {
 
 	public:
 
 	/** This channel only sends RR protocol messages. */
-	virtual void send(const L3RRMessage& msg)
-		{ LogicalChannel::send((const L3Message&)msg,UNIT_DATA); }
+	virtual void l2sendm(const L3RRMessage& msg)
+		{ L2LogicalChannel::l2sendm((const L3Message&)msg,UNIT_DATA); }
 
 	/** This channel only sends RR protocol messages. */
-	void send(const L3Message&) { assert(0); }
+	//void send(const L3Message&) { assert(0); }	// old method name.
+	void l2sendm(const L3Message&) { assert(0); }
 
 };
 
 
 
+
+// (pat) We average the measurement reports from the best neighbors for handover purposes, so we dont
+// cause a handover from one spuriously low measurement report.
+// Note that there could be neighbors varying slightly but all much better than the current cell,
+// so we save all the neighbor data, not just the best one.
+// We dont have to worry about this growing without bounds because there will only be a few neighbors.
+// (pat) At my house, using the Blackberry, I see a regular 9.5 second heart-beat, where the measurements drop about 8db.
+// The serving cell RSSI drops first, then in the next measurement report the serving RSSI is back to normal
+// and the neighbor RSSI drops.  If it were just 2db more, it would be causing a spurious handover back and
+// forth every 9.5 seconds.  This cache alleviates that problem.
+class NeighborCache {
+	struct NeighborData {
+		int16_t mnAvgRSSI;	// Must be signed.
+		uint8_t mnCount;
+		NeighborData() : mnCount(0) {}
+	};
+	typedef std::map<unsigned,NeighborData> NeighborMap;
+	NeighborMap mNeighborRSSI;
+	int cNumReports;	// Neighbor must appear in 2 of last cNumReports measurement reports.
+	public:
+	// Argument is current RSSI, and return is the averaged RSSI to use for handover determination purposes.
+	int neighborAddMeasurement(unsigned freq, unsigned BSIC, int RSSI);
+	void neighborStartMeasurements();	// Call this at the start of each measurement report.
+	void neighborClearMeasurements();	// Call to clear everything.
+	string neighborText();
+};
 
 
 
@@ -401,9 +443,12 @@ class NDCCHLogicalChannel : public LogicalChannel {
 	The main role of the SACCH, for now, will be to send SI5 and SI6 messages and
 	to accept uplink mesaurement reports.
 */
-class SACCHLogicalChannel : public LogicalChannel {
+class SACCHLogicalChannel : public L2LogicalChannel, public NeighborCache {
 
 	protected:
+	InterthreadQueue<L3Message> mTxQueue;	// FIXME: not currently used. Queue of outbound messages from Layer3 for this SACCH.  SAPI is determined from message PD.
+
+	sem_t mOpenSignal;	// (pat 7-25-2013)
 
 	SACCHL1FEC *mSACCHL1;
 	Thread mServiceThread;	///< a thread for the service loop
@@ -412,7 +457,31 @@ class SACCHLogicalChannel : public LogicalChannel {
 	/** MeasurementResults from the MS. They are caught in serviceLoop, accessed
 	 for recording along with GPS and other data in MobilityManagement.cpp */
 	L3MeasurementResults mMeasurementResults;
-	const LogicalChannel *mHost;
+
+	// (pat 7-21-2013) This self RXLEV returned from the measurement reports has short-term variations of up to 23db
+	// on an iphone version 1, enough to trigger a spurious handover, so we are going to average this value.
+	// The short-term variation can last up to 3 consecutive reports, so we want to average over a long enough period
+	// to smooth that out.  Reports come every 1/2 second so we can make the averaging period pretty large.
+	// Since this value is used only for handover, we dont have to worry about making the value correct during the first few,
+	// in fact, we dont want a handover to happen too soon after the channel is opened anyway,
+	// so we will just init it to 0 when the channel is opened and let it drift down.
+	// (pat 1-2014) GSM 5.08 A3.1 says how we are supposed to average this; we are supposed to throw out
+	// the best and worst measurements and average over a programmable period.
+	// Note that this averaging puts a constraint on the maximum speed of the handset through the overlap area between cells
+	// for a successful handover.  To improve handover for quickly moving handsets we should also watch delta(RXLEV)
+	// and delta(TA) and if they together indicate quickly moving out of the cell, do the handover faster.
+	static const int cAveragePeriodRXLEV_SUB_SERVING_CELL = 8; // How many we measurement reports we average over.
+	float mAverageRXLEV_SUB_SERVICING_CELL;		// Must be signed!
+
+	// Add a measurement result data point to the averaged RXLEV_SUB_SERVING_CELL value.
+	void addSelfRxLev(int wDataPoint) {
+		int minus1 = cAveragePeriodRXLEV_SUB_SERVING_CELL - 1;
+		mAverageRXLEV_SUB_SERVICING_CELL = ((float) wDataPoint + minus1 * mAverageRXLEV_SUB_SERVICING_CELL)
+			/ (float) cAveragePeriodRXLEV_SUB_SERVING_CELL;
+	}
+
+	/*const*/ L2LogicalChannel *mHost;
+	void serviceSMS(L3Frame *smsFrame);	// Original pre-l3rewrite SMS message handler.
 
 	public:
 
@@ -420,9 +489,9 @@ class SACCHLogicalChannel : public LogicalChannel {
 		unsigned wCN,
 		unsigned wTN,
 		const MappingPair& wMapping,
-		const LogicalChannel* wHost);
+		/*const*/ L2LogicalChannel* wHost);
 
-	ChannelType type() const { return SACCHType; }
+	ChannelType chtype() const { return SACCHType; }
 
 	void open();
 
@@ -430,11 +499,8 @@ class SACCHLogicalChannel : public LogicalChannel {
 
 	/**@name Pass-through accoessors to L1. */
 	//@{
-	float RSSI() const { return mSACCHL1->RSSI(); }
-	float timingError() const { return mSACCHL1->timingError(); }
-	double timestamp() const { return mSACCHL1->timestamp(); }
-	int actualMSPower() const { return mSACCHL1->actualMSPower(); }
-	int actualMSTiming() const { return mSACCHL1->actualMSTiming(); }
+	// Obtains SACCH reporting info.
+	MSPhysReportInfo *getPhysInfo() const { return mSACCHL1->getPhysInfo(); }
 	void setPhy(float RSSI, float timingError, double wTimestamp)
 		{ mSACCHL1->setPhy(RSSI,timingError,wTimestamp); }
 	void setPhy(const SACCHLogicalChannel& other) { mSACCHL1->setPhy(*other.mSACCHL1); }
@@ -452,6 +518,7 @@ class SACCHLogicalChannel : public LogicalChannel {
 
 	/** Get recyclable state from the host DCCH. */
 	bool recyclable() const { assert(mHost); return mHost->recyclable(); }
+	L2LogicalChannel *hostChan() const { return mHost; }
 
 	protected:
 
@@ -506,14 +573,14 @@ class CCCHLogicalChannel : public NDCCHLogicalChannel {
 
 	void open();
 
-	void send(const L3RRMessage& msg)
+	void l2sendm(const L3RRMessage& msg)
 		{
 			// DEBUG:
 			//LOG(WARNING) << "CCCHLogicalChannel2::write q";
 			mQ.write(new L3Frame((const L3Message&)msg,UNIT_DATA));
 		}
 
-	void send(const L3Message&) { assert(0); }
+	void l2sendm(const L3Message&) { assert(0); }
 
 	/** This is a loop in its own thread that empties mQ. */
 	void serviceLoop();
@@ -542,7 +609,7 @@ class CCCHLogicalChannel : public NDCCHLogicalChannel {
 	// Note: Time wraps at gHyperFrame.
 	Time getNextMsgSendTime();
 
-	ChannelType type() const { return CCCHType; }
+	ChannelType chtype() const { return CCCHType; }
 
 	friend void *CCCHLogicalChannelServiceLoopAdapter(CCCHLogicalChannel*);
 
@@ -553,7 +620,7 @@ void *CCCHLogicalChannelServiceLoopAdapter(CCCHLogicalChannel*);
 
 
 
-class TCHFACCHLogicalChannel : public LogicalChannel {
+class TCHFACCHLogicalChannel : public L2LogicalChannel {
 
 	protected:
 
@@ -572,22 +639,24 @@ class TCHFACCHLogicalChannel : public LogicalChannel {
 		unsigned wTN,
 		const CompleteMapping& wMapping);
 
-	UDPSocket * RTPSocket() { return mRTPSocket; }
-	UDPSocket * RTCPSocket() { return mRTCPSocket; }
+	// unused:
+	//UDPSocket * RTPSocket() { return mRTPSocket; }
+	//UDPSocket * RTCPSocket() { return mRTCPSocket; }
 
-	ChannelType type() const { return FACCHType; }
+	ChannelType chtype() const { return FACCHType; }
 
-	void sendTCH(const unsigned char* frame)
+	void sendTCH(AudioFrame* frame)
 		{ assert(mTCHL1); mTCHL1->sendTCH(frame); }
 
-	unsigned char* recvTCH()
+	AudioFrame* recvTCH()
 		{ assert(mTCHL1); return mTCHL1->recvTCH(); }
 
 	unsigned queueSize() const
 		{ assert(mTCHL1); return mTCHL1->queueSize(); }
 
-	bool radioFailure() const
-		{ assert(mTCHL1); return mTCHL1->radioFailure(); }
+	// (pat) 3-28: Moved this higher in the hierarchy so we can use it on SDCCH as well.
+	//bool radioFailure() const
+	//	{ assert(mTCHL1); return mTCHL1->radioFailure(); }
 };
 
 
@@ -609,11 +678,11 @@ class CBCHLogicalChannel : public NDCCHLogicalChannel {
 
 	CBCHLogicalChannel(const CompleteMapping& wMapping);
 
-	void send(const L3SMSCBMessage& msg);
+	void l2sendm(const L3SMSCBMessage& msg);
 
-	void send(const L3Message&) { assert(0); }
+	void l2sendm(const L3Message&) { assert(0); }
 
-	ChannelType type() const { return CBCHType; }
+	ChannelType chtype() const { return CBCHType; }
 
 
 };
@@ -628,7 +697,7 @@ class CBCHLogicalChannel : public NDCCHLogicalChannel {
 	A logical channel that loops L3Frames from input to output.
 	Use a pair of these for control layer testing.
 */
-class L3LoopbackLogicalChannel : public LogicalChannel {
+class L3LoopbackLogicalChannel : public Control::L3LogicalChannel {
 
 	private:
 
@@ -639,18 +708,27 @@ class L3LoopbackLogicalChannel : public LogicalChannel {
 	L3LoopbackLogicalChannel();
 
 	/** Fake the SDCCH channel type because that makes sense for most tests. */
-	ChannelType type() const { return SDCCHType; }
+	ChannelType chtype() const { return SDCCHType; }
 
 	/** L3 Loopback */
-	void send(const L3Frame& frame, unsigned SAPI=0)
+	// (pat) I dont think this class is used, but keep the old 'send' method names anyway in case
+	// there is some test code somewhere that uses this class:
+	//void send(const L3Frame& frame, unsigned SAPI=0)
+		//{ l2sendf(frame,SAPI); }
+
+	// (pat 7-25-2013) The 'new L3Frame' below was doing an auto-conversion through L3Message.
+	void l2sendf(const L3Frame& frame, unsigned SAPI=0)
 		{ mL3Q[SAPI].write(new L3Frame(frame)); }
 
 	/** L3 Loopback */
-	void send(const GSM::Primitive prim, unsigned SAPI=0)
-		{ mL3Q[SAPI].write(new L3Frame(prim)); }
+	//void send(const GSM::Primitive prim, unsigned SAPI=0)
+		//{ l2sendp(prim,SAPI); }
+
+	void l2sendp(const GSM::Primitive prim, SAPI_t SAPI=SAPI0)
+		{ mL3Q[SAPI].write(new L3Frame(SAPI,prim)); }
 
 	/** L3 Loopback */
-	L3Frame* recv(unsigned timeout_ms = 15000, unsigned SAPI=0)
+	L3Frame* l2recv(unsigned timeout_ms = 15000, unsigned SAPI=0)
 		{ return mL3Q[SAPI].read(timeout_ms); }
 
 };

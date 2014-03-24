@@ -39,7 +39,9 @@ class SAPMux  {
 	protected:
 
 	mutable Mutex mLock;
+	// (pat) mUpstream[] is redundant with GSMLogicalChannel mL2[]
 	L2DL * mUpstream[4];		///< one L2 for each SAP, GSM 04.05 5.3
+								// (pat) Only SAP 0 and 3 are used: 0 for RR/MM/CC messages and 3 for SMS.
 	L1FEC * mDownstream;		///< a single L1
 
 	public:

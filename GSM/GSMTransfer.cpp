@@ -1,5 +1,5 @@
 /*
-* Copyright 2008 Free Software Foundation, Inc.
+* Copyright 2008, 2014 Free Software Foundation, Inc.
 *
 * This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
 *
@@ -19,7 +19,7 @@
 
 #include "GSMTransfer.h"
 #include "GSML3Message.h"
-#include "Globals.h"
+//#include "Globals.h"
 
 
 using namespace std;
@@ -28,20 +28,44 @@ using namespace GSM;
 
 ostream& GSM::operator<<(ostream& os, const L2Frame& frame)
 {
-	os << "primitive=" << frame.primitive();
+	os << LOGVAR2("primitive",frame.primitive()) <<LOGVAR2("SAPI",frame.SAPI());
 	os << " raw=(";
 	frame.hex(os);
 	os << ")";
 	return os;
 }
 
+ostream& GSM::operator<<(ostream& os, const L2Frame* frame)
+{
+	if (frame) {
+		os << *frame;
+	} else {
+		os << "(null L2Frame)";
+	}
+	return os;
+}
+
 
 ostream& GSM::operator<<(ostream& os, const L3Frame& frame)
 {
-	os << "primitive=" << frame.primitive();
+	os << "L3Frame(primitive=" << frame.primitive();
+	if (frame.isData()) {
+		string mtiname = mti2string(frame.PD(),frame.MTI());
+		os <<LOGVAR2("PD",frame.PD())<<LOGHEX2("MTI",frame.MTI())<<"("<<mtiname<<")"<< LOGVAR2("TI",frame.TI());
+	}
 	os << " raw=(";
 	frame.hex(os);
-	os << ")";
+	os << "))";
+	return os;
+}
+
+ostream& GSM::operator<<(ostream& os, const L3Frame* frame)
+{
+	if (frame) {
+		os << *frame;
+	} else {
+		os << "(null L3Frame)";
+	}
 	return os;
 }
 
@@ -255,7 +279,6 @@ L2Frame::L2Frame(const BitVector& bits, Primitive prim)
 }
 
 
-#include <stdio.h>
 L2Frame::L2Frame(const L2Header& header, const BitVector& l3, bool noran)
 	:BitVector(23*8),mPrimitive(DATA)
 {
@@ -286,7 +309,9 @@ unsigned L2Frame::SAPI() const
 	// assuming frame format A or B.
 	// See GSM 04.06 2.1, 2.3, 3.2.
 	// This assumes MSB-first field packing.
-	return peekField(3,3);
+	// (pat) If the frame is a primitive, the size is 0 and sapi is not saved in the L2Frame.
+	// The L3Frame will be rebound with the correct SAPI in L2LAPDm.
+	return size()>8 ? peekField(3,3) : SAPIUndefined;
 }
 
 
@@ -311,17 +336,17 @@ L2Control::ControlFormat L2Frame::controlFormat() const
 L2Control::FrameType L2Frame::UFrameType() const
 {
 	// Determine U-frame command type.
-	// GSM 04.06 Table 4.
+	// GSM 04.06 Table 4 (in section 3.8.1, obviously)
 	// TODO -- This would be more efficient as an array.
 	char upper = peekField(8+0,3);
 	char lower = peekField(8+4,2);
 	char uBits = upper<<2 | lower;
 	switch (uBits) {
 		case 0x07: return L2Control::SABMFrame;
-		case 0x03: return L2Control::DMFrame;
-		case 0x00: return L2Control::UIFrame;
-		case 0x08: return L2Control::DISCFrame;
-		case 0x0c: return L2Control::UAFrame;
+		case 0x03: return L2Control::DMFrame;	// (disconnect mode)
+		case 0x00: return L2Control::UIFrame;	// (unnumbered information)
+		case 0x08: return L2Control::DISCFrame;	// (disconnect)
+		case 0x0c: return L2Control::UAFrame;	// (unnumbered acknowledge)
 		default: return L2Control::BogusFrame;
 	}
 }
@@ -387,6 +412,20 @@ RxBurst::RxBurst(const TxBurst& source, float wTimingError, int wRSSI)
 	:SoftVector((const BitVector&) source),mTime(source.time()),
 	mTimingError(wTimingError),mRSSI(wRSSI)
 { }
+
+
+// (pat 1-2014) Compute the SNR of an RxBurst that is a GSM "normal burst", ie,
+// one used for TCH/FACCH rather than for RACCH or other.
+// For this case we ignore the tail bits and training bits and consider only the data bits.
+float RxBurst::getNormalSNR() const
+{
+	SoftVector chunk1(this->segment(3,58));	// 57 data bits + stealing bit.
+	float snr1 = chunk1.getSNR();
+	SoftVector chunk2(this->segment(87,58));	// stealing bit + 57 data bits.
+	float snr2 = chunk2.getSNR();
+	assert(! chunk1.isOwner());	// Make sure the stupid SoftVector class really returned an alias.
+	return (snr1 + snr2) / 2.0;
+}
 
 
 
@@ -499,12 +538,26 @@ ostream& GSM::operator<<(ostream& os, Primitive prim)
 	return os;
 }
 
+const char *GSM::SAPI2Text(SAPI_t sapi)
+{
+	switch (sapi) {
+		case SAPI0: return "SAPI0";
+		case SAPI3: return "SAPI3";
+		case SAPIUndefined: return "SAPIUndefined";
+		default: return "SAP-Invalid!";
+	}
+}
+ostream& GSM::operator<<(ostream& os, SAPI_t sapi)
+{
+	os << SAPI2Text(sapi); return os;
+}
 
 
 
-L3Frame::L3Frame(const L3Message& msg, Primitive wPrimitive)
-	:BitVector(msg.bitsNeeded()),mPrimitive(wPrimitive),
-	mL2Length(msg.L2Length())
+
+L3Frame::L3Frame(const L3Message& msg, Primitive wPrimitive, SAPI_t wSapi)
+	:BitVector(msg.bitsNeeded()),mPrimitive(wPrimitive),mSapi(wSapi),
+	mL2Length(msg.l2Length())
 {
 	msg.write(*this);
 }
@@ -512,7 +565,7 @@ L3Frame::L3Frame(const L3Message& msg, Primitive wPrimitive)
 
 
 L3Frame::L3Frame(const char* hexString)
-	:mPrimitive(DATA)
+	:mPrimitive(DATA),mSapi(SAPIUndefined)
 {
 	size_t len = strlen(hexString);
 	mL2Length = len/2;
@@ -528,13 +581,31 @@ L3Frame::L3Frame(const char* hexString)
 
 
 L3Frame::L3Frame(const char* binary, size_t len)
-	:mPrimitive(DATA)
+	:mPrimitive(DATA),mSapi(SAPIUndefined)
 {
 	mL2Length = len;
 	resize(len*8);
 	size_t wp=0;
 	for (size_t i=0; i<len; i++) {
 		writeField(wp,binary[i],8);
+	}
+}
+
+unsigned L3Frame::MTI() const
+{
+	if (!isData()) {
+		// If someone calls MTI() on a primitive return a guaranteed invalid MTI instead of crashing:
+		return (unsigned)-1;
+	}
+	int mti = peekField(8,8);
+	switch (PD()) {
+		case L3NonCallSSPD:
+		case L3CallControlPD:
+		case L3MobilityManagementPD:
+			// (pat) 5-2013: For these protocols only, mask out the unused bits of the raw MTI from the L3 Frame.  See 3GPP 4.08 10.4
+			return mti & 0xbf;
+		default:
+			return mti;
 	}
 }
 
@@ -553,6 +624,30 @@ void L3Frame::writeL(size_t &wp)
 {
 	unsigned fillBit = fillPattern[wp%8];
 	writeField(wp,fillBit,1);
+}
+
+
+AudioFrameRtp::AudioFrameRtp(AMRMode wMode) : ByteVector((headerSizeBits(wMode)+GSM::gAMRKd[wMode]+7)/8), mMode(wMode)
+{
+	setAppendP(0);
+	// Fill in the RTP and AMR headers.
+	if (wMode == TCH_FS) {
+		appendField(0xd,RtpHeaderSize);	// RTP type of GSM codec.
+	} else {
+		appendField(wMode,RtpHeaderSize);	// The CMR field is allegedly not used by anyone yet, but lets set it to the AMR mode we are using.
+		appendField(0,1);		// The F bit must always be zero; we are directed to send one frame every 20ms.
+		appendField(wMode,4);	// This is the important field that must be the AMR type index.
+		appendField(1,1);		// All frames are "good" for now.
+	}
+}
+
+void AudioFrameRtp::getPayload(BitVector *result) const
+{
+	// Cheating: set the BitVector directly.  TODO: move this into the BitVector class.
+	char *rp = result->begin();
+	for (int i = headerSizeBits(mMode), n = result->size();  n > 0; i++, n--) {
+		*rp++ = getBit(i); 
+	}
 }
 
 

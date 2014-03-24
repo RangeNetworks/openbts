@@ -33,7 +33,7 @@ struct sqlite3;
 namespace GSM {
 
 class L3MeasurementResults;
-class LogicalChannel;
+class L2LogicalChannel;
 
 /**
 	A table for tracking the state of channels.
@@ -62,7 +62,7 @@ public:
 		@param measResults The measurement report.
 		@return The result of the SQLite query: true for the query being executed successfully, false otherwise.
 	*/
-	bool setPhysical(const LogicalChannel* chan, const L3MeasurementResults& measResults);
+	bool setPhysical(const L2LogicalChannel* chan, const L3MeasurementResults& measResults);
 
 	/**
 		Dump the physical status table to the output stream.
@@ -77,7 +77,7 @@ public:
 		@param chan The channel to create an entry for.
 		@return The result of the SQLite query: true for the query being executed successfully, false otherwise.
 	*/
-	bool createEntry(const LogicalChannel* chan);
+	bool createEntry(const L2LogicalChannel* chan);
 
 
 };

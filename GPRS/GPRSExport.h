@@ -19,6 +19,7 @@
 #ifndef GPRSEXPORT_H
 #define GPRSEXPORT_H
 #include <ostream>
+#include <CLI.h>
 // The user of this file must include these first, to avoid circular .h files:
 //#include "GSMConfig.h"		// For Time
 //#include "GSMCommon.h"		// For ChannelType
@@ -39,6 +40,7 @@ namespace GPRS {
 struct GPRSConfig {
 	static unsigned GetRAColour();
 	static bool IsEnabled();
+	static bool IsSupported();
 	static bool sgsnIsInternal();
 };
 
@@ -84,7 +86,7 @@ extern void GPRSSetDebug(int value);
 extern void GPRSNotifyGsmActivity(const char *imsi);
 
 // Hook into CLI/CLI.cpp:Parser class for GPRS sub-command.
-int gprsCLI(int,char**,std::ostream&);
+CommandLine::CLIStatus gprsCLI(int,char**,std::ostream&);
 int configGprsChannelsMin();
 
 void gprsStart();	// External entry point to start gprs service.

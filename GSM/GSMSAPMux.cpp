@@ -37,21 +37,39 @@ void SAPMux::writeHighSide(const L2Frame& frame)
 
 void SAPMux::writeLowSide(const L2Frame& frame)
 {
-	OBJLOG(DEBUG) << frame.SAPI() << " " << frame;
-	unsigned SAPI = frame.SAPI();	
-	bool data = frame.primitive()==DATA;
-	if (data && (!mUpstream[SAPI])) {
-		LOG(WARNING) << "received DATA for unsupported SAP " << SAPI;
-		return;
+	OBJLOG(DEBUG) << frame;
+	unsigned SAPI;
+
+	// (pat) Add switch to validate upstream primitives.  The upstream only generates a few primitives;
+	// the rest are created in L2LAPDm.
+	switch (frame.primitive()) {
+		case HANDOVER_ACCESS:	// Only send this on SAPI 0.
+			SAPI = 0;
+			break;
+		case DATA:
+			SAPI = frame.SAPI();	
+			break;
+		case ESTABLISH:		// (pat) Do we really want to send this on all SAPI?
+		case ERROR:
+			// If this is a non-data primitive, copy it out to every SAP.
+			for (int i=0; i<4; i++) {
+				if (mUpstream[i]) mUpstream[i]->writeLowSide(frame);
+			}
+			return;
+		default:
+		case RELEASE:		// Sent downstream, but not upstream.
+		case UNIT_DATA:		// Only used above L2.
+		case HARDRELEASE:	// Sent downstream, but not upstream.
+			// If you get this assertion, make SURE you know what will happen upstream to that primitive.
+			assert(0);
+			return;		// make g++ happy.
 	}
-	if (data) {
+	if (mUpstream[SAPI]) {
 		mUpstream[SAPI]->writeLowSide(frame);
 	} else {
-		// If this is a non-data primitive, copy it out to every SAP.
-		for (int i=0; i<4; i++) {
-			if (mUpstream[i]) mUpstream[i]->writeLowSide(frame);
-		}
+		LOG(WARNING) << "received DATA for unsupported SAP " << SAPI;
 	}
+	return;
 }
 
 

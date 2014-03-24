@@ -22,7 +22,7 @@
 namespace GSM {
 
 /** Table #2 from GSM 05.03 */
-extern unsigned int g610BitOrder[260];
+extern const unsigned int g610BitOrder[260];
 
 }
 

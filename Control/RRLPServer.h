@@ -26,31 +26,36 @@
 
 #ifndef RRLPSERVER_H
 #define RRLPSERVER_H
+#include <GSML3CommonElements.h>	// For L3MobileIdentity
+#include "ControlCommon.h"
 
-namespace GSM {
-class LogicalChannel;
-class L3MobileIdentity;
-};
+namespace Control {
 
 class RRLPServer
 {
 	public:
-		RRLPServer(GSM::L3MobileIdentity wMobileID, GSM::LogicalChannel *wDCCH);
-		// tell server to send location assistance to mobile
-		bool assist();
-		// tell server to ask mobile for location
-		bool locate();
+		RRLPServer(string wSubscriber);
+		bool trouble() { return mTrouble; }
+		void rrlpSend(L3LogicalChannel *mmchan);
+		void rrlpRecv(const GSM::L3Message*);
 	private:
 		RRLPServer(); // not allowed
-		string url;
-		GSM::L3MobileIdentity mobileID;
-		GSM::LogicalChannel *DCCH;
-		string query;
-		string name;
-		bool transact();
-		bool trouble;
+		void serve();
+		string mURL;
+		// GSM::L3MobileIdentity mMobileID;
+		//L3LogicalChannel *mDCCH;		(pat) The channel is passed as an arg every time this is called, and it could change, so dont cache it.
+		string mQuery;
+		string mName;
+		bool mTrouble;
+		map<string,string> mResponse;
+		// Before assist can be restored, mAPDUs is going to have to go into more persistent storage.
+		// TransactionEntry for call?  Dunno for sms or lur.
+		vector<string> mAPDUs;
 };
 
-bool sendRRLP(GSM::L3MobileIdentity mobileID, GSM::LogicalChannel *LCH);
+bool sendRRLP(GSM::L3MobileIdentity wMobileID, L3LogicalChannel *wLCH);
+void recvRRLP(MMContext *wLCH, const GSM::L3Message *wMsg);
+
+};
 
 #endif

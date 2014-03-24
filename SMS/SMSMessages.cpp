@@ -1,5 +1,5 @@
 /*
-* Copyright 2008, 2009, 2010 Free Software Foundation, Inc.
+* Copyright 2008, 2009, 2010, 2014 Free Software Foundation, Inc.
 *
 
     This program is distributed in the hope that it will be useful,
@@ -54,6 +54,7 @@ CPMessage * SMS::CPFactory(CPMessage::MessageType val)
 
 
 
+// (pat) This parses an incoming SMS message from the MS, called from 
 CPMessage * SMS::parseSMS( const GSM::L3Frame& frame )
 {
 	CPMessage::MessageType MTI = (CPMessage::MessageType)(frame.MTI());	
@@ -62,7 +63,13 @@ CPMessage * SMS::parseSMS( const GSM::L3Frame& frame )
 	CPMessage * retVal = CPFactory(MTI);
 	if( retVal==NULL ) return NULL;
 	retVal->TI(frame.TI());
-	retVal->parse(frame);
+	// Documentation courtesy pat:
+	// The L3Message::CPMessage is a base class for CPData, CPAck, CPError, one of which is created by the CPFactory above.
+	// The below calls L3Message::parse which calls the parseBody from the derived class.
+	// For CPAck and CPError, parseBody is null (or worse, assert out - a former bug.)
+	// For CPData messages:  calls CPData::parseBody which then calls L3ProtocolElement::parseLV which calls:
+	// CPUserData::parseV, which just copies the data into CPUserData::mRPDU; which is an L3Frame::RLFrame
+	retVal->parse(frame);	
 	LOG(DEBUG) << *retVal;
 	return retVal;
 }
@@ -72,7 +79,7 @@ RPData *SMS::hex2rpdata(const char *hexstring)
 {
 	RPData *rp_data = NULL;
 
-	BitVector RPDUbits(strlen(hexstring)*4);
+	BitVector2 RPDUbits(strlen(hexstring)*4);
 	if (!RPDUbits.unhex(hexstring)) {
 		return false;
 	}
@@ -102,11 +109,12 @@ RPData *SMS::hex2rpdata(const char *hexstring)
 	return rp_data;
 }
 
-TLMessage *SMS::parseTPDU(const TLFrame& TPDU)
+TLMessage *SMS::parseTPDU(const TLFrame& TPDU, bool directionUplink)
 {
 	LOG(DEBUG) << "SMS: parseTPDU MTI=" << TPDU.MTI();
-	// Handle just the uplink cases.
-	switch ((TLMessage::MessageType)TPDU.MTI()) {
+	if (directionUplink) {
+	  // Handle just the uplink cases.
+	  switch ((TLMessage::MessageType)TPDU.MTI()) {
 		case TLMessage::DELIVER_REPORT:
 		case TLMessage::STATUS_REPORT:
 			// FIXME -- Not implemented yet.
@@ -120,13 +128,25 @@ TLMessage *SMS::parseTPDU(const TLFrame& TPDU)
 		}
 		default:
 			return NULL;
+	  }
+	} else {
+	  switch ((TLMessage::MessageType)TPDU.MTI()) {
+		// 10-2013: Pat added the DELIVER which is the downlink message so we can parse it for reporting purposes.
+		case TLMessage::DELIVER: {
+			TLDeliver *deliver = new TLDeliver(TPDU);
+			return deliver;
+		}
+		default:
+			LOG(WARNING) << "parsing unsupported TPDU type: " << (TLMessage::MessageType)TPDU.MTI();
+			return NULL;
+	  }
 	}
 }
 
 void CPMessage::text(ostream& os) const 
 {
 	os << (CPMessage::MessageType)MTI();
-	os <<" TI=" << mTI;
+	os <<LOGHEX2("TI",mTI);
 }
 
 
@@ -166,10 +186,18 @@ void CPError::writeBody( L3Frame& dest, size_t &wp ) const
 }
 
 
+// called from SMS::parseSMS.
 void CPUserData::parseV(const L3Frame& src, size_t &rp, size_t expectedLength)
 {
 	unsigned numBits = expectedLength*8;
+	// WARNING: segmentCopyTo does not modify the size of the target so we must do it.
 	mRPDU.resize(numBits);
+	int actualLength = (int) src.size() - rp;
+	if (actualLength < (int)numBits) {
+		// The length field (third byte) in the L3Frame was bogus, less than the remaining length of the frame.
+		LOG(ERR)<<"Invalid SMS frame:"<<LOGVAR(expectedLength*8) <<" (from L3 header)"<<LOGVAR(actualLength);
+		L3_READ_ERROR;
+	}
 	src.segmentCopyTo(mRPDU,rp,numBits);
 	rp += numBits;
 }
@@ -413,7 +441,7 @@ void TLValidityPeriod::parse(const TLFrame& src, size_t& rp)
 			// Absolute format, borrowed from GSM 04.08 MM
 			// GSM 03.40 9.2.3.12.2
 			L3TimeZoneAndTime decoder;
-			decoder.parseV((TLFrame)(BitVector)src,rp);
+			decoder.parseV((TLFrame)(BitVector2)src,rp);
 			mExpiration = decoder.time();
 			return;
 		}
@@ -477,7 +505,7 @@ void TLUserData::encode7bit(const char *text)
 
 	// 2. Write TP-UD
 	// This tail() works because UD is always the last field in the PDU.
-	BitVector chars = mRawData.tail(wp);
+	BitVector2 chars = mRawData.tail(wp);
 	for (unsigned i=0; i<mLength; i++) {
 		char gsm = encodeGSMChar(text[i]);
 		mRawData.writeFieldReversed(wp,gsm,7);
@@ -579,7 +607,7 @@ void TLUserData::parse(const TLFrame& src, size_t& rp)
 	mLength = src.readField(rp,8);
 #if 1
 	// This tail() works because UD is always the last field in the PDU.
-	mRawData.clone(src.tail(rp));
+	mRawData.clone(src.alias().tail(rp));	// TODO: Could use cloneSegment
 	// Should we do this here?
 	mRawData.LSB8MSB();
 #else
@@ -597,7 +625,7 @@ void TLUserData::parse(const TLFrame& src, size_t& rp)
 				LOG(NOTICE) << "badly formatted TL-UD";
 				SMS_READ_ERROR;
 			}
-			BitVector chars(src.tail(rp));
+			BitVector2 chars(src.tail(rp));
 			chars.LSB8MSB();
 			size_t crp=0;
 			for (unsigned i=0; i<numChar; i++) {
@@ -629,7 +657,7 @@ void TLUserData::write(TLFrame& dest, size_t& wp) const
 
 	// Then write TP-User-Data
 	// This tail() works because UD is always the last field in the PDU.
-	BitVector ud_dest = dest.tail(wp);
+	BitVector2 ud_dest = dest.tail(wp);
 	mRawData.copyTo(ud_dest);
 	ud_dest.LSB8MSB();
 #else
@@ -639,7 +667,7 @@ void TLUserData::write(TLFrame& dest, size_t& wp) const
 	unsigned numChar = strlen(mData);
 	dest.writeField(wp,numChar,8);
 	// This tail() works because UD is always the last field in the PDU.
-	BitVector chars = dest.tail(wp);
+	BitVector2 chars = dest.tail(wp);
 	chars.zero();
 	for (unsigned i=0; i<numChar; i++) {
 		char gsm = encodeGSMChar(mData[i]);
@@ -660,8 +688,12 @@ void TLUserData::text(ostream& os) const
 }
 
 
+// (pat 10-2013) This is just wrong.  The contents of the first byte depend
+// on the message type, so there is no separate "body".  This routine should not
+// skip the first byte, it should let the invidual parsers crack out the TLMessage header bits.
 void TLMessage::parse(const TLFrame& src)
 {
+
 	// FIXME -- Check MTI for consistency.
 	size_t rp=8;
 	return parseBody(src,rp);
@@ -681,6 +713,31 @@ void TLMessage::write(TLFrame& dest) const
 size_t TLSubmit::l2BodyLength() const
 {
 	return 1 + mDA.length() + 1 + 1 + mVP.length() + mUD.length();
+}
+
+// GSM 3.40 9.2.2.1
+TLDeliver::TLDeliver(const TLFrame& fm)
+{
+	size_t rp = 8;
+	parseBody(fm,rp);
+}
+
+void TLDeliver::parseBody(const TLFrame &src, size_t &rp)
+{
+	// Note that offset is reversed, i'=7-i.
+	// Ignore MTI, we already know it is DELIVER.
+	// Note that these header fields come from src ignoring rp.
+	parseMMS(src);
+	parseRP(src);
+	parseUDHI(src);
+	parseSRI(src);
+	// Now the 'body'
+	assert(rp == 8);
+	mOA.parse(src,rp);			// originating address.
+	mPID = src.readField(rp,8);	// protocol id
+	mUD.DCS(src.readField(rp,8));	// data coding scheme, stored in the TLUserData.
+	mSCTS.parse(src,rp);		// time stamp
+	mUD.parse(src,rp);			// user data.
 }
 
 
@@ -729,27 +786,34 @@ size_t TLDeliver::l2BodyLength() const
 }
 
 
+// (pat) See 3GPP 3.40 9.2.2
 void TLDeliver::writeBody(TLFrame& dest, size_t& wp) const
 {
-	writeMMS(dest);
-	writeRP(dest);
-	writeUDHI(dest, mUD.UDHI());
-	writeSRI(dest);
-	mOA.write(dest,wp);
-	dest.writeField(wp,mPID,8);
-	dest.writeField(wp,mUD.DCS(),8);
-	mSCTS.write(dest,wp);
-	writeUnused(dest);
-	mUD.write(dest,wp);
+	writeMMS(dest);		// more messages to send bit.
+	writeRP(dest);		// reply path bit.
+	writeUDHI(dest, mUD.UDHI());	// User-data-header-indicator bit
+	writeSRI(dest);		// status-report-indication bit
+	mOA.write(dest,wp);	// originating address
+	dest.writeField(wp,mPID,8);		// protocol id
+	dest.writeField(wp,mUD.DCS(),8);	// Data-coding-scheme
+	mSCTS.write(dest,wp);		// service-centre-time-stamp
+	writeUnused(dest);			// user-data-length.  (pat) Why empty?
+	mUD.write(dest,wp);			// user data.
 }
 
 
 void TLDeliver::text(ostream& os) const
 {
 	TLMessage::text(os);
-	os << " OA=(" << mOA << ")";
-	os << " SCTS=(" << mSCTS << ")";
-	os << " UD=(" << mUD << ")";
+	os << " OriginatingAddress=(" << mOA << ")";
+	os << " SCTimeStamp=(" << mSCTS << ")";
+	os << " DataCodingScheme="<<mUD.DCS();
+	os << " UserData=(" << mUD << ")";
+}
+
+void TLTimestamp::text(std::ostream&os) const
+{
+	mTime.text(os);
 }
 
 

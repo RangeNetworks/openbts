@@ -25,6 +25,9 @@ namespace SMS {
 
 
 
+#if UNUSED_PRIMITIVE
+// (pat 10-2013) This wonderful enum is referenced in RLFrame and TLFrame but not actually used anywhere
+// so I am eliding it pending proof that it has some functional requirement.
 enum SMSPrimitive {
 
 	// Relay layer primitives for network 
@@ -44,34 +47,46 @@ enum SMSPrimitive {
 	MNSMS_EST_IND=9,	// MO RPDU
 	MNSMS_ERROR_IND=10,	// Cause
 	MNSMS_REL_REQ=11,	// Cause
-	UNDEFINED_PRIMITIVE=-1
+
+	SMS_UNDEFINED_PRIMITIVE=-1
 };
 
 
 std::ostream& operator<<(std::ostream& os, SMSPrimitive);
+#endif
 
 
 
+// GSM 4.11 8.2
 class RLFrame : public GSM::L3Frame 
 {	
-
+#if UNUSED_PRIMITIVE
 	SMSPrimitive mPrimitive;	
+	void RLFrameInit() { mPrimitive = SMS_UNDEFINED_PRIMITIVE; }
+#endif
 	
 	public:
-
 	unsigned MTI() const { return peekField(5,3); }	
-
 	unsigned reference() const { return peekField(8,8); }
+	// GSM 4.11 7.3.4 for RP-ERROR fields 8.2.5.4 for RP-Cause.
+	unsigned RPErrorCause() const { return size() >= 32 ? peekField(25,7) : 0; }	// Only valid for RP-Error message.
 	
-	RLFrame(SMSPrimitive wPrimitive=UNDEFINED_PRIMITIVE, size_t len=0)
+#if ORIGINAL
+	RLFrame(SMSPrimitive wPrimitive=SMS_UNDEFINED_PRIMITIVE, size_t len=0)
 		:L3Frame(GSM::DATA,len), mPrimitive(wPrimitive)
 	{ }
 
-	RLFrame(const BitVector& source, SMSPrimitive wPrimitive=UNDEFINED_PRIMITIVE)
+	RLFrame(const BitVector2& source, SMSPrimitive wPrimitive=SMS_UNDEFINED_PRIMITIVE)
 		:L3Frame(source), mPrimitive(wPrimitive)
 	{ }
+#endif
+	RLFrame(size_t bitsNeeded=0) :L3Frame(GSM::DATA,bitsNeeded) { /*RLFrameInit();*/ }
+	RLFrame(const BitVector2& source) :L3Frame(GSM::SAPIUndefined,source) { /*RLFrameInit();*/ }
+	void text(std::ostream& os) const;
 
+#if UNUSED_PRIMITIVE
 	SMSPrimitive primitive() const { return mPrimitive; }
+#endif
 };
 
 std::ostream& operator<<(std::ostream& os, const RLFrame& );
@@ -79,22 +94,29 @@ std::ostream& operator<<(std::ostream& os, const RLFrame& );
 
 class TLFrame : public GSM::L3Frame 
 {
-
+#if UNUSED_PRIMITIVE
 	SMSPrimitive mPrimitive;	
+	void TLFrameInit() { mPrimitive = SMS_UNDEFINED_PRIMITIVE; }
+#endif
 	
 	public:
-
 	unsigned MTI() const { return peekField(6,2); }	
 	
-	TLFrame(SMSPrimitive wPrimitive=UNDEFINED_PRIMITIVE, size_t len=0)
+#if ORIGINAL
+	TLFrame(SMSPrimitive wPrimitive=SMS_UNDEFINED_PRIMITIVE, size_t len=0)
 		:L3Frame(GSM::DATA,len), mPrimitive(wPrimitive)
 	{ }
 
-	TLFrame(const BitVector& source, SMSPrimitive wPrimitive=UNDEFINED_PRIMITIVE)
+	TLFrame(const BitVector2& source, SMSPrimitive wPrimitive=SMS_UNDEFINED_PRIMITIVE)
 		:L3Frame(source), mPrimitive(wPrimitive)
 	{ }
+#endif
+	TLFrame(size_t bitsNeeded=0) :L3Frame(GSM::DATA,bitsNeeded) { /*TLFrameInit();*/ }
+	TLFrame(const BitVector2& source) :L3Frame(GSM::SAPIUndefined,source) { /*TLFrameInit();*/ }
 
+#if UNUSED_PRIMITIVE
 	SMSPrimitive primitive() const { return mPrimitive; }
+#endif
 
 };
 

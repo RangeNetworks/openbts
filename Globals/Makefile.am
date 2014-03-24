@@ -30,5 +30,4 @@ libglobals_la_SOURCES = Globals.cpp
 noinst_PROGRAMS = 
 
 noinst_HEADERS = \
-	Globals.h \
-	Defines.h
+	Globals.h

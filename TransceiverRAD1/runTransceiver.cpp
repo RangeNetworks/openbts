@@ -30,9 +30,8 @@
 
 using namespace std;
 
-std::vector<std::string> configurationCrossCheck(const std::string& key);
+ConfigurationKeyMap getConfigurationKeys();
 static const char *cOpenBTSConfigEnv = "OpenBTSConfigFile";
-// Load configuration from a file.
 ConfigurationTable gConfig(getenv(cOpenBTSConfigEnv)?getenv(cOpenBTSConfigEnv):"/etc/OpenBTS/OpenBTS.db","transceiver", getConfigurationKeys());
 FactoryCalibration gFactoryCalibration;
 
@@ -151,6 +150,28 @@ ConfigurationKeyMap getConfigurationKeys()
 	ConfigurationKeyMap map;
 	ConfigurationKey *tmp;
 
+	tmp = new ConfigurationKey("TRX.IP","127.0.0.1",
+		"",
+		ConfigurationKey::CUSTOMERWARN,
+		ConfigurationKey::IPADDRESS,
+		"",
+		true,
+		"IP address of the transceiver application."
+	);
+	map[tmp->getName()] = *tmp;
+	delete tmp;
+
+	tmp = new ConfigurationKey("TRX.Port","5700",
+		"",
+		ConfigurationKey::FACTORY,
+		ConfigurationKey::PORT,
+		"",
+		true,
+		"IP port of the transceiver application."
+	);
+	map[tmp->getName()] = *tmp;
+	delete tmp;
+
 	tmp = new ConfigurationKey("TRX.RadioFrequencyOffset","128",
 		"~170Hz steps",
 		ConfigurationKey::FACTORY,
@@ -164,6 +185,17 @@ ConfigurationKeyMap getConfigurationKeys()
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
+
+	tmp = new ConfigurationKey("TRX.RadioNumber","0",
+		"",
+		ConfigurationKey::FACTORY,
+		ConfigurationKey::VALRANGE,
+		"0:9",		// Not likely to have 10 radios on the same computer.  Not likely to have >1
+		true,
+		"If non-0, use multiple radios on the same cpu, numbered 1-9.  Must change TRX.Port also.  Provide a separate config file for each OpenBTS+Radio combination using the environment variable or --config command line option."
+	);
+	map[tmp->getName()] = *tmp;
+	delete(tmp);
 
 	tmp = new ConfigurationKey("TRX.TxAttenOffset","0",
 		"dB of attenuation",

@@ -1,5 +1,5 @@
 /*
-* Copyright 2008 Free Software Foundation, Inc.
+* Copyright 2008, 2014 Free Software Foundation, Inc.
 *
 * This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
 *
@@ -20,8 +20,9 @@
 #include "Defines.h"
 #include "Interthread.h"
 #include "BitVector.h"
+#include "ByteVector.h"
 #include "GSMCommon.h"
-
+#include "GSM503Tables.h"
 
 /* Data transfer objects for the GSM core. */
 
@@ -32,6 +33,7 @@ namespace GSM {
 class TxBurst;
 class RxBurst;
 class L3Message;
+class L2LogicalChannel;	// Used as transparent pointer in Control directory.
 
 /**@name Positions of stealing bits within a normal burst, GSM 05.03 3.1.4. */
 //@{
@@ -54,17 +56,36 @@ static const unsigned gSlotLen = 148;	///< number of symbols per slot, not count
 	our primitive set is simple.
 */
 enum Primitive {
-	ESTABLISH,		///< channel establihsment
+	// (pat) The ESTABLISH primitive is used on both the L1<->L2 and L2<->L3 interfaces, only on XCCH channels,
+	// which are SDCCH, TCHFACCH and SACCH; all use L2LAPDm and XCCHEncoder/XCCHDecoder.
+	// The use of ESTABLISH on these two layer interfaces is not coupled, and the ESTABLISH primitive does not directly penetrate through L2LAPDm.
+	// We could use different primitive names for these two purposes (as per above comment).
+	// On L1->L2LAPDm the ESTABLISH is sent on the first good frame, and does nothing but (possibly redundant?) re-init of L2LAPDm variables.
+	// On L2->L1 there is code in L1 to open the channel when an ESTABLISH primitive is seen, but I dont believe this code is used.
+	// So ESTABLISH is only important for L2LAPDm<->L3, where the ESTABLISH primitive starts SABM [reliable transport mode].
+	// On SAP0 the MS always establishes SABM so in uplink the layer3 DCCHDispatch sits around and waits for it.
+	// On downlink, only for MT-SMS, the BTS must initiate SABM, which it does by sending an ESTABLISH to the high side of L2LAPDm.
+	ESTABLISH,		///< L2<->L3 SABM establishment, or L1->L2 notification of first good frame.
+	// (pat) The RELEASE primitive is sent on L2<->L3 both ways.  On SAPI=0 the RELEASE primitive is only sent
+	// when the channel is released or lost.
 	RELEASE,		///< normal channel release
+	// (pat) This is not a good idea, to have globals named "DATA" and "ERROR"; risks collisions with libraries.
 	DATA,			///< multiframe data transfer
 	UNIT_DATA,		///< datagram-type data transfer
 	ERROR,			///< channel error
 	HARDRELEASE,		///< forced release after an assignment
 	HANDOVER_ACCESS		///< received inbound handover access burst
 };
+std::ostream& operator<<(std::ostream& os, Primitive prim);
 
+enum SAPI_t {
+	SAPIUndefined = 4,	// Any other value is fine.
+	SAPI0 = 0,
+	SAPI3 = 3
+	};
+const char *SAPI2Text(SAPI_t sapi);
+std::ostream& operator<<(std::ostream& os, SAPI_t sapi);
 
-std::ostream& operator<<(std::ostream& os, Primitive);
 
 
 
@@ -140,6 +161,15 @@ class TxBurstQueue : public InterthreadPriorityQueue<TxBurst> {
 
 /**
 	Class to represent one timeslot of channel bits with soft encoding.
+	// (pat) A "normal burst" looks like this:
+		3 tail bits
+		57 upper data bits
+		1 upper stealing flag
+		26 training sequence
+		1 lower stealing flag
+		57 lower data bits
+		3 tail bits
+		8.25 guard bits.
 */
 class RxBurst : public SoftVector {
 
@@ -172,10 +202,13 @@ class RxBurst : public SoftVector {
 	float timingError() const { return mTimingError; }
 
 	/** Return a SoftVector alias to the first data field. */
+	// (pat) Actually, these are probably returning clones, not aliases, due to the conversion from Vector via copy-constructor.
 	const SoftVector data1() const { return segment(3, 57); }
 
 	/** Return a SoftVector alias to the second data field. */
 	const SoftVector data2() const { return segment(88, 57); }
+
+	float getNormalSNR() const;
 
 	/** Return upper stealing bit. */
 	bool Hu() const { return bit(gHuIndex); }
@@ -227,6 +260,9 @@ class L2Address {
 	/**@name Obvious accessors. */
 	//@{
 	unsigned SAPI() const { return mSAPI; }
+#ifdef CR
+#undef CR			// This is defined in the sip or ortp include files somewhere.
+#endif
 	unsigned CR() const { return mCR; }
 	unsigned LPD() const { return mLPD; }
 	//@}
@@ -473,16 +509,17 @@ class L2Frame : public BitVector {
 	void idleFill();
 
 	/** Build an empty frame with a given primitive. */
-	L2Frame(GSM::Primitive wPrimitive=UNIT_DATA)
+	explicit L2Frame(GSM::Primitive wPrimitive=UNIT_DATA)
 		:BitVector(23*8),
 		mPrimitive(wPrimitive)
 	{ idleFill(); }
 
 	/** Make a new L2 frame by copying an existing one. */
-	L2Frame(const L2Frame& other)
-		:BitVector((const BitVector&)other),
-		mPrimitive(other.mPrimitive)
-	{ }
+	// (pat) This constructor is not needed - it is supplied by default.
+	//L2Frame(const L2Frame& other)
+	//	:BitVector((const BitVector&)other),
+	//	mPrimitive(other.mPrimitive)
+	//{ }
 
 	/**
 		Make an L2Frame from a block of bits.
@@ -501,7 +538,7 @@ class L2Frame : public BitVector {
 		Make an L2Frame from a header with no payload.
 		The primitive is DATA.
 	*/
-	L2Frame(const L2Header&);
+	explicit L2Frame(const L2Header&);
 
 	/** Get the LPD from the L2 header.  Assumes address byte is first. */
 	unsigned LPD() const;
@@ -541,7 +578,7 @@ class L2Frame : public BitVector {
 	bool M() const { return mStart[8*2+6] & 0x01; }
 
 	/** Return the L3 payload part.  Assumes A or B header format. */
-	BitVector L3Part() const { return segment(8*3,8*L()); }
+	BitVector L3Part() const { return cloneSegment(8*3,8*L()); }
 
 	/** Return NR sequence number, GSM 04.06 3.5.2.4.  Assumes A or B header. */
 	unsigned NR() const { return peekField(8*1+0,3); }
@@ -575,6 +612,7 @@ class L2Frame : public BitVector {
 const L2Frame& L2IdleFrame();
 
 std::ostream& operator<<(std::ostream& os, const L2Frame& msg);
+std::ostream& operator<<(std::ostream& os, const L2Frame* msg);
 
 
 typedef InterthreadQueueWithWait<L2Frame> L2FrameFIFO;
@@ -585,42 +623,75 @@ typedef InterthreadQueueWithWait<L2Frame> L2FrameFIFO;
 	Bit ordering is MSB-first in each octet.
 	NOTE: This is for the GSM message bits, not the message content.  See L3Message.
 */
-class L3Frame : public BitVector {
+class L3Frame : public BitVector {		// (pat) This is in Layer3, common to UMTS and GSM and someday should move to some other directory.
 
 	private:
 
 	Primitive mPrimitive;
+	SAPI_t mSapi;		// (pat) 5-2013: added SAPI this frame was received on or sent to.
+						// Not relevant for non-DATA L3Frame, for example, frames sent on CCCH.
+						// In other words, only relevant if primitive is DATA.
+						// This is only used in one place in Layer3, but it is interesting debugging information always.
 	size_t mL2Length;		///< length, or L2 pseudo-length, as appropriate
+			// (pat) FIXME: Apparently l2length is sometimes in bits and sometimes in bytes?  (Just look at the constructors.)
 
 	public:
 
+	L3Frame(const L3Frame &other) : BitVector(other), mPrimitive(other.mPrimitive), mSapi(other.mSapi), mL2Length(other.mL2Length) { }
+
+#if ORIGINAL
 	/** Empty frame with a primitive. */
 	L3Frame(Primitive wPrimitive=DATA, size_t len=0)
-		:BitVector(len),mPrimitive(wPrimitive),mL2Length(len)
+		:BitVector(len),mPrimitive(wPrimitive),mSapi(SAPIUndefined),mL2Length(len)
+	{ }
+#endif
+#if 0
+	L3Frame(Primitive wPrimitive, SAPI_t sapi)
+		:BitVector((size_t)0),mPrimitive(wPrimitive),mSapi(SAPIUndefined),mL2Length(0)
+	{ }
+#endif
+	// Dont do this.  A Primitive can be converted to a size_t, so it creates ambiguities in pre-existing code.
+	//explicit L3Frame(size_t bitsNeeded) :BitVector(bitsNeeded),mPrimitive(DATA),mSapi(SAPIUndefined),mL2Length(bitsNeeded/8) { }
+
+	explicit L3Frame(Primitive wPrimitive) :BitVector((size_t)0),mPrimitive(wPrimitive),mSapi(SAPIUndefined),mL2Length(0) { }
+	L3Frame(SAPI_t wSapi, Primitive wPrimitive) :BitVector((size_t)0),mPrimitive(wPrimitive),mSapi(wSapi),mL2Length(0) { }
+
+	L3Frame(Primitive wPrimitive, size_t len)
+		:BitVector(len),mPrimitive(wPrimitive),mSapi(SAPIUndefined),mL2Length(len)
 	{ }
 
 	/** Put raw bits into the frame. */
-	L3Frame(const BitVector& source, Primitive wPrimitive=DATA)
-		:BitVector(source),mPrimitive(wPrimitive),mL2Length(source.size()/8)
-	{ if (source.size()%8) mL2Length++; }
+	// (pat 11-2013) The old BitVector automatically cloned because the BitVector is declared const; now we must be explicit.
+	explicit L3Frame(SAPI_t wSapi,const BitVector& source, Primitive wPrimitive=DATA)
+		:mPrimitive(wPrimitive),mSapi(wSapi),mL2Length(source.size()/8)
+	{ clone(source); if (source.size()%8) mL2Length++; }
 
 	/** Concatenate 2 L3Frames */
-	L3Frame(const L3Frame& f1, const L3Frame& f2)
-		:BitVector(f1,f2),mPrimitive(DATA),
-		mL2Length(f1.mL2Length + f2.mL2Length)
+	// (pat) This was previously used only to concatenate BitVectors.  With lots of unneeded conversions.  Oops.  So I removed it.
+	//L3Frame(const L3Frame& f1, const L3Frame& f2)
+	//	:BitVector(f1,f2),mPrimitive(DATA),mSapi(SAPIUndefined),
+	//	mL2Length(f1.mL2Length + f2.mL2Length)
+	//{ }
+
+	// (pat) This is used only in L2LAPDm::bufferIFrameData to avoid one extra copy in the final concat.
+	// TODO: Make a better assembly buffer there, then get rid of this constructor.
+	L3Frame(SAPI_t wSapi, const BitVector& f1, const BitVector& f2)		// (pat) added to replace above.
+		:BitVector(f1,f2),mPrimitive(DATA),mSapi(wSapi),
+		mL2Length((f1.size() + f2.size())/8)
 	{ }
 
 	/** Build from an L2Frame. */
-	L3Frame(const L2Frame& source)
-		:BitVector(source.L3Part()),mPrimitive(DATA),
-		mL2Length(source.L())
-	{ }
+	// (pat 11-2013) The old BitVector automatically cloned because the BitVector is declared const; now we must be explicit.
+	explicit L3Frame(SAPI_t wSapi, const L2Frame& source)
+		:mPrimitive(DATA), mSapi(wSapi),mL2Length(source.L())
+	{ clone(source.L3Part()); }
 
 	/** Serialize a message into the frame. */
-	L3Frame(const L3Message& msg, Primitive wPrimitive=DATA);
+	// (pat) Note: This previously caused unanticipated auto-conversion from L3Message to L3Frame throughout the code base.
+	explicit L3Frame(const L3Message& msg, Primitive wPrimitive=DATA, SAPI_t sapi=SAPIUndefined);
 
 	/** Get a frame from a hex string. */
-	L3Frame(const char*);
+	explicit L3Frame(const char*);
 
 	/** Get a frame from raw binary. */
 	L3Frame(const char*, size_t len);
@@ -629,13 +700,16 @@ class L3Frame : public BitVector {
 	L3PD PD() const { return (L3PD)peekField(4,4); }
 
 	/** Message Type Indicator, GSM 04.08 10.4.  */
-	unsigned MTI() const { return peekField(8,8); }
+	// Note: must AND with 0xbf for MM and CC messages.  (And it doesnt hurt the other PDs either.)
+	unsigned MTI() const;
 
 	/** TI (transaction Identifier) value, GSM 04.07 11.2.3.1.3.  */
+	// (pat) Only valid for certain types of messages, notably call control and SMS.
 	unsigned TI() const { return peekField(0,4); }
 
 	/** Return the associated primitive. */
 	GSM::Primitive primitive() const { return mPrimitive; }
+	bool isData() const { return mPrimitive == DATA || mPrimitive == UNIT_DATA; }
 
 	/** Return frame length in BYTES. */
 	size_t length() const { return size()/8; }
@@ -648,45 +722,73 @@ class L3Frame : public BitVector {
 	// Methods for writing H/L bits into rest octets.
 	void writeH(size_t& wp);
 	void writeL(size_t& wp);
+	SAPI_t getSAPI() const { return mSapi; }
 };
 
 
 
 
 std::ostream& operator<<(std::ostream& os, const L3Frame&);
+std::ostream& operator<<(std::ostream& os, const L3Frame*);
 
 typedef InterthreadQueue<L3Frame> L3FrameFIFO;
 
-
+// Audio frames are bytes communicated between the RTP-layer [Real-time Transport Protocol] and the L1-layer FECs.
+// The RTP frames come/go upstream directly on internet ports for communication with another BTS or elsewhere.
+// The Audio frame is encoded inside an RTP frame transferred on the wire, but cracked out by the RTP layer,
+// so we see only the Audio frame.  The Audio format is communicated via SIP using SDP [Session Description Protocol]
+// which is the "m=" and etc fields in the SIP invide.
+// The simplest RTP/AVP audio payload type overview is wikipedia "RTP audio video profile".
+// Formerly Audio Frames were fixed at 33 bytes for GSM Audio format, but now the size is variable,
+// and when we support silence the AudioFrame size will vary with each frame.
+typedef ByteVector AudioFrame;
+typedef InterthreadQueue<AudioFrame> AudioFrameFIFO;
 
 /**
+	(pat) This is the old comment for the GSM Vocoder frame, which has been replaced by AudioFrameRtp.
 	A vocoder frame for use in GSM/SIP contexts.
 	This is based on RFC-3551 Section 4.5.8.1.
 	Note the 4-bit pad at the start of the frame, filled with b1101 (0xd).
+	(pat) We are creating an RTP stream frame.
+	RFC-3551 specifies a 4 bit signature consisting of a one bit marker bit (which cant really mark much, can it)
+	followed by the payload type, which is RTP stream type 3, which is GSM Full Rate Audio 13kbit/s,
+	ie, 0xd followed by 260 bits of payload.  (260+4)/8 == 33 bytes.
 */
-class VocoderFrame : public BitVector {
+
+class AudioFrameRtp : public AudioFrame {
+
+	// For AMR mode:
+	// The 3 fields are bit-aligned (closest packing) in "bandwidth-efficient" mode:
+	// | payload header (4 bits) | table of contents (6 bits) |
+	// 		followed by speech data (number of bits depends on type) | followed by padding to byte boundary.
+	// Payload Header:
+	// 4 bits; Codec Mode Request.
+	// Table of Contents:
+	// Single bit; F bit is 1 to indicate this frame is followed by another, so always 0 for us.
+	// 4 bits; Frame type index.
+	// Single Bit; Quality indicator: 0 means the frame is "severely damaged".
+	// Everything else is payload.
 
 	public:
+	static const int RtpHeaderSize = 4;
+	static const int RtpPlusAmrHeaderSize = 4 + 6;
+	AMRMode mMode;
 
-	VocoderFrame()
-		:BitVector(264)
-	{ fillField(0,0x0d,4); }
+	static int headerSizeBits(AMRMode wMode) {
+		return (wMode == TCH_FS) ? RtpHeaderSize : RtpPlusAmrHeaderSize;
+	}
 
-	/** Construct by unpacking a char[33]. */
-	VocoderFrame(const unsigned char *src)
-		:BitVector(264)
-	{ unpack(src); }
+	// Create an empty RTP frame of specified mode and fill in the RTP header.
+	// Leave the ByteVector append pointer at the payload location so the caller can simply append the payload.
+	AudioFrameRtp(AMRMode wMode);
 
-	/** Non-const form returns an alias. */
-	BitVector payload() { return tail(4); }
+	// Load the generic data from a ByteVector (aka AudioFrame) into this object and set the AMRMode so it the RTP data can be decoded.
+	AudioFrameRtp(AMRMode wMode, const AudioFrame *genericFrame) : ByteVector(*genericFrame), mMode(wMode) {}
 
-	/** Const form returns a copy. */
-	const BitVector payload() const { return tail(4); }
-
+	// Put the payload from this RTP frame into the specified BitVector, which must be the correct size.
+	void getPayload(BitVector *result) const;
 };
 
-
-typedef InterthreadQueue<VocoderFrame> VocoderFrameFIFO;
 
 };	// namespace GSM
 

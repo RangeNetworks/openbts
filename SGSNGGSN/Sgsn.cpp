@@ -15,11 +15,13 @@
 */
 
 #include <list>
+#if RN_UMTS
 #include <SIPInterface.h>
 #include <SIPUtility.h>
 #include <SIPMessage.h>
 #include <SIPEngine.h>
-#include <SubscriberRegistry.h>
+using namespace SIP;
+#endif
 //#include "RList.h"
 #include "LLC.h"
 //#include "MSInfo.h"
@@ -34,7 +36,6 @@ using namespace Utils;
 #define CASENAME(x) case x: return #x;
 #define SRB3 3
 
-using namespace SIP;
 
 namespace SGSN {
 typedef std::list<SgsnInfo*> SgsnInfoList_t;
@@ -53,13 +54,13 @@ static int getNMO();
 
 bool sgsnDebug()
 {
-	return gConfig.getBool("SGSN.Debug") || gConfig.getBool("GPRS.Debug");
+	return (gConfig.getBool("SGSN.Debug") || gConfig.getBool("GPRS.Debug"));
 }
 
 bool enableMultislot()
 {
-	return gConfig.getNum("GPRS.Multislot.Max.Downlink") > 1 ||
-		gConfig.getNum("GPRS.Multislot.Max.Uplink") > 1;
+	return gConfig.getNum(SQL_MULTISLOTMAXDOWNLINK) > 1 ||
+		gConfig.getNum(SQL_MULTISLOTMAXUPLINK) > 1;
 }
 
 const char *GmmCause::name(unsigned mt, bool ornull)
@@ -557,6 +558,7 @@ static void sendAuthenticationRequest(SgsnInfo *si, string IMSI)
 
 static void handleAuthenticationResponse(SgsnInfo *si, L3GmmMsgAuthenticationResponse &armsg) 
 {
+#if RN_UMTS
 	if (Sgsn::isUmts()) {
                 GmmInfo *gmm = si->getGmm();
                 if (!gmm) {
@@ -590,10 +592,9 @@ static void handleAuthenticationResponse(SgsnInfo *si, L3GmmMsgAuthenticationRes
                         //sendAuthenticationRequest(si);
                 }
 
-#if RN_UMTS
                 SgsnAdapter::startIntegrityProtection(si->mMsHandle,Kcs);
-#endif
 	}
+#endif
 }
 
 static void handleIdentityResponse(SgsnInfo *si, L3GmmMsgIdentityResponse &irmsg)

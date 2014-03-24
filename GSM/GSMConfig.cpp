@@ -1,5 +1,5 @@
 /*
-* Copyright 2008, 2009, 2010 Free Software Foundation, Inc.
+* Copyright 2008, 2009, 2010, 2014 Free Software Foundation, Inc.
 *
 * This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
 *
@@ -42,6 +42,36 @@ GSMConfig::GSMConfig()
 
 void GSMConfig::init() 
 {
+	long changed = 0;
+	long band = gConfig.getNum("GSM.Radio.Band");
+	long c0 = gConfig.getNum("GSM.Radio.C0");
+
+	// adjust to an appropriate band if C0 is bogus
+	if (c0 >= 128 && c0 <= 251 && band != 850) {
+		changed = band;
+		band = 850;
+	} else if (c0 <= 124 && band != 900) {
+		changed = band;
+		band = 900;
+	} else if (c0 >= 975 && c0 <= 1023 && band != 900) {
+		changed = band;
+		band = 900;
+	} else if (c0 >= 512 && c0 <= 810 && band != 1800 && band != 1900) {
+		changed = band;
+		band = 1800;
+	} else if (c0 >= 811 && c0 <= 885 && band != 1800) {
+		changed = band;
+		band = 1800;
+	}
+
+	if (changed) {
+		if (gConfig.set("GSM.Radio.Band", band)) {
+			LOG(NOTICE) << "crisis averted: automatically adjusted GSM.Radio.Band from " << changed << " to " << band << " so GSM.Radio.C0 is in range";
+		} else {
+			LOG(ERR) << "unable to automatically adjust GSM.Radio.Band, config write error";
+		}
+	}
+
 	mBand = (GSMBand)gConfig.getNum("GSM.Radio.Band");
 	mT3122 = gConfig.getNum("GSM.Timer.T3122Min");
  	regenerateBeacon();
@@ -60,6 +90,8 @@ void GSMConfig::start()
 	}
 	// Do not call this until AGCHs are installed.
 	mAccessGrantThread.start(Control::AccessGrantServiceLoop,NULL);
+
+	Control::l3start();	// (pat) For the L3 rewrite: start the L3 state machine dispatcher.
 }
 
 
@@ -95,7 +127,7 @@ void GSMConfig::regenerateBeacon()
 	if (mSI1) delete mSI1;
 	mSI1 = SI1;
 	LOG(INFO) << *SI1;
-	L3Frame SI1L3(UNIT_DATA);
+	L3Frame SI1L3(UNIT_DATA,0);
 	SI1->write(SI1L3);
 	L2Header SI1Header(L2Length(SI1L3.L2Length()));
 	mSI1Frame = L2Frame(SI1Header,SI1L3);
@@ -106,7 +138,7 @@ void GSMConfig::regenerateBeacon()
 	if (mSI2) delete mSI2;
 	mSI2 = SI2;
 	LOG(INFO) << *SI2;
-	L3Frame SI2L3(UNIT_DATA);
+	L3Frame SI2L3(UNIT_DATA,0);
 	SI2->write(SI2L3);
 	L2Header SI2Header(L2Length(SI2L3.L2Length()));
 	mSI2Frame = L2Frame(SI2Header,SI2L3);
@@ -117,7 +149,7 @@ void GSMConfig::regenerateBeacon()
 	if (mSI3) delete mSI3;
 	mSI3 = SI3;
 	LOG(INFO) << *SI3;
-	L3Frame SI3L3(UNIT_DATA);
+	L3Frame SI3L3(UNIT_DATA,0);
 	SI3->write(SI3L3);
 	L2Header SI3Header(L2Length(SI3L3.L2Length()));
 	mSI3Frame = L2Frame(SI3Header,SI3L3,true);
@@ -129,7 +161,7 @@ void GSMConfig::regenerateBeacon()
 	mSI4 = SI4;
 	LOG(INFO) << *SI4;
 	LOG(INFO) << SI4;
-	L3Frame SI4L3(UNIT_DATA);
+	L3Frame SI4L3(UNIT_DATA,0);
 	SI4->write(SI4L3);
 	//printf("SI4 bodylength=%d l2len=%d\n",SI4.l2BodyLength(),SI4L3.L2Length());
 	//printf("SI4L3.size=%d\n",SI4L3.size());
@@ -141,7 +173,7 @@ void GSMConfig::regenerateBeacon()
 	// SI13. pat added 8-2011 to advertise GPRS support.
 	L3SystemInformationType13 *SI13 = new L3SystemInformationType13;
 	LOG(INFO) << *SI13;
-	L3Frame SI13L3(UNIT_DATA);
+	L3Frame SI13L3(UNIT_DATA,0);
 	//printf("start=%d\n",SI13L3.size());
 	SI13->write(SI13L3);
 	//printf("end=%d\n",SI13L3.size());
@@ -380,7 +412,7 @@ TCHFACCHLogicalChannel *GSMConfig::getTCH(
 			chan->debugGetL1()->setGPRS(true,NULL);
 			return chan;
 		}
-		chan->open();	// (pat) LogicalChannel::open();  Opens mSACCH also.
+		chan->open();	// (pat) LogicalChannel::open();  Opens mSACCH also.  Starts T3101.
 		gReports.incr("OpenBTS.GSM.RR.ChannelAssignment");
 	} else {
 		//LOG(DEBUG)<<"getTCH returns NULL";
@@ -643,7 +675,7 @@ void GSMConfig::sendPCH(const L3RRMessage& msg,unsigned imsiMod1000)
 	crackPagingFromImsi(imsiMod1000,paging_block_index, multiframe_index);
 	assert(multiframe_index < sMax_BS_PA_MFRMS);
 	CCCHLogicalChannel* ch = getPCH(paging_block_index);
-	ch->mPagingQ[multiframe_index].write(new L3Frame((const L3Message&)msg,UNIT_DATA));
+	ch->mPagingQ[multiframe_index].write(new L3Frame((const L3Message&)msg,UNIT_DATA,0));
 }
 
 Time GSMConfig::getPchSendTime(imsiMod1000)
@@ -656,6 +688,22 @@ Time GSMConfig::getPchSendTime(imsiMod1000)
 	return ch->getNextPchSendTime(multiframe_index);
 }
 #endif
+
+// (pat) Return a vector of the available channels.
+// Use to avoid publishing these iterators to the universe.
+void GSMConfig::getChanVector(L2ChanList &result)
+{
+	result.clear();
+	result.reserve(64);		// Enough for a 2 ARFCN system.
+	for (GSM::SDCCHList::const_iterator sChanItr = gBTS.SDCCHPool().begin(); sChanItr != gBTS.SDCCHPool().end(); ++sChanItr) {
+		result.push_back(*sChanItr);
+	}
+
+	// TCHs
+	for (GSM::TCHList::const_iterator tChanItr = gBTS.TCHPool().begin(); tChanItr != gBTS.TCHPool().end(); ++tChanItr) {
+		result.push_back(*tChanItr);
+	}
+}
 
 
 // vim: ts=4 sw=4

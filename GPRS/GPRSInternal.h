@@ -123,6 +123,7 @@ namespace GPRS {
 #define GLOG(wLevel) if (GPRSDebug || IS_LOG_LEVEL(wLevel)) _LOG(wLevel) << " "<<timestr()<<","<<GPRS::gBSNNext<<":"
 
 // Like assert() but dont core dump unless we are testing.
+#undef devassert
 #define devassert(code) {if (GPRS::GPRSDebug||IS_LOG_LEVEL(DEBUG)) {assert(code);} else if (!(code)) {LOG(ERR)<<"assertion failed:"<< #code;}}
 
 

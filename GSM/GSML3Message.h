@@ -18,6 +18,7 @@
 #ifndef GSML3MESSAGE_H
 #define GSML3MESSAGE_H
 
+#include <Globals.h>
 #include "GSMCommon.h"
 #include "GSMTransfer.h"
 
@@ -64,7 +65,8 @@ class L3Message {
 	virtual size_t fullBodyLength() const =0;
 	
 	/** Return the expected message length in bytes, including L3 header, but not including rest octets.  */
-	size_t L2Length() const { return l2BodyLength()+2; }
+	// (pat) L2Length is also a class.  This renaming:
+	size_t l2Length() const { return l2BodyLength()+2; }
 
 	/** Length ((pat) in BYTES!!) including header and rest octets. */
 	size_t FullLength() const { return fullBodyLength()+2; }
@@ -76,6 +78,7 @@ class L3Message {
 	  The parse() method reads and decodes L3 message bits.
 	  This method invokes parseBody, assuming that the L3 header
 	  has already been read.
+	  // (pat) You probably want parseL3, not this.
 	*/
 	virtual void parse(const L3Frame& source);
 
@@ -89,6 +92,7 @@ class L3Message {
 	/**
 		Generate an L3Frame for this message.
 		The caller is responsible for deleting the memory.
+		(pat) TODO: This is called only from RRLPServer, and apparently unnecessarily.  Get rid of this.
 	*/
 	L3Frame* frame(GSM::Primitive prim=DATA) const;
 
@@ -98,6 +102,8 @@ class L3Message {
 	/** Return the messag type indicator (MTI). */
 	virtual int MTI() const =0;
 
+	// pat added: TI is only valid for CC and SMS and SS messages, so we will hit this assertion if you try to use this for MM or RR messages.
+	virtual unsigned TI() const { devassert(0); return 8; }
 
 	protected:
 
@@ -120,6 +126,7 @@ class L3Message {
 
 	/** Generate a human-readable representation of a message. */
 	virtual void text(std::ostream& os) const;
+	std::string text() const;		// Return the string formed by the above.
 
 };
 
@@ -160,6 +167,7 @@ L3Message* parseL3(const L3Frame& source);
 
 
 std::ostream& operator<<(std::ostream& os, const GSM::L3Message& msg);
+std::ostream& operator<<(std::ostream& os, const GSM::L3Message* msg);
 
 
 
@@ -291,6 +299,24 @@ class L3ProtocolElement {
 
 };
 
+// (pat 9-2013) A generic LV or TLV element.
+class L3OctetAlignedProtocolElement : public L3ProtocolElement {
+	public:
+	string mData;	// Here it is.
+	Bool_z mExtant;	// Does this IE exist in the message?  Avoids having to use mHave... all over the place.
+	const unsigned char *peData() const { return (const unsigned char*)mData.data(); }
+	size_t lengthV() const { return mData.size(); }
+   	void writeV(L3Frame&dest, size_t&wp) const;
+	// This parse just cracks the components out.
+	void parseV(const L3Frame&src, size_t&rp, size_t expectedLength);	// This form must be used for TLV format.
+	void parseV(const L3Frame&, size_t&) { assert(0); }		// This form illegal for T/TV format.
+	void text(std::ostream&) const;
+	L3OctetAlignedProtocolElement(string wData): mData(wData), mExtant(true) {}
+	L3OctetAlignedProtocolElement(): mExtant(false) {}
+};
+
+bool parseHasT(unsigned IEI, const L3Frame& source, size_t &rp);
+
 
 std::ostream& operator<<(std::ostream& os, const L3ProtocolElement& elem);
 
@@ -308,6 +334,7 @@ class GenericMessageElement {
 
 std::ostream& operator<<(std::ostream& os, const GenericMessageElement& elem);
 
+string mti2string(L3PD pd, unsigned mti);
 
 }; // GSM
 

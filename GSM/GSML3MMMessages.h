@@ -47,7 +47,7 @@ class L3MMMessage : public L3Message {
 	*/
 	enum MessageType {
 		IMSIDetachIndication=0x01,
-		CMServiceAccept=0x21,
+		CMServiceAccept=0x21,	// 33
 		CMServiceReject=0x22,
 		CMServiceAbort=0x23,
 		CMServiceRequest=0x24,
@@ -59,6 +59,7 @@ class L3MMMessage : public L3Message {
 		LocationUpdatingReject=0x04,
 		LocationUpdatingRequest=0x08,
 		TMSIReallocationCommand=0x1a,
+		TMSIReallocationComplete=0x1b,	// From MS->Network.
 		MMStatus=0x31,
 		AuthenticationRequest=0x12,
 		AuthenticationResponse=0x14,
@@ -97,12 +98,20 @@ L3MMMessage* L3MMFactory(L3MMMessage::MessageType MTI);
 L3MMMessage* parseL3MM(const L3Frame& source);
 
 
+// 24.008 10.5.3.5 Location Updating Type.  2 bits.
+enum LocationUpdateType {
+	LUTNormalLocationUpdating = 0,	// MS has enetered a new cell.
+	LUTPeriodicUpdating = 1,		// T3212 went off.
+	LUTImsiAttach = 2,				// MS has entered a new PLMN.
+	// Value 3 is reserved.
+};
 
 
 /** GSM 04.08 9.2.15 */
 class L3LocationUpdatingRequest : public L3MMMessage
 {
-	unsigned mUpdateType;	// (pat) Added for debugging.
+	unsigned mUpdateType;
+	unsigned mCKSN;	// Cipher Key Sequence Number
 	L3MobileStationClassmark1 mClassmark;
 	L3MobileIdentity mMobileIdentity; // (LV) 1+len
 	L3LocationAreaIdentity mLAI;
@@ -118,8 +127,22 @@ public:
 	int MTI() const { return (int)LocationUpdatingRequest; }
 	
 	size_t l2BodyLength() const;
+	LocationUpdateType getLocationUpdatingType() const { return (LocationUpdateType) (mUpdateType & 0x3); }
+	unsigned getFollowOnRequest() const { return mUpdateType & 0x8; }
 	void parseBody( const L3Frame &src, size_t &rp );	
 	void text(std::ostream&) const;
+};
+
+/** GSM 0.408 9.2.18. */
+// Sent in response to TMSIReallocationCommand, which we dont currently use, or to LocationUpdatingAccept with a new TMSI.
+class L3TMSIReallocationComplete : public L3MMMessage
+{
+public:
+	L3TMSIReallocationComplete():L3MMMessage() {}
+	int MTI() const { return (int)TMSIReallocationComplete; }
+	void parseBody( const L3Frame &, size_t &) { }	// Nothing at all in this message.
+	void text(std::ostream&) const;
+	size_t l2BodyLength() const { return 0; }
 };
 
 
@@ -129,20 +152,22 @@ class L3LocationUpdatingAccept : public L3MMMessage
 {
 	// LAI = (V) length of 6
 	L3LocationAreaIdentity mLAI;
+	bool mFollowOnProceed;
 	bool mHaveMobileIdentity;
 	L3MobileIdentity mMobileIdentity;
 	
 public:
 
-	L3LocationUpdatingAccept(const L3LocationAreaIdentity& wLAI)
-		:L3MMMessage(),mLAI(wLAI),
+	L3LocationUpdatingAccept(const L3LocationAreaIdentity& wLAI, bool wFollowOnProceed=false)
+		:L3MMMessage(),mLAI(wLAI),mFollowOnProceed(wFollowOnProceed),
 		mHaveMobileIdentity(false)
 	{}
 
 	L3LocationUpdatingAccept(
 		const L3LocationAreaIdentity& wLAI,
-		const L3MobileIdentity& wMobileIdentity)
-		:L3MMMessage(),mLAI(wLAI),
+		const L3MobileIdentity& wMobileIdentity,
+		bool wFollowOnProceed=false)
+		:L3MMMessage(),mLAI(wLAI), mFollowOnProceed(wFollowOnProceed),
 		mHaveMobileIdentity(true),
 		mMobileIdentity(wMobileIdentity)
 	{}
@@ -225,7 +250,7 @@ class L3CMServiceAccept : public L3MMMessage {
 	int MTI() const { return (int)CMServiceAccept; }
 
 	size_t l2BodyLength() const { return 0; }
-	void writeBody( L3Frame &dest, size_t &wp ) const {}
+	void writeBody( L3Frame &/*dest*/, size_t &/*wp*/ ) const {}
 };
 
 
@@ -238,7 +263,7 @@ class L3CMServiceAbort : public L3MMMessage {
 	int MTI() const { return (int)CMServiceAbort; }
 
 	size_t l2BodyLength() const { return 0; }
-	void writeBody( L3Frame &dest, size_t &wp ) const {}
+	void writeBody( L3Frame &/*dest*/, size_t &/*wp*/ ) const {}
 	void parseBody( const L3Frame &src, size_t &rp );
 };
 
@@ -261,7 +286,7 @@ class L3CMServiceReject : public L3MMMessage {
 	int MTI() const { return (int)CMServiceReject; }
 
 	size_t l2BodyLength() const { return mCause.lengthV(); }
-	void writeBody( L3Frame &dest, size_t &wp ) const;
+	void writeBody( L3Frame &/*dest*/, size_t &/*wp*/ ) const;
 	void text(std::ostream&) const;
 };
 
@@ -448,7 +473,7 @@ class L3AuthenticationReject : public L3MMMessage {
 	int MTI() const { return AuthenticationReject; }
 
 	size_t l2BodyLength() const { return 0; }
-	void writeBody(L3Frame&, size_t &wp) const { }
+	void writeBody(L3Frame&/*dest*/, size_t &/*wp*/) const { }
 };
 
 

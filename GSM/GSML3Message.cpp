@@ -17,6 +17,9 @@
 #include "GSML3RRMessages.h"
 #include "GSML3MMMessages.h"
 #include "GSML3CCMessages.h"
+#include "GSML3SSMessages.h"
+#include "GPRSL3Messages.h"
+#include <SMSMessages.h>
 #include <Logger.h>
 
 
@@ -51,7 +54,7 @@ void L3Message::write(L3Frame& dest) const
 	// write the body
 	writeBody(dest,wp);
 	// set the L2 length or pseudolength
-	dest.L2Length(L2Length());
+	dest.L2Length(l2Length());
 }
 
 
@@ -68,6 +71,15 @@ void L3Message::text(ostream& os) const
 {
 	os << "PD=" << PD();
 	os << " MTI=" << MTI();
+}
+
+string L3Message::text() const
+{
+	// Its a wonderful C++ world.
+	if (!this) return string("(null L3Message)");
+	ostringstream ss;
+	text(ss);
+	return ss.str();
 }
 
 
@@ -112,11 +124,40 @@ size_t GSM::skipTV(unsigned IEI, size_t numBits, const L3Frame& source, size_t& 
 	return rp-base;
 }
 
+string GSM::mti2string(L3PD pd, unsigned mti)
+{
+	ostringstream result;
+	// (pat) Since the C++ output paradigm is not OOP, we resort to switch statements.
+	switch (pd) {
+	// case L3GroupCallControlPD: break;
+	// case L3BroadcastCallControlPD: break;
+	// case L3PDSS1PD: break;
+	case L3CallControlPD: operator<<(result,(L3CCMessage::MessageType) mti); return result.str();
+	// case L3PDSS2PD: break;
+	case L3MobilityManagementPD: operator<<(result,(L3MMMessage::MessageType) mti); return result.str();
+	case L3RadioResourcePD: operator<<(result,(L3RRMessage::MessageType) mti); return result.str();
+	case L3GPRSMobilityManagementPD: operator<<(result, (SGSN::L3GmmMsg::MessageType) mti); return result.str();
+	case L3SMSPD: operator<<(result, (SMS::CPMessage::MessageType) mti); return result.str();
+	case L3GPRSSessionManagementPD: operator<<(result, (SGSN::L3SmMsg::MessageType) mti); return result.str();
+	case L3NonCallSSPD: operator<<(result, (L3SupServMessage::MessageType) mti); return result.str();
+	// case L3LocationPD: break;
+	// case L3ExtendedPD: break;
+	// case L3TestProcedurePD: break;
+	default: break;
+	}
+	return string("unknown");
+}
 
 
 ostream& GSM::operator<<(ostream& os, const L3Message& msg)
 {
 	msg.text(os);
+	return os;
+}
+
+ostream& GSM::operator<<(ostream& os, const L3Message*msg)
+{
+	if (msg) {msg->text(os);} else { os<<"null"; }
 	return os;
 }
 
@@ -137,12 +178,13 @@ GSM::L3Message* GSM::parseL3(const GSM::L3Frame& source)
 			case L3MobilityManagementPD: retVal=parseL3MM(source); break;
 			case L3CallControlPD: retVal=parseL3CC(source); break;
 			case L3SMSPD: retVal=SMS::parseSMS(source); break;
+			case L3NonCallSSPD: retVal = parseL3SupServ(source); break;
 			default:
 				LOG(NOTICE) << "L3 parsing failed for unsupported protocol " << PD;
 				return NULL;
 		}
 	}
-	catch (L3ReadError) {
+	catch (...) {	// (pat) Used to just catch L3ReadError, but lets be safer.
 		LOG(NOTICE) << "L3 parsing failed for " << source;
 		return NULL;
 	}
@@ -162,7 +204,7 @@ void L3ProtocolElement::parseLV(const L3Frame& source, size_t &rp)
 	size_t rpEnd = rp + 8*expectedLength;
 	parseV(source, rp, expectedLength);
 	if (rpEnd != rp) {
-		LOG(NOTICE) << "LV element does not match expected length";
+		LOG(NOTICE) << "LV element does not match expected length "<<rpEnd <<"!="<<rp;
 		L3_READ_ERROR;
 	}
 }
@@ -187,6 +229,13 @@ bool L3ProtocolElement::parseTV(unsigned IEI, const L3Frame& source, size_t &rp)
 }
 
 
+bool parseHasT(unsigned IEI, const L3Frame& source, size_t &rp)
+{
+	if (rp==source.size()) return false;
+	unsigned thisIEI = source.peekField(rp,8);
+	if (thisIEI!=IEI) return false;
+	return true;
+}
 
 bool L3ProtocolElement::parseTLV(unsigned IEI, const L3Frame& source, size_t &rp)
 {
@@ -197,7 +246,6 @@ bool L3ProtocolElement::parseTLV(unsigned IEI, const L3Frame& source, size_t &rp
 	parseLV(source,rp);
 	return true;
 }
-
 
 
 
@@ -234,6 +282,32 @@ void L3ProtocolElement::skipExtendedOctets( const L3Frame& source, size_t &rp )
 		endbit = source.readField(rp, 1);
 		rp += 7;
 	}
+}
+
+void L3OctetAlignedProtocolElement::writeV(L3Frame&dest, size_t&wp) const {
+	const unsigned char *data = peData();
+	for (unsigned i = mData.size(); i > 0; i--) {
+		dest.writeField(wp,*data++,8);
+	}
+}
+
+// expectedLength is in BYTES!
+void L3OctetAlignedProtocolElement::parseV(const L3Frame&src, size_t&rp, size_t expectedLength) {
+	LOG(DEBUG) <<LOGVAR(rp) <<LOGVAR(expectedLength) << " (these are not supposed to match)";
+	mExtant = true;
+	if (!expectedLength) return;
+	char *tmp = (char *)malloc(expectedLength);
+	for (unsigned i = 0; i < expectedLength; i++) {
+		tmp[i] = src.readField(rp,8);
+	}
+	mData = string(tmp,expectedLength);
+	free(tmp);
+}
+
+// Print it out as a hex string.
+void L3OctetAlignedProtocolElement::text(std::ostream&os) const {
+	if (!mExtant) { return; }
+	os << data2hex(peData(),mData.size());
 }
 
 

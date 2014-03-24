@@ -23,7 +23,7 @@ UDPSocket GSMTAPSocket;
 void gWriteGSMTAP(unsigned ARFCN, unsigned TS, unsigned FN,
                   GSM::TypeAndOffset to, bool is_saach,
 				  bool ul_dln,	// (pat) This flag means uplink
-                  const BitVector& frame,
+                  const BitVector2& frame,
 				  unsigned wType)	// Defaults to GSMTAP_TYPE_UM
 {
 	char buffer[MAX_UDP_LENGTH];

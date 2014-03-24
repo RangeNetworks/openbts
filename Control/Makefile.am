@@ -29,13 +29,21 @@ EXTRA_DIST = README.Control
 
 noinst_LTLIBRARIES = libcontrol.la
 
+
+# L3CallControl.cpp
 libcontrol_la_SOURCES = \
-	TransactionTable.cpp \
+	L3SMSControl.cpp \
+	L3MobilityManagement.cpp \
+	L3CallControl.cpp \
+	L3StateMachine.cpp \
+	L3SupServ.cpp \
+	L3MMLayer.cpp \
+	L3TranEntry.cpp \
+	L3LogicalChannel.cpp \
+	L3Utils.cpp \
+	L3Handover.cpp \
 	TMSITable.cpp \
-	CallControl.cpp \
-	SMSControl.cpp \
-	ControlCommon.cpp \
-	MobilityManagement.cpp \
+	ControlTransfer.cpp \
 	RadioResource.cpp \
 	DCCHDispatch.cpp \
 	SMSCB.cpp \
@@ -45,12 +53,18 @@ libcontrol_la_SOURCES = \
 # TODO - move CollectMSInfo.cpp and RRLPQueryController.cpp to RRLP directory.
 
 noinst_HEADERS = \
+	L3SMSControl.h \
+	L3CallControl.h \
+	L3MobilityManagement.h \
+	L3StateMachine.h \
+	L3SupServ.h \
+	L3MMLayer.h \
+	L3TranEntry.h \
+	L3LogicalChannel.h \
+	L3Utils.h \
 	ControlCommon.h \
-	SMSControl.h \
-	TransactionTable.h \
+	ControlTransfer.h \
 	TMSITable.h \
 	RadioResource.h \
-	MobilityManagement.h \
-	CallControl.h \
 	TMSITable.h \
 	RRLPServer.h

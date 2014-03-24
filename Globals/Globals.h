@@ -1,8 +1,7 @@
-//#define RN_DEVELOPER_MODE 1
 /**@file Global system parameters. */
 /*
 * Copyright 2008, 2009 Free Software Foundation, Inc.
-* Copyright 2011 Range Networks, Inc.
+* Copyright 2011, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
@@ -28,11 +27,15 @@
 #include <Configuration.h>
 #include <CLI.h>
 #include <PhysicalStatus.h>
-#include <TMSITable.h>
-#include <SubscriberRegistry.h>
+//#include <TMSITable.h>
 #include <TRXManager.h>
 #include <Reporting.h>
 
+#ifndef RN_DEVERLOPER_MODE
+#define RN_DEVERLOPER_MODE 0
+#endif
+
+namespace GPRS { extern unsigned GPRSDebug; }
 
 /** Date-and-time string, defined in OpenBTS.cpp. */
 extern const char* gDateTime;
@@ -53,13 +56,10 @@ extern const char *gVersionString;
 extern CommandLine::Parser gParser;
 
 /** The global TMSI table. */
-extern Control::TMSITable gTMSITable;
+//extern Control::TMSITable gTMSITable;
 
 /** The physical status reporting table */
 extern GSM::PhysicalStatus gPhysStatus;
-
-/** The subscriber registry and authenticator */
-extern SubscriberRegistry gSubscriberRegistry;
 
 /** The global transceiver interface. */
 extern TransceiverManager gTRX;

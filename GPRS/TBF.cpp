@@ -538,15 +538,10 @@ void sendAssignmentCcch(
 				// This code should be replaced with real paging channels.
 				// Our BS_PA_MFRMS is 2, so send the paging message twice to make
 				// sure it is sent in all (2) available paging 51-multiframes.
-				currentAGCH->send(amsg);
-				currentAGCH->send(amsg);
-				// DEBUG: try just plastering these messages out there.
-				//for (int ii = 0; ii < 6; ii++) {
-				//	GSM::CCCHLogicalChannel *anyagch = gBTS.getAGCH();
-				//	anyagch->send(amsg);
-				//}
+				currentAGCH->l2sendm(amsg);
+				currentAGCH->l2sendm(amsg);
 			} else {
-				currentAGCH->send(amsg);	// send() takes care of converting it to a BitVector.
+				currentAGCH->l2sendm(amsg);	// send() takes care of converting it to a BitVector.
 			}
 			tbf->mtCcchAssignCounter++;
 		}

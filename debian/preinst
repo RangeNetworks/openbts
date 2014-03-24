@@ -15,9 +15,8 @@ set -e
 
 install()
 {
-
 INSTALL_DIR=/OpenBTS
-DATE=$(date +'%Y-%m-%d.%H:%M:%S')
+DATE=$(date --rfc-3339='date')
 BACKUP_DIR=$INSTALL_DIR/backup_$DATE
 
 if [ -f $INSTALL_DIR/OpenBTS -a -f $INSTALL_DIR/transceiver ]; then

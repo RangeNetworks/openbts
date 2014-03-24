@@ -58,7 +58,7 @@ class NeighborTable {
 	unsigned paramAge(const char* address);
 
 	/** Returns a C-string that must be free'd by the caller. */
-	char* getAddress(unsigned BCCH_FREQ_NCELL, unsigned BSIC);
+	string getAddress(unsigned BCCH_FREQ_NCELL, unsigned BSIC);
 
 	/** Return the ARFCN given its position in the BCCH channel list (GSM 04.08 10.5.2.20). */
 	int getARFCN(unsigned BCCH_FREQ_NCELL);

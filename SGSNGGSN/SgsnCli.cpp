@@ -16,8 +16,9 @@
 
 #include <list>
 #include "Sgsn.h"
-#include "Utils.h"
-#include "Globals.h"
+#include <Utils.h>
+#include <Globals.h>
+#include <CLI.h>
 using namespace Utils;
 
 struct CliError {
@@ -141,9 +142,9 @@ static void sgsnCliHelp(int argc, char **argv, int argi, ostream&os)
 
 
 // For now, just do a list.
-int sgsnCLI(int argc, char **argv, std::ostream &os)
+CommandLine::CLIStatus sgsnCLI(int argc, char **argv, std::ostream &os)
 {
-	if (argc <= 1) { sgsnCliHelp(0,0,0,os); return 0; }
+	if (argc <= 1) { sgsnCliHelp(0,0,0,os); return CommandLine::SUCCESS; }
 	int argi = 1;	// The number of arguments consumed so far; argv[0] was "sgsn"
 	char *subcmd = argv[argi++];
 
@@ -154,14 +155,14 @@ int sgsnCLI(int argc, char **argv, std::ostream &os)
 				gscp->subcmd(argc,argv,argi,os);
 			} catch (CliError &e) {
 				os << "sgsn:"<<e.mMessage <<"\n";
-				return 0;	// We handled any error; dont let CLI print more warnings.
+				return CommandLine::SUCCESS;	// We handled any error; dont let CLI print more warnings.
 			}
-			return 0;
+			return CommandLine::SUCCESS;
 		}
 	}
 
 	os << "sgsn: unrecognized sub-command: "<<subcmd<<"\n";
-	return 2;	// bad command return - CLI will print a message to type 'sgsn help'.
+	return CommandLine::BAD_VALUE;	// bad command return - CLI will print a message to type 'sgsn help'.
 }
 
 };	// Namespace

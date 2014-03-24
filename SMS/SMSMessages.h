@@ -1,5 +1,5 @@
 /*
-* Copyright 2008 Free Software Foundation, Inc.
+* Copyright 2008, 2014 Free Software Foundation, Inc.
 *
 * This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
 *
@@ -141,8 +141,9 @@ class TLTimestamp : public TLElement {
 	void time(const Timeval& wTime) { mTime.time(wTime); }
 
 	size_t length() const { return mTime.lengthV(); }
-	void write(TLFrame& dest, size_t& wp) const { mTime.writeV((GSM::L3Frame&)(BitVector&)dest, wp); }
-	void parse(const TLFrame& src, size_t& rp) { mTime.parseV((GSM::L3Frame&)(BitVector&)src, rp); }
+	void write(TLFrame& dest, size_t& wp) const { mTime.writeV((GSM::L3Frame&)(BitVector2&)dest, wp); }
+	void parse(const TLFrame& src, size_t& rp) { mTime.parseV((GSM::L3Frame&)(BitVector2&)src, rp); }
+	void text(std::ostream&os) const;
 };
 
 
@@ -156,7 +157,7 @@ class TLUserData : public TLElement {
 	bool mUDHI;			///< header indicator
 	unsigned mLength; ///< TP-User-Data-Length, see GSM 03.40 Fig. 9.2.3.24(a),
 	                  ///< GSM 03.40 Fig. 9.2.3.24(b) and GSM 03.40 9.2.3.16.
-	BitVector mRawData;  ///< raw packed data
+	BitVector2 mRawData;  ///< raw packed data
 
 	public:
 
@@ -170,7 +171,7 @@ class TLUserData : public TLElement {
 	}
 
 	/** Initialize from a raw encoded data. */
-	TLUserData(unsigned wDCS, const BitVector wRawData, unsigned wLength,
+	TLUserData(unsigned wDCS, const BitVector2 wRawData, unsigned wLength,
 	           bool wUDHI=false)
 		:TLElement(),
 		mDCS(wDCS),
@@ -288,7 +289,7 @@ class TLMessage {
 	virtual void writeBody( TLFrame& frame, size_t &rp) const =0;
 
 	virtual void text(std::ostream& os) const
-		{ os << MTI(); }
+		{ os << "MTI="<<MTI(); }
 
 	// Accessors
 	bool MMS() const { return mMMS; }
@@ -312,7 +313,7 @@ class TLMessage {
 	void writeSRQ(TLFrame& fm) const { fm[2]=mSRQ; }
 	void parseSRQ(const TLFrame& fm) { mSRQ=fm[2]; }
 	void writeUDHI(TLFrame& fm, bool udhi) const { fm[1]=udhi; }
-	bool parseUDHI(const TLFrame& fm) { return fm[1]; }
+	bool parseUDHI(const TLFrame& fm) { return mUDHI = fm[1]; }
 	void writeRP(TLFrame& fm) const { fm[0]=mRP; }
 	void parseRP(const TLFrame& fm) { mRP=fm[0]; }
 	void writeUnused(TLFrame& fm) const { fm.fill(0,3,2); } ///< Fill unused bits with 0s
@@ -375,7 +376,7 @@ class TLDeliver : public TLMessage {
 
 	private:
 
-	TLAddress mOA;			///< origination address, GSM 03.40 9.3.2.7
+	TLAddress mOA;			///< origination address, GSM 03.40 9.2.3.7
 	unsigned mPID;			///< TL-PID, GSM 03.40 9.2.3.9
 	// DCS is taken from mUD.
 	TLTimestamp mSCTS;		///< service center timestamp, GSM 03.40 9.2.3.11
@@ -392,12 +393,15 @@ class TLDeliver : public TLMessage {
 		:TLMessage(),
 		mUD(wUD)
 	{}
+
+	// (pat 10-2013) This form is to re-parse a downlink message for inspection.
+	TLDeliver(const TLFrame& input);
 	
 	int MTI() const { return DELIVER; }
 
 	size_t l2BodyLength() const;
 	void writeBody( TLFrame& frame, size_t& wp ) const;
-	void parseBody(const TLFrame&, size_t&) { assert(0); }
+	void parseBody(const TLFrame&, size_t&);
 	virtual void text( std::ostream& os ) const;
 };
 
@@ -437,10 +441,10 @@ class RPUserData : public GSM::L3ProtocolElement {
 
 	private:
 
-	// The BitVector is a placeholder for a higher-layer object.
+	// The BitVector2 is a placeholder for a higher-layer object.
+	public:
 	TLFrame mTPDU;
 
-	public:
 
 	RPUserData()
 		:L3ProtocolElement(),
@@ -469,7 +473,7 @@ class RPUserData : public GSM::L3ProtocolElement {
 	}
 
 	void writeV(GSM::L3Frame& dest, size_t &wp) const;
-	void parseV(const GSM::L3Frame& src, size_t &rp) { assert(0); }
+	void parseV(const GSM::L3Frame& /*src*/, size_t &/*rp*/) { assert(0); }
 	void parseV(const GSM::L3Frame& src, size_t &rp, size_t expectedLength);
 
 	void text(std::ostream& os) const { mTPDU.hex(os); }
@@ -576,9 +580,9 @@ class RPData : public RPMessage {
 
 	RPAddress mOriginator;			///< originating SMSC
 	RPAddress mDestination;			///< destination SMSC
+	public:
 	RPUserData mUserData;			///< payload
 
-	public:
 
 	RPData():RPMessage() {}
 
@@ -627,8 +631,8 @@ class RPAck : public RPMessage {
 	
 	int MTI() const { return Ack; }
 
-	void writeBody(RLFrame& frame, size_t &wp) const {}
-	void parseBody( const RLFrame& frame, size_t &rp) {}
+	void writeBody(RLFrame& /*frame*/, size_t &/*wp*/) const {}
+	void parseBody( const RLFrame& /*frame*/, size_t &/*rp*/) {}
 
 	size_t l2BodyLength() const { return 0; }
 };
@@ -693,7 +697,7 @@ class CPCause : public GSM::L3ProtocolElement {
 	void writeV(GSM::L3Frame& dest, size_t &wp) const
 		{ dest.writeField(wp,mValue,8); }
 
-	void parseV(const GSM::L3Frame& src, size_t &rp, size_t) { assert(0); }
+	void parseV(const GSM::L3Frame& /*src*/, size_t &/*rp*/, size_t) { assert(0); }
 
 	void parseV(const GSM::L3Frame& src, size_t &rp)
 		{ mValue = src.readField(rp,8); }
@@ -728,8 +732,8 @@ class CPUserData : public GSM::L3ProtocolElement {
 	size_t lengthV() const { return mRPDU.size()/8; }
 	void writeV(GSM::L3Frame& dest, size_t &wp) const;
 	void parseV(const GSM::L3Frame& src, size_t &rp, size_t expectedLength);
-	void parseV(const GSM::L3Frame& src, size_t &rp) { assert(0); }
-	void text(std::ostream& os) const { mRPDU.hex(os); }
+	void parseV(const GSM::L3Frame& /*src*/, size_t &/*rp*/) { assert(0); }
+	void text(std::ostream& os) const { mRPDU.text(os); }	// called for operator<<(...,CPUserData) by L3ProtocolElement.
 };
 
 //@} // CP Elements
@@ -807,7 +811,7 @@ RPData *hex2rpdata(const char *hexstring);
 	@param TPDU The TPDU.
 	@return Pointer to parsed TLMessage or NULL on error.
 */
-TLMessage *parseTPDU(const TLFrame& TPDU);
+TLMessage *parseTPDU(const TLFrame& TPDU, bool directionUplink = false);
 
 /** A factory method for SMS L3 (CM) messages. */
 CPMessage * CPFactory( CPMessage::MessageType MTI );
@@ -826,8 +830,8 @@ class CPAck : public CPMessage
 	int MTI() const { return ACK; }
 
 	size_t l2BodyLength() const { return 0; }
-	void parseBody(const GSM::L3Frame& dest, size_t &rp) {};
-	void writeBody(GSM::L3Frame& dest, size_t &wp) const {};
+	void parseBody(const GSM::L3Frame& /*dest*/, size_t &/*rp*/) {};
+	void writeBody(GSM::L3Frame& /*dest*/, size_t &/*wp*/) const {};
 
 	void text(std::ostream& os) const { CPMessage::text(os); }
 };
@@ -856,7 +860,9 @@ class CPError : public CPMessage
 	int MTI() const { return ERROR; }
 	size_t l2BodyLength() const { return mCause.lengthV(); }
 	void writeBody(GSM::L3Frame& dest, size_t &wp) const;
-	void parseBody(const GSM::L3Frame&, size_t&) { assert(0); }
+	// pat 5-14-2013: This was an assert, but I believe this can happen because parseSMS does not triage out this type
+	// of message, so changed to devassert.
+	void parseBody(const GSM::L3Frame&, size_t&) { devassert(0); }
 };
 
 

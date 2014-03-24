@@ -2,7 +2,7 @@
 /*
 * Copyright 2008, 2009 Free Software Foundation, Inc.
 * Copyright 2010 Kestrel Signal Processing, Inc.
-* Copyright 2011, 2012 Range Networks, Inc.
+* Copyright 2011, 2012, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
@@ -251,7 +251,9 @@ class L3CellChannelDescription : public L3FrequencyList {
 
 
 /**
-	Neighbor Cells Description, GSM 04.08 10.5.2.22
+	Neighbor Cells Description, GSM 04.08 or 44.018 10.5.2.22 and 10.5.2.1b
+	Note that in the spec the NeighborCellDescription is just a variation of the CellChannelDescription IE,
+	which is where the main documentation resides.
 	(A kind of frequency list.)
 	This element describes neighboring cells that may be 
 	candidates for handovers.
@@ -295,6 +297,7 @@ class L3NCCPermitted : public L3ProtocolElement {
 		:L3ProtocolElement()
 	{
 		mPermitted = gConfig.getNum("GSM.CellSelection.NCCsPermitted");
+		mPermitted |= 1 << gConfig.getNum("GSM.Identity.BSIC.NCC");
 	}
 
 	size_t lengthV() const { return 1; }
@@ -307,6 +310,17 @@ class L3NCCPermitted : public L3ProtocolElement {
 
 
 
+// T3126 is how long the MS listens to CCCH after a RACH, and is dependent on parameters broadcast in L3RACHControlParameters.
+// 4.08/24.008 says value is T+2S but no longer than 5secs, where T and S are defined in 44.018 3.3.1.2:
+// T is the "Tx Integer" broadcast on BCCH (we default to 14), S is defined by table 3.3.1.1.2.1:
+// 	TX-integer non-combined-CCCH combined-CCH/SDCCH
+// 		3,8,14,50	55		41
+// 		4,9,16		76 		52
+// 		5,10,20		109 	58
+// 		6,11,25		163 	86
+// 		7,12,32		217 	115
+// See further documentation at the config value GSM.CCCH.AGCH.QMax.
+
 
 /** RACH Control Parameters GSM 04.08 10.5.2.29 */
 class L3RACHControlParameters : public L3ProtocolElement {
@@ -314,6 +328,11 @@ class L3RACHControlParameters : public L3ProtocolElement {
 	private:
 
 	unsigned mMaxRetrans;		///< code for 1-7 RACH retransmission attempts
+	// 44.018 Table 10.5.2.29.1: coding of MaxRetransmissions:
+	//	0 => Maximum 1 retransmission.
+	//	1 => Maximum 2 retransmission.
+	//	2 => Maximum 4 retransmission.
+	//	3 => Maximum 7 retransmission.
 	unsigned mTxInteger;		///< code for 3-50 slots to spread transmission
 	unsigned mCellBarAccess;	///< if true, phones cannot camp
 	unsigned mRE;				///< if true, call reestablishment is not allowed
@@ -331,7 +350,7 @@ class L3RACHControlParameters : public L3ProtocolElement {
 		// Configurable values.
 		mMaxRetrans = gConfig.getNum("GSM.RACH.MaxRetrans");
 		mTxInteger = gConfig.getNum("GSM.RACH.TxInteger");
-		mAC = 0x0400; //NO EMERGENCY SERVICE - kurtis
+		mAC = gConfig.getNum("GSM.RACH.AC");
 	}
 
 	size_t lengthV() const { return 3; }
@@ -417,14 +436,14 @@ class L3ChannelDescription : public L3ProtocolElement {
 
 	// Octet 2.
 	TypeAndOffset mTypeAndOffset; // 5 bit
-	unsigned mTN; 		//3 bit 
+	unsigned mTN; 		//3 bit 	Timeslot Number
 
 	// Octet 3 & 4.
-	unsigned mTSC; 		// 3 bit
-	unsigned mHFlag; 	// 1 bit
+	unsigned mTSC; 		// 3 bit	Training Sequence Number.
+	unsigned mHFlag; 	// 1 bit	If true, it is a hopping channel.
 	unsigned mARFCN;	// 10 bit overflows
-	unsigned mMAIO;		// 6 bit overflows
-	unsigned mHSN;		// 6 bit
+	unsigned mMAIO;		// 6 bit overflows	Mobile Allocation Index Offset (for hopping channels)
+	unsigned mHSN;		// 6 bit	Hopping Sequence Number (for hopping channels)
 	
 public:
 
@@ -458,7 +477,7 @@ public:
 	unsigned ARFCN() const { return mARFCN; }
 };
 
-/** GSM 040.08 10.5.2.5a */
+/** GSM 44.018 10.5.2.5a */
 class L3ChannelDescription2 : public L3ChannelDescription {
 
 	public:
@@ -467,6 +486,8 @@ class L3ChannelDescription2 : public L3ChannelDescription {
 		unsigned wTSC, unsigned wARFCN)
 		:L3ChannelDescription(wTypeAndOffset,wTN,wTSC,wARFCN)
 	{ }
+
+	L3ChannelDescription2(const L3ChannelDescription &other) : L3ChannelDescription(other) {}
 
 	L3ChannelDescription2() { }
 };
@@ -542,18 +563,43 @@ public:
 
 
 /** GSM 04.08 10.5.2.31 */
+// 44.018 10.5.2.31
+// (pat) The default RR cause 0 indicates "Normal Event"
 class L3RRCause : public L3ProtocolElement
 {
-	int mCauseValue;
+	public:
+	enum RRCause {
+		NormalEvent = 0,
+		Unspecified = 1,
+		ChannelUnacceptable = 2,
+		TimerExpired = 3,
+		NoActivityOnTheRadio = 4,
+		PreemptiveRelease = 5,
+		UTRANConfigurationUnknown = 6,
+		HandoverImpossible = 8,	// (Timing out of range)
+		ChannelModeUnacceptable = 9,
+		FrequencyNotImplemented = 0xa,
+		LeavingGroupCallArea = 0xb,
+		LowerLayerFailure = 0xc,
+		CallAlreadyCleared = 0x41,
+		SemanticallyIncorrectMessage = 0x5f,
+		InvalidMandatoryInformation = 0x60,
+		MessageTypeInvalid = 0x61,		// Not implemented or non-existent
+		MessageTypeNotCompapatibleWithProtocolState = 0x62,
+		ConditionalIEError = 0x64,
+		NoCellAvailable = 0x65,
+		ProtocolErrorUnspecified = 0x6f
+	};
+	private: RRCause mCauseValue;
 
 	public:
 
 	/** Constructor cause defaults to "normal event". */
-	L3RRCause(int wValue=0)
+	L3RRCause(RRCause wValue=NormalEvent)
 		:L3ProtocolElement()
 	{ mCauseValue=wValue; }
 
-	int causeValue() const { return mCauseValue; }
+	RRCause causeValue() const { return mCauseValue; }
 
 	size_t lengthV() const { return 1; }
 	void writeV(L3Frame&, size_t&) const;
@@ -562,6 +608,7 @@ class L3RRCause : public L3ProtocolElement
 	void text(std::ostream&) const;
 
 };
+typedef L3RRCause::RRCause RRCause;
 
 
 
@@ -581,7 +628,7 @@ public:
 
 	size_t lengthV() const { return 1; }
 	void writeV( L3Frame &dest, size_t &wp ) const;
-	void parseV( const L3Frame&, size_t&) { assert(0); }
+	void parseV( const L3Frame&, size_t&);
 	void parseV(const L3Frame&, size_t& , size_t) { assert(0); }
 	void text(std::ostream&) const;
 
@@ -597,9 +644,9 @@ public:
 	enum Mode 
 	{
 		SignallingOnly=0,
-		SpeechV1=1,
-		SpeechV2=2,
-		SpeechV3=3
+		SpeechV1=1,	// GSM FR or HR
+		SpeechV2=2,	// GSM EFR (half rate not defined in this version of the protocol.)
+		SpeechV3=3	// AMR FR or HR
 	};
 
 private:
@@ -613,6 +660,8 @@ public:
 		mMode(wMode)
 	{}
 
+	bool isAMR() const { return mMode == SpeechV3; }
+
 	bool operator==(const L3ChannelMode& other) const { return mMode==other.mMode; }
 	bool operator!=(const L3ChannelMode& other) const { return mMode!=other.mMode; }
 
@@ -622,6 +671,45 @@ public:
 	void parseV(const L3Frame&, size_t& , size_t) { assert(0); }
 	void text(std::ostream&) const;
 
+};
+
+
+// 3GPP 44.018 10.5.2.21aa
+// (pat) 10-2012: Multi-rate element needed for AMR codecs when L3ChannelMode is set to SpeechV3.
+// Not to be confused with unrelated GPRS multi-slot.
+// It is sent in the L3 Channel Mode Modify, possibly among others.
+// It is a variable length element with room to specify multiple codecs,
+// but we do not support AMR rate adaptation yet so we use it with just one codec.
+class L3MultiRateConfiguration : public L3ProtocolElement {
+	// IE specifies a set of 4 among the many AMR codecs, but there are only 3 possible configurations 
+	// that are ever of any interest to us:  AMR_FR, AMR_HR, and if we ever support
+	// rate-adaptation, the recommended multi-rate set from 28.062 table 7.11.3.1.3-2,
+	// which is Config-NB-1 includes codecs: 12.2, 7.4, 5.9, 4.75 for FR_AMR and compatible with GSM AMR.
+	// For multi-rate we must also specify the threshold and hystersis to switch codecs, which are black
+	// magic and possibly dependent on MS manufacturer - gotta love that, and we also have to implement
+	// the TFO/TrFO (Tandem Free/Transcoder Free) Operation controller, not to mention implementing
+	// codec negotation through SIP.  It is a lot of work.
+
+	// The options byte is a bit field defined in 10.5.2.21aa.1.
+	// There are only 3 possible values that will ever by useful:
+	enum AmrCodecSet {
+		codec_set_AMR_FR = 0x80,
+		codec_set_AMR_HR = 0x10,
+		codec_set_UMTS_AMR = 0x80 + 0x10 + 4 + 1	// AMR multi-rate config, in case we ever use it.
+		};
+	unsigned mOptions;	// octet "3".
+	AmrCodecSet mAmrCodecSet;		// Choose one of the above.
+	public:
+	L3MultiRateConfiguration(bool halfrate=0) {
+		mOptions = 0x20;	// AMR version 1 (ie, not WB), no noise suppression, no initial codec.
+		mAmrCodecSet = halfrate ? codec_set_AMR_HR : codec_set_AMR_FR;
+	}
+	// excluding IEI and the length byte itself, the fixed length for a single non-adaptive codec is 2.
+	size_t lengthV() const { return 2; }
+	void parseV(const L3Frame&, size_t&) { assert(0); }
+	void parseV(const L3Frame&, size_t& , size_t) { assert(0); }	// Use this one for TLV format
+	void writeV(L3Frame&, size_t&) const;
+	void text(std::ostream&) const;
 };
 
 std::ostream& operator<<(std::ostream&, L3ChannelMode::Mode);
@@ -714,7 +802,7 @@ class L3APDUData : public L3ProtocolElement {
 
 	private:
 
-    BitVector mData; // will contain a RRLP message
+    BitVector2 mData; // will contain a RRLP message
 
 	public:
 
@@ -722,7 +810,7 @@ class L3APDUData : public L3ProtocolElement {
 
 	/** Default is a zero length APDUData IE */
 	L3APDUData();
-    L3APDUData(BitVector data);
+    L3APDUData(BitVector2 data);
 
 	size_t lengthV() const
 	{
@@ -778,6 +866,7 @@ class L3MeasurementResults : public L3ProtocolElement {
 	void parseV(const L3Frame&, size_t&);
 	void parseV(const L3Frame&, size_t& , size_t) { assert(0); }
 	void text(std::ostream& os) const;
+	string text() const;
 	
 	/**@name Accessors. */
 	//@{
@@ -844,7 +933,7 @@ class L3CellDescription : public L3ProtocolElement {
 
 	size_t lengthV() const { return 2; }
 	void writeV(L3Frame&, size_t&) const;
-	void parseV(const L3Frame&, size_t&) { assert(0); }
+	void parseV(const L3Frame&, size_t&);
 	void parseV(const L3Frame&, size_t& , size_t) { assert(0); }
 	void text(std::ostream&) const;
 };
@@ -855,7 +944,7 @@ class L3HandoverReference : public L3ProtocolElement
 {
 	protected:
 
-	unsigned mValue;
+	unsigned mValue;	// Range 0 to 255
 
 
 	public:
@@ -870,7 +959,7 @@ class L3HandoverReference : public L3ProtocolElement
 	size_t lengthV() const { return 1; }
 	void writeV(L3Frame &, size_t &wp ) const;
 	void parseV( const L3Frame&, size_t&, size_t) { abort(); }
-	void parseV(const L3Frame&, size_t&) { abort(); }
+	void parseV(const L3Frame&src, size_t&rp) { mValue = src.readField(rp,8); }
 	void text(std::ostream&) const;
 
 	unsigned value() const { return mValue; }
@@ -924,9 +1013,9 @@ class L3SynchronizationIndication : public L3ProtocolElement
 {
 	protected:
 
-	bool mNCI;
-	bool mROT;
-	int mSI;
+	bool mNCI;		// Normal Cell Indication.  0 => ignore TA out of range. 1 => handover fail on TA out of range.
+	bool mROT;		// Report Observed Time difference in Handover Complete.
+	int mSI;		// Synchronization Indication.  0 = unsynchronized.
 
 	public:
 
@@ -942,7 +1031,7 @@ class L3SynchronizationIndication : public L3ProtocolElement
 	size_t lengthV() const { return 1; }
 	void writeV(L3Frame &, size_t &wp ) const;
 	void parseV( const L3Frame&, size_t&, size_t) { abort(); }
-	void parseV(const L3Frame&, size_t&) { abort(); }
+	void parseV(const L3Frame&, size_t&);
 	void text(std::ostream&) const;
 
 	unsigned NCI() const { return mNCI; }
@@ -951,6 +1040,7 @@ class L3SynchronizationIndication : public L3ProtocolElement
 
 
 /** GSM 04.08 10.5.2.28a */
+// (pat) Defaults to 0 which is maximum possible power.
 class L3PowerCommandAndAccessType : public L3PowerCommand { };
 
 

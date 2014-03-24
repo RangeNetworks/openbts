@@ -409,7 +409,7 @@ void L3RRCause::writeV( L3Frame &dest, size_t &wp ) const
 
 void L3RRCause::parseV( const L3Frame &src, size_t &rp )
 {
-	mCauseValue = src.readField(rp, 8);
+	mCauseValue = (RRCause) src.readField(rp, 8);
 }
 
 void L3RRCause::text(ostream& os) const
@@ -424,6 +424,12 @@ void L3PowerCommand::writeV( L3Frame &dest, size_t &wp )const
 {
 	dest.writeField(wp, 0, 3);
 	dest.writeField(wp, mCommand, 5);
+}
+
+void L3PowerCommand::parseV(const L3Frame &src, size_t &rp)
+{
+	// Just put the whole thing in mCommand so we can see it.
+	mCommand = src.readField(rp,8);
 }
 
 
@@ -445,6 +451,36 @@ void L3ChannelMode::parseV(const L3Frame& src, size_t& rp)
 {
 	mMode = (Mode)src.readField(rp,8);
 }
+
+void L3MultiRateConfiguration::writeV( L3Frame& dest, size_t &wp) const
+{
+	// The length is written by the caller.
+	//dest.writeField(wp,3,8);	// fixed length
+	dest.writeField(wp,mOptions,8);
+	dest.writeField(wp,mAmrCodecSet,8);
+}
+
+void L3MultiRateConfiguration::text(std::ostream&os) const
+{
+	char name[20];
+	switch (mAmrCodecSet) {
+		case codec_set_AMR_FR: strcpy(name,"AMR_FR"); break;
+		case codec_set_AMR_HR: strcpy(name,"AMR_HR"); break;
+		case codec_set_UMTS_AMR: strcpy(name,"UMTS_AMR"); break;
+		default: sprintf(name,"0x%x",mAmrCodecSet); break;
+	}
+	os << format("MultRate(options=0x%x,codec=%s)",mOptions,name);
+}
+
+//void L3MultiRateConfiguration::parseV(const L3Frame& src, size_t& rp)
+//{
+//	size_t rpstart = rp;
+//	unsigned len = src.readField(rp,8);
+//	if (len != 3) { LOG(ERR) << "L3MultRateConfiguration IEI unsupported length: "<<len; }
+//	mOptions = src.readField(rp,8);
+//	mAmrCodecSet = src.readField(rp,8);
+//	rp = rpstart + len;
+//}
 
 
 
@@ -522,7 +558,7 @@ L3APDUData::L3APDUData()
 {
 }
 
-L3APDUData::L3APDUData(BitVector data)
+L3APDUData::L3APDUData(BitVector2 data)
     :L3ProtocolElement()
     ,mData(data)
 {
@@ -543,9 +579,8 @@ void L3APDUData::parseV( const L3Frame& src, size_t &rp, size_t expectedLength )
 {
     LOG(DEBUG) << "L3APDUData: parseV " << expectedLength << " bytes";
     mData.resize(expectedLength*8);
-    src.copyToSegment(mData, rp, expectedLength*8); // expectedLength is bytes, not bits
-    //for ( size_t i = 0 ; i < expectedLength ; ++i)
-    //    mData[i] = src.readField(rp, 8);
+    src.segmentCopyTo(mData, rp, expectedLength*8); // expectedLength is bytes, not bits
+	rp += expectedLength*8;
 }
 
 void L3APDUData::text(ostream& os) const
@@ -553,10 +588,8 @@ void L3APDUData::text(ostream& os) const
     // TODO - use the following two lines (get rid of the "char / char*" error)
     //std::ostream_iterator<std::string> output( os, "" );
     //std::copy( mData.begin(), mData.end(), output );
-    for (size_t i = 0 ; i < mData.size() ; ++i) {
-        os << (mData[i] ? "1" : "0");
-	}
-
+	os <<"data(size="<<mData.size()<<" ";  mData.hex(os); os << ")";
+    //for (size_t i = 0 ; i < mData.size() ; ++i) { os << (mData[i] ? "1" : "0"); }
 }
 
 
@@ -604,6 +637,13 @@ void L3MeasurementResults::text(ostream& os) const
 		os << " BCCH_FREQ_NCELL" << i+1 << "=" << mBCCH_FREQ_NCELL[i];
 		os << " BSIC_NCELL" << i+1 << "=" << mBSIC_NCELL[i];
 	}
+}
+
+string L3MeasurementResults::text() const
+{
+	ostringstream os;
+	text(os);
+	return os.str();
 }
 
 
@@ -778,12 +818,6 @@ void L3HandoverReference::writeV(L3Frame& frame, size_t& wp) const
 }
 
 
-void L3HandoverReference::text(ostream& os) const
-{
-	os << "value=" << mValue;
-}
-
-
 size_t L3CipheringModeSetting::lengthV() const
 {
 	return 0;
@@ -817,12 +851,26 @@ void L3CipheringModeResponse::text(ostream& os) const
 	os << "includeIMEISV=" << mIncludeIMEISV;
 }
 
+void L3HandoverReference::text(ostream& os) const
+{
+	os << "value=" << mValue;
+}
+
+
 void L3SynchronizationIndication::writeV(L3Frame& frame, size_t& wp) const
 {
 	frame.writeField(wp,0xD,4);
 	frame.writeField(wp,mNCI,1);
 	frame.writeField(wp,mROT,1);
 	frame.writeField(wp,mSI,2);
+}
+
+void L3SynchronizationIndication::parseV( const L3Frame &src, size_t &rp)
+{
+	src.readField(rp, 4);
+	mNCI = src.readField(rp, 1);
+	mROT = src.readField(rp, 1);
+	mSI = src.readField(rp, 2);
 }
 
 void L3SynchronizationIndication::text(ostream& os) const
@@ -837,6 +885,14 @@ void L3CellDescription::writeV(L3Frame& frame, size_t &wp) const
 	frame.writeField(wp, mNCC, 3);
 	frame.writeField(wp, mBCC, 3);
 	frame.writeField(wp, mARFCN & 0x0ff, 8);
+}
+
+void L3CellDescription::parseV(const L3Frame&src, size_t&rp)
+{
+	unsigned arfcnHighBits = src.readField(rp,2);
+	mNCC = src.readField(rp,3);
+	mBCC = src.readField(rp,3);
+	mARFCN = src.readField(rp,8) + (arfcnHighBits<<8);
 }
 
 

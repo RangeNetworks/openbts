@@ -23,40 +23,6 @@ using namespace GSM;
 using namespace std;
 
 
-const char* GSM::CallStateString(GSM::CallState state)
-{
-	switch (state) {
-		case NullState: return "null";;
-		case Paging: return "paging";
-		case AnsweredPaging: return "answered-paging";
-		case MOCInitiated: return "MOC-initiated";
-		case MOCProceeding: return "MOC-proceeding";
-		case MTCConfirmed: return "MTC-confirmed";
-		case CallReceived: return "call-received";
-		case CallPresent: return "call-present";
-		case ConnectIndication: return "connect-indication";
-		case Active: return "active";
-		case DisconnectIndication: return "disconnect-indication";
-		case ReleaseRequest: return "release-request";
-		case SMSDelivering: return "SMS-delivery";
-		case SMSSubmitting: return "SMS-submission";
-		case HandoverInbound: return "HANDOVER Inbound";
-		case HandoverProgress: return "HANDOVER Progress";
-		case HandoverOutbound: return "HANDOVER Outbound";
-		case BusyReject: return "Busy Reject";
-		default: return NULL;
-	}
-}
-
-ostream& GSM::operator<<(ostream& os, GSM::CallState state)
-{
-	const char* str = GSM::CallStateString(state);
-	if (str) os << str;
-	else os << "?" << ((int)state) << "?";
-	return os;
-}
-
-
 ostream& GSM::operator<<(ostream& os, L3PD val)
 {
 	switch (val) {
@@ -69,20 +35,20 @@ ostream& GSM::operator<<(ostream& os, L3PD val)
 }
 
 
-const BitVector GSM::gTrainingSequence[] = {
-    BitVector("00100101110000100010010111"),
-    BitVector("00101101110111100010110111"),
-    BitVector("01000011101110100100001110"),
-    BitVector("01000111101101000100011110"),
-    BitVector("00011010111001000001101011"),
-    BitVector("01001110101100000100111010"),
-    BitVector("10100111110110001010011111"),
-    BitVector("11101111000100101110111100"),
+const BitVector2 GSM::gTrainingSequence[] = {
+    BitVector2("00100101110000100010010111"),
+    BitVector2("00101101110111100010110111"),
+    BitVector2("01000011101110100100001110"),
+    BitVector2("01000111101101000100011110"),
+    BitVector2("00011010111001000001101011"),
+    BitVector2("01001110101100000100111010"),
+    BitVector2("10100111110110001010011111"),
+    BitVector2("11101111000100101110111100"),
 };
 
-const BitVector GSM::gDummyBurst("0001111101101110110000010100100111000001001000100000001111100011100010111000101110001010111010010100011001100111001111010011111000100101111101010000");
+const BitVector2 GSM::gDummyBurst("0001111101101110110000010100100111000001001000100000001111100011100010111000101110001010111010010100011001100111001111010011111000100101111101010000");
 
-const BitVector GSM::gRACHSynchSequence("01001011011111111001100110101010001111000");
+const BitVector2 GSM::gRACHSynchSequence("01001011011111111001100110101010001111000");
 
 
 
@@ -121,12 +87,30 @@ char GSM::encodeBCDChar(char ascii)
 }
 
 
+// Must be unsigned char, not signed char, or the conversion in sprintf below will be negative
+string GSM::data2hex(const unsigned char *data, unsigned nbytes)
+{
+	//LOG(DEBUG) << LOGVAR(nbytes);
+	string result;
+	result.reserve(2+2*nbytes);
+	result.append("0x");
+	if (nbytes == 0) { result.append("0"); return result; }
+	for (unsigned i = 0; i < nbytes; i++) {
+		char buf[20];	// Paranoid, only need 3.
+		sprintf(buf,"%02x",*data++);
+		//LOG(DEBUG) << LOGVAR(buf) <<LOGVAR(result);
+		result.append(buf);
+	}
+	return result;
+}
+
 
 
 unsigned GSM::uplinkFreqKHz(GSMBand band, unsigned ARFCN)
 {
 	switch (band) {
 		case GSM850:
+			//assert((ARFCN<252)&&(ARFCN>129));		// this was a real bug, ticket #1420.
 			assert((ARFCN>=128)&&(ARFCN<=251));
 			return 824200+200*(ARFCN-128);
 		case EGSM900:
@@ -413,6 +397,13 @@ long Z100Timer::remaining() const
 void Z100Timer::wait() const
 {
 	while (!expired()) msleep(remaining());
+}
+
+std::ostream& GSM::operator<<(std::ostream& os, const Z100Timer&zt)
+{
+	if (zt.active()) { os << zt.remaining(); }
+	else { os << "inactive"; }
+	return os;
 }
 
 // vim: ts=4 sw=4

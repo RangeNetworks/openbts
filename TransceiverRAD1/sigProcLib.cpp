@@ -888,11 +888,12 @@ bool generateMidamble(signalVector &gsmPulse,
   *(emptyPulse.begin()) = 1.0;
 
   // only use middle 16 bits of each TSC
-  signalVector *middleMidamble = modulateBurst(gTrainingSequence[TSC].segment(5,16),
+  // (pat) fwiw the uses of gTrainingSequence formerly did clones here.  I added the call to alias() to prevent that.
+  signalVector *middleMidamble = modulateBurst(gTrainingSequence[TSC].alias().segment(5,16),
 					 emptyPulse,
 					 0,
 					 samplesPerSymbol);
-  signalVector *midamble = modulateBurst(gTrainingSequence[TSC],
+  signalVector *midamble = modulateBurst(gTrainingSequence[TSC].alias(),
                                          gsmPulse,
                                          0,
                                          samplesPerSymbol);

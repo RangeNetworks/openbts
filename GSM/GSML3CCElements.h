@@ -1,6 +1,6 @@
 /**@file Elements for Call Control, GSM 04.08 10.5.4.  */
 /*
-* Copyright 2008, 2009 Free Software Foundation, Inc.
+* Copyright 2008, 2009, 2014 Free Software Foundation, Inc.
 *
 * This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
 *
@@ -21,6 +21,7 @@
 
 #include "GSML3Message.h"
 #include <iostream>
+#include <ControlTransfer.h>
 
 
 namespace GSM {
@@ -28,14 +29,26 @@ namespace GSM {
 /** Bearer Capability, GSM 04.08 10.5.4.5 */
 class L3BearerCapability : public L3ProtocolElement {
 
+	// Obsolete comment:
 	// The spec for this is really intimidating.
 	// But we're just going to assume circuit-switched speech
 	// with a full rate codec, since every phone supports that.
 	// So we can just ignore this hideously complex element.
 
-public:
+	// (pat) There may be multiple BearerCapability IEs for speech and non-speech.
+	// We save only the speech one; the speech version of this IE includes only Octet3
+	// and zero or more octet3a, one for each codec supported.
+	uint8_t mOctet3, mOctet3a[10];
+	unsigned mNumOctet3a;	// Number of elements in mOctet3a.
 
-	L3BearerCapability() : L3ProtocolElement() {}
+public:
+	Bool_z mPresent;
+
+	L3BearerCapability() {
+		mOctet3 = 0x0f; // We hard code this octet for circuit switched speech.
+		mNumOctet3a = 1;
+		mOctet3a[0] = 0x80; // We hard code for full rate speech v1, the GSM 06.10 codec.
+	}
 	
 	size_t lengthV() const { return 2; }
 	void writeV( L3Frame& dest, size_t &wp ) const;
@@ -43,9 +56,68 @@ public:
 	void parseV(const L3Frame&, size_t&) { assert(0); }
 	void text(std::ostream&) const;
 
+	// accessors
+	// Note: As defined in 26.103 and 48.008
+	// Meaning of these bits is hard to find: It is in 48.008 3.2.2.11:
+	// GSM speech full rate version 1: GSM FR
+	// GSM speech full rate version 2: GSM EFR
+	// GSM speech full rate version 3: FR AMR
+	// GSM speech full rate version 4: OFR AMR-WB
+	// GSM speech full rate version 5: FR AMR-WB
+	// GSM speech half rate version 1: GSM HR
+	// GSM speech half rate version 2: not defined
+	// GSM speech half rate version 3: HR AMR
+	// GSM speech half rate version 4: OHR AMR-WB
+	// GSM speech half rate version 6: OHR AMR
+	//unsigned getSpeechVersion() { return mOctet3 & 0xf; }
+	// Return the CodecType for the speech version in octet n;
+	Control::CodecType getCodecType(unsigned n) const;
+	Control::CodecType getCodecSet() const;
+	unsigned getHalfRateSupport() { return mOctet3 & 0x40; } // Bit 7 is true if half-rate supported.
+};
+
+// (pat) Added 10-22-2012.
+// 3GPP 24.008 10.5.4.32 and 3GPP 26.103
+// I added this IE before I read the fine print.  This is only used for UMTS, and the BearerCapability
+// is used for GSM radio networks, so we dont really need this, since any UMTS phone supports AMR_FR,
+// which is all we care.  But here it is.
+class L3SupportedCodecList : public L3ProtocolElement
+{
+	Control::CodecSet mGsmCodecs, mUmtsCodecs;
+	enum {	// SysID defined in 26.103 6.1
+		SysIdGSM = 0,
+		SysIdUMTS = 4
+	};
+	public:
+	Bool_z mPresent;					// Was the IE present?
+	Bool_z mGsmPresent, mUmtsPresent;	// Were these sub-parts of the IE present?
+	L3SupportedCodecList() {}
+	Control::CodecSet getCodecSet() const;	// Return codec set for gsm in OpenBTS or umts in OpenNodeB
+	// Each sub-section is 4 bytes.
+	size_t lengthV() const { return (mGsmPresent?4:0) + (mUmtsPresent?4:0); }	// length excluding IEI and initial length byte.
+	void writeV( L3Frame& dest, size_t &wp ) const;
+	void parseV( const L3Frame& src, size_t &rp, size_t expectedLength );	
+	void parseV(const L3Frame&, size_t&) { assert(0); } // This IE must always include an initial length byte.
+	void text(std::ostream&) const;
 };
 
 
+
+class L3CCCapabilities
+{
+	public:
+	/// Bearer Capability IE
+	// (pat) BearerCapability is sent by GSM phone
+	//Bool_z mHaveBearerCapability;
+	L3BearerCapability mBearerCapability;
+
+	// (pat) SupportedCodecList is sent by UMTS phone
+	//Bool_z mHaveSupportedCodecs;
+	L3SupportedCodecList mSupportedCodecs;	// (pat) added 10-22-2012
+
+	// Return the CodecSet for the radio access capability we are in.
+	Control::CodecSet getCodecSet() const;
+};
 
 /** A general class for BCD numbers as they normally appear in L3. */
 class L3BCDDigits {
@@ -59,7 +131,12 @@ class L3BCDDigits {
 
 	L3BCDDigits() { mDigits[0]='\0'; }
 
+	// (pat) The -1 below and +1 above are mutually redundant.
 	L3BCDDigits(const char* wDigits) { strncpy(mDigits,wDigits,sizeof(mDigits)-1); mDigits[sizeof(mDigits)-1]='\0'; }
+
+	L3BCDDigits(const L3BCDDigits &other) {
+		memcpy(mDigits,other.mDigits,sizeof(mDigits));
+	}
 
 	void parse(const L3Frame& src, size_t &rp, size_t numOctets, bool international = false);
 	void write(L3Frame& dest, size_t &wp) const;
@@ -81,6 +158,7 @@ std::ostream& operator<<(std::ostream&, const L3BCDDigits&);
 
 
 /** Calling Party BCD Number, GSM 04.08 10.5.4.9 */
+// (pat) 24.018 10.5.4.9 quote: "This IE is not used in the MS to network direction."
 class L3CallingPartyBCDNumber : public L3ProtocolElement {
 
 private:
@@ -92,23 +170,28 @@ private:
 
 	/**@name Octet 3a */
 	//@{
-	bool mHaveOctet3a;
-	int mPresentationIndicator;
-	int mScreeningIndicator;
+	Bool_z mHaveOctet3a;
+	int mPresentationIndicator;	// uninited, but not used unless mHaveOctet3a
+	int mScreeningIndicator;	// uninited, but not used unless mHaveOctet3a
 	//@}
 
 
 public:
 
 	L3CallingPartyBCDNumber()
-		:mType(UnknownTypeOfNumber),mPlan(UnknownPlan),
-		mHaveOctet3a(false)
+		:mType(UnknownTypeOfNumber),mPlan(UnknownPlan)
 	{ }
 
 	L3CallingPartyBCDNumber( const char * wDigits )
-		:mType(NationalNumber),mPlan(E164Plan),mDigits(wDigits),
-		mHaveOctet3a(false)
+		:mType(NationalNumber),mPlan(E164Plan),mDigits(wDigits)
 	{ }
+
+	L3CallingPartyBCDNumber(const L3CallingPartyBCDNumber &other)
+		:mType(other.mType),mPlan(other.mPlan),mDigits(other.mDigits),
+		mHaveOctet3a(other.mHaveOctet3a),
+		mPresentationIndicator(other.mPresentationIndicator),
+		mScreeningIndicator(other.mScreeningIndicator)
+	{}
 
 
 	NumberingPlan plan() const { return mPlan; }
@@ -144,8 +227,17 @@ public:
 		:mType(NationalNumber),mPlan(E164Plan),mDigits(wDigits)
 	{ }
 
-	L3CalledPartyBCDNumber(const L3CallingPartyBCDNumber& other)
+	// (pat) This auto-conversion from CallingParty to CalledParty was used in the SMS code,
+	// however, it was creating a disaster during unintended auto-conversions of L3Messages,
+	// which are unintentionally sprinkled throughout the code base due to incomplete constructors.
+	// The fix would be to add 'explicit' keywords everywhere.
+	explicit L3CalledPartyBCDNumber(const L3CallingPartyBCDNumber& other)
 		:mType(other.type()),mPlan(other.plan()),mDigits(other.digits())
+	{ }
+
+	// (pat) We must have this constructor as a choice also.
+	L3CalledPartyBCDNumber(const L3CalledPartyBCDNumber& other)
+		:mType(other.mType),mPlan(other.mPlan),mDigits(other.mDigits)
 	{ }
 
 
@@ -169,6 +261,7 @@ public:
 
 /**
 	Cause, GSM 04.08 10.5.4.11
+	Very poorly names, it is the Call Control cause.
 	Read the spec closely: we only have to support coding standard 3 (GSM),
 	and that format doesn't carry the "recommendation" field.
 */
@@ -188,17 +281,69 @@ public:
 		BeyondInternetworking=10
 	};
 
+	enum Cause {
+		UnassignedNumber = 1,		// or unallocated number
+		NoRouteToDestination = 3,
+		ChannelUnacceptable = 6,
+		OperatorDeterminedBarring = 8,
+		NormalCallClearing = 16,
+		UserBusy = 17,
+		NoUserResponding = 18,
+		UserAlertingNoAnswer = 19,
+		CallRejected = 21,
+		NumberChanged = 22,
+		Preemption = 25,
+		NonSelectedUserClearing = 26,
+		DestinationOutOfOrder = 27,
+		InvalidNumberFormat = 28,		// invalid or incomplete number
+		FacilityRejected = 29,
+		ResponseToSTATUSENQUIRY = 30,
+		NormalUnspecified = 31,
+		NoChannelAvailable = 34,
+		NetworkOutOfOrder = 38,
+		TemporaryFailure = 41,
+		SwitchingEquipmentCongestion = 42,
+		AccessInformationDiscarded = 43,
+		RequestedChannelNotAvailable = 44,
+		ResourcesUnavailable = 47,
+		QualityOfServiceUnavailable = 49,
+		RequestedFacilityNotSubscribed = 50,
+		IncomingCallsBarredWithinCUG = 55,
+		BearerCapabilityNotAuthorized = 57,
+		BearerCapabilityNotPresentlyAvailable = 58,
+		ServiceOrOptionNotAvailable = 63,
+		BearerServiceNotImplemented = 65,
+		ACMGEMax = 68,			// ACM greater or equal to ACM max.  Whatever that is.
+		RequestedFacilityNotImplemented = 69,
+		OnlyRestrictedDigitalInformationBearerCapabilityIsAvailable = 70,	// If you ever use, go ahead and abbreviate it.
+		ServiceOrOptionNotImplemented = 79,
+		InvalidTransactionIdentifiervalue = 81,
+		UserNotMemberOfCUG = 87,
+		IncompatibleDestination = 88,
+		InvalidTransitNetworkSelection = 91,
+		SemanticallyIncorrectMessage = 95,
+		InvalidMandatoryInformation = 96,
+		MessageTypeNotImplemented = 97,
+		MessagetypeNotCompatibleWithProtocolState = 98,
+		IENotImplemented = 99,			// Information Element non-existent or not implemented.
+		ConditionalIEError = 100,
+		MessageNotCompatibleWithProtocolState = 101,
+		RecoveryOnTimerExpiry = 102,
+		ProtocolErrorUnspecified = 111,
+		InterworkingUnspecified = 127,
+	};
+
 private:
 
 	// FIXME -- This should include any supplied diagnostics.
 	// See ticket GSM 04.08 10.5.4.11 and ticket #1139.
 
 	Location mLocation;
-	unsigned mCause;
+	Cause mCause;		// 7 bits of cause, consisting of 3 bit "class" and 4 bit "value".
 	
 public:
 
-	L3Cause(unsigned wCause=0, Location wLocation=PrivateServingLocal)
+	L3Cause(Cause wCause=NormalCallClearing, Location wLocation=PrivateServingLocal)
 		:L3ProtocolElement(),
 		mLocation(wLocation),mCause(wCause)
 	{ }
@@ -214,6 +359,7 @@ public:
 	void parseV(const L3Frame&, size_t&) { assert(0); }
 	void text(std::ostream&) const;
 };
+typedef L3Cause::Cause CCCause;
 
 
 /** Call State, GSM 04.08 10.5.4.6. */
@@ -311,7 +457,6 @@ class L3KeypadFacility : public L3ProtocolElement {
 	void parseV(const L3Frame& src, size_t& rp);
 	void text(std::ostream&) const;
 };
-
 
 } // GSM
 

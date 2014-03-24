@@ -24,6 +24,7 @@ AM_CXXFLAGS = -Wall -pthread -ldl $(OPENBTS_CXXFLAGS)
 COMMON_INCLUDEDIR = $(top_srcdir)/CommonLibs
 CONTROL_INCLUDEDIR = $(top_srcdir)/Control
 GSM_INCLUDEDIR = $(top_srcdir)/GSM
+GSMSHARE_INCLUDEDIR = $(top_srcdir)/GSMShare
 GPRS_INCLUDEDIR = $(top_srcdir)/GPRS
 SGSNGGSN_INCLUDEDIR = $(top_srcdir)/SGSNGGSN
 SIP_INCLUDEDIR = $(top_srcdir)/SIP
@@ -32,17 +33,19 @@ TRX_INCLUDEDIR = $(top_srcdir)/TRXManager
 GLOBALS_INCLUDEDIR = $(top_srcdir)/Globals
 CLI_INCLUDEDIR = $(top_srcdir)/CLI
 SQLITE_INCLUDEDIR = $(top_srcdir)/sqlite3
-SR_INCLUDEDIR = $(top_srcdir)/SR
 PEERING_INCLUDEDIR = $(top_srcdir)/Peering
+NODEMANAGER_INCLUDEDIR = $(top_srcdir)/NodeManager
+JSONBOX_INCLUDEDIR = $(top_srcdir)/NodeManager/JsonBox-0.4.3/include
+SCANNING_INCLUDEDIR = $(top_srcdir)/Scanning
 
-SVNDEV = -D'SVN_REV="$(shell svnversion -n $(top_builddir))"'
+SVNDEV = -D'SVN_REV="$(shell svn info $(top_builddir) | grep "Last Changed Rev:" | cut -d " " -f 4) CommonLibs:rev$(shell svn info $(top_builddir)/CommonLibs | grep "Last Changed Rev:" | cut -d " " -f 4)"'
 
 STD_DEFINES_AND_INCLUDES = \
 	$(SVNDEV) \
-	$(ACTIVEFEATURES) \
 	-I$(COMMON_INCLUDEDIR) \
 	-I$(CONTROL_INCLUDEDIR) \
 	-I$(GSM_INCLUDEDIR) \
+	-I$(GSMSHARE_INCLUDEDIR) \
 	-I$(GPRS_INCLUDEDIR) \
 	-I$(SGSNGGSN_INCLUDEDIR) \
 	-I$(SIP_INCLUDEDIR) \
@@ -50,13 +53,16 @@ STD_DEFINES_AND_INCLUDES = \
 	-I$(TRX_INCLUDEDIR) \
 	-I$(GLOBALS_INCLUDEDIR) \
 	-I$(CLI_INCLUDEDIR) \
-	-I$(SR_INCLUDEDIR) \
 	-I$(PEERING_INCLUDEDIR) \
+	-I$(NODEMANAGER_INCLUDEDIR) \
+	-I$(JSONBOX_INCLUDEDIR) \
+	-I$(SCANNING_INCLUDEDIR) \
 	-I$(SQLITE_INCLUDEDIR)
 
 # These macros are referenced in apps/Makefile.am, which must be changed in sync with these.
 COMMON_LA = $(top_builddir)/CommonLibs/libcommon.la
 GSM_LA = $(top_builddir)/GSM/libGSM.la
+GSMSHARE_LA = $(top_builddir)/GSMShare/libGSMShare.la
 GPRS_LA = $(top_builddir)/GPRS/libGPRS.la
 SGSNGGSN_LA = $(top_builddir)/SGSNGGSN/libSGSNGGSN.la
 SIP_LA = $(top_builddir)/SIP/libSIP.la
@@ -65,8 +71,9 @@ TRX_LA = $(top_builddir)/TRXManager/libtrxmanager.la
 CONTROL_LA = $(top_builddir)/Control/libcontrol.la
 GLOBALS_LA = $(top_builddir)/Globals/libglobals.la
 CLI_LA = $(top_builddir)/CLI/libcli.la
-SR_LA = $(top_builddir)/SR/libSR.la
 PEERING_LA = $(top_builddir)/Peering/libpeering.la
+NODEMANAGER_LA = $(top_builddir)/NodeManager/libnodemanager.la -lzmq
+SCANNING_LA = $(top_builddir)/Scanning/libscanning.la
 SQLITE_LA = $(top_builddir)/sqlite3/libsqlite.la -ldl
 
 MOSTLYCLEANFILES = *~

@@ -1,7 +1,7 @@
 /*
 * Copyright 2008, 2009, 2010 Free Software Foundation, Inc.
 * Copyright 2010 Kestrel Signal Processing, Inc.
-* Copyright 2011, 2012 Range Networks, Inc.
+* Copyright 2011, 2012, 2013, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
@@ -20,12 +20,15 @@
 #include <fstream>
 #include <vector>
 #include <string>
+#include <sys/stat.h>
 
 #include <Configuration.h>
 std::vector<std::string> configurationCrossCheck(const std::string& key);
-static const char *cOpenBTSConfigEnv = "OpenBTSConfigFile";
+std::string getARFCNsString(unsigned band);
 // Load configuration from a file.
-ConfigurationTable gConfig(getenv(cOpenBTSConfigEnv)?getenv(cOpenBTSConfigEnv):"/etc/OpenBTS/OpenBTS.db","OpenBTS", getConfigurationKeys());
+static const char *cOpenBTSConfigEnv = "OpenBTSConfigFile";
+static const char *cOpenBTSConfigFile = getenv(cOpenBTSConfigEnv)?getenv(cOpenBTSConfigEnv):"/etc/OpenBTS/OpenBTS.db";
+ConfigurationTable gConfig(cOpenBTSConfigFile,"OpenBTS", getConfigurationKeys());
 #include <Logger.h>
 Log dummy("openbts",gConfig.getStr("Log.Level").c_str(),LOG_LOCAL7);
 
@@ -34,23 +37,22 @@ Log dummy("openbts",gConfig.getStr("Log.Level").c_str(),LOG_LOCAL7);
 ReportingTable gReports(gConfig.getStr("Control.Reporting.StatsTable").c_str());
 
 #include <TRXManager.h>
-#include <GSML1FEC.h>
+//#include <GSML1FEC.h>
 #include <GSMConfig.h>
-#include <GSMSAPMux.h>
-#include <GSML3RRMessages.h>
+//#include <GSMSAPMux.h>
+//#include <GSML3RRMessages.h>
 #include <GSMLogicalChannel.h>
 
-#include <ControlCommon.h>
-#include <TransactionTable.h>
+#include <Control/L3TranEntry.h>
+#include <ControlTransfer.h>
 
-#include <SIPInterface.h>
 #include <Globals.h>
 
 #include <CLI.h>
 #include <PowerManager.h>
 #include <Configuration.h>
 #include <PhysicalStatus.h>
-#include <SubscriberRegistry.h>
+#include <SIP2Interface.h>
 #include "NeighborTable.h"
 #include <Peering.h>
 
@@ -65,30 +67,33 @@ ReportingTable gReports(gConfig.getStr("Control.Reporting.StatsTable").c_str());
 // Set env MALLOC_TRACE=logfilename
 // Call mtrace() in the program.
 // post-process the logfilename with mtrace (a perl script.)
-// #include <mcheck.h>
+//#include <mcheck.h>
 
 using namespace std;
 using namespace GSM;
-
-int gBtsXg = 0;		// Enable gprs
 
 const char* gDateTime = __DATE__ " " __TIME__;
 
 
 // All of the other globals that rely on the global configuration file need to
 // be declared here.
+// (pat) That is because the order that constructors are called is indeterminate, and we must
+// ensure that the ConfigurationTable is constructed before any other classes.
+// In general it is unwise to put non-trivial initialization code in constructors for this reason.
+// If you dont call gConfig in your class constructor, you dont need to init your class here.
+// Another way to handle this would be to substitute gConfig.get...(...) throughout OpenBTS with
+// a function call that inits the ConfigurationTable if needed.
+// It would be much kinder on the compiler as well.  And if someone goes to that effort, while you
+// are at it change the char* arguments to constants.
 
 // The TMSI Table.
-Control::TMSITable gTMSITable;
+//moved to Control directory: Control::TMSITable gTMSITable;
 
 // The transaction table.
-Control::TransactionTable gTransactionTable;
+// moved to Control directory: Control::TransactionTable gTransactionTable;
 
 // Physical status reporting
 GSM::PhysicalStatus gPhysStatus;
-
-// The global SIPInterface object.
-SIP::SIPInterface gSIPInterface;
 
 // Configure the BTS object based on the config file.
 // So don't create this until AFTER loading the config file.
@@ -103,9 +108,6 @@ GSMConfig gBTS;
 // Our interface to the software-defined radio.
 TransceiverManager gTRX(gConfig.getNum("GSM.Radio.ARFCNs"), gConfig.getStr("TRX.IP").c_str(), gConfig.getNum("TRX.Port"));
 
-// Subscriber registry and http authentication
-SubscriberRegistry gSubscriberRegistry;
-
 /** The global peering interface. */
 Peering::PeerInterface gPeerInterface;
 
@@ -116,10 +118,12 @@ Peering::NeighborTable gNeighborTable;
 /** Define a function to call any time the configuration database changes. */
 void purgeConfig(void*,int,char const*, char const*, sqlite3_int64)
 {
-	LOG(INFO) << "purging configuration cache";
+	// (pat) NO NO NO.  Do not call LOG from here - it may result in infinite recursion.
+	// LOG(INFO) << "purging configuration cache";
 	gConfig.purge();
 	gBTS.regenerateBeacon();
 	gResetWatchdog();
+	gLogGroup.setAll();
 }
 
 
@@ -200,8 +204,6 @@ void createStats()
 	gReports.create("OpenBTS.SIP.UnresolvedHostname");
 	// count of INVITEs received in the SIP layer
 	gReports.create("OpenBTS.SIP.INVITE.In");
-	// count of SOS INVITEs sent from the SIP layer; these are not included in ..INVITE.OUT
-	gReports.create("OpenBTS.SIP.INVITE-SOS.Out");
 	// count of INVITEs sent from the in SIP layer
 	gReports.create("OpenBTS.SIP.INVITE.Out");
 	// count of INVITE-OKs sent from the in SIP layer (connection established)
@@ -304,25 +306,66 @@ void createStats()
 
 
 
+// (pat) Using multiple radios on the same CPU:
+// 1. Provide a seprate config OpenBTS.db file for each OpenBTS + transceiver pair.
+//		I run each OpenBTS+transceiver pair in a separate directory with its own OpenBTS.db set as below.
+//		To set the config file You can use the --config option or set the OpenBTSConfigFile environment variable,
+//		which also works with gdb.
+// 2. Set TRX.RadioNumber to 1,2,3,...
+// 3. Set transceiver communication TRX.Port differently.  TRX uses >100 ports, so use: 5700, 5900, 6100, etc.
+// 4. Set GSM.Radio.C0 differently.
+// 5. Set GSM.Identity.BSIC.BCC differently.
+// 6. Set GSM.Identity.LAC differently, maybe, but this depends on what you want to do.
+// 7. Change all the external application ports: Peering.Port, RTP.Start, SIP.Local.Port
+// 8. The neighbor tables need to point at each other.  See example below.
+// 9. Change the Peering.NeighborTable.Path.  I just set it to a .db in the current directory.  Changing the other .db files is optional
+// 10. If you have old radios, dont forget to set the TRX.RadioFrequencyOffset for each radio.
+// 11. Doug recommends increasing GSM.Ny1 for handover testing.
+// Note reserved ports: SR uses port 5064 and asterisk uses port 5060.
+// Example using two radios on one computer:
+// TRX.RadioNumber			1			2
+// TRX.Port					5700		5900
+// GSM.Radio.C0				51			60
+// GSM.Identity.BSIC.BCC	2			3
+// GSM.Identity.LAC			1007		1008
+// SIP.Local.Port			5062		5066
+// RTP.Start				16484		16600
+// Peering.Port				16001		16002
+// GSM.Neighbors	127.0.0.1:16002		127.0.0.1:16001
+// Each BTS needs separate versions of these .db files that normally reside in /var/run:  Just put them in the cur dir like this:
+// Peering.NeighborTable.Path NeighborTable.db
+// Control.Reporting.TransactionTable TransactionTable.db
+// Control.Reporting.TMSITable TMSITable.db
+// Control.Reporting.StatsTable StatsTable.db
+// Control.Reporting.PhysStatusTable PhysStatusTable.db
+
+namespace GSM { extern void TestTCHL1FEC(); };	// (pat) This is cheating, but I dont want to include the whole GSML1FEC.h.
+
 
 int main(int argc, char *argv[])
 {
-	// mtrace();	// Enable memory leak detection.  Unfortunately, huge amounts of code have been started in the constructors above.
+	//mtrace();       // (pat) Enable memory leak detection.  Unfortunately, huge amounts of code have been started in the constructors above.
+	gLogGroup.setAll();
 	// TODO: Properly parse and handle any arguments
 	if (argc > 1) {
+		bool testflag = false;
 		for (int argi = 1; argi < argc; argi++) {		// Skip argv[0] which is the program name.
-			if (!strcmp(argv[argi], "--version") ||
-			    !strcmp(argv[argi], "-v")) {
+			if (!strcmp(argv[argi], "--version") || !strcmp(argv[argi], "-v")) {
+				// Print the version number and exit immediately.
 				cout << gVersionString << endl;
+				return 0;
+			}
+			if (!strcmp(argv[argi], "--test")) {
+				testflag = true;
 				continue;
 			}
 			if (!strcmp(argv[argi], "--gensql")) {
 				cout << gConfig.getDefaultSQL(string(argv[0]), gVersionString) << endl;
-				continue;
+				return 0;
 			}
 			if (!strcmp(argv[argi], "--gentex")) {
 				cout << gConfig.getTeX(string(argv[0]), gVersionString) << endl;
-				continue;
+				return 0;
 			}
 
 			// (pat) Adding support for specified sql file.
@@ -330,7 +373,7 @@ int main(int argc, char *argv[])
 			// so stick this arg in the environment, whence the ConfigurationTable can find it, and then reboot.
 			if (!strcmp(argv[argi],"--config")) {
 				if (++argi == argc) {
-					LOG(ALERT) <<"Missing argument to -sql option";
+					LOG(ALERT) <<"Missing argument to --config option";
 					exit(2);
 				}
 				setenv(cOpenBTSConfigEnv,argv[argi],1);
@@ -339,7 +382,7 @@ int main(int argc, char *argv[])
 				exit(0);
 			}
 			if (!strcmp(argv[argi],"--help")) {
-				printf("OpenBTS [--version --gensql --genex] [--config file.db]\n");
+				printf("OpenBTS [--version --gensql --gentex] [--config file.db]\n");
 				printf("OpenBTS exiting...\n");
 				exit(0);
 			}
@@ -347,7 +390,7 @@ int main(int argc, char *argv[])
 			printf("OpenBTS: unrecognized argument: %s\nexiting...\n",argv[argi]);
 		}
 
-		return 0;
+		if (testflag) { GSM::TestTCHL1FEC(); return 0; }
 	}
 
 	createStats();
@@ -373,13 +416,12 @@ int main(int argc, char *argv[])
 
 	gConfig.setUpdateHook(purgeConfig);
 	LOG(ALERT) << "OpenBTS (re)starting, ver " << VERSION << " build date " << __DATE__;
+	LOG(ALERT) << "OpenBTS reading config file "<<cOpenBTSConfigFile;
 
 	COUT("\n\n" << gOpenBTSWelcome << "\n");
-	gTMSITable.open(gConfig.getStr("Control.Reporting.TMSITable").c_str());
-	gTransactionTable.init(gConfig.getStr("Control.Reporting.TransactionTable").c_str());
+	Control::controlInit();		// init Layer3: TMSITable, TransactionTable.
 	gPhysStatus.open(gConfig.getStr("Control.Reporting.PhysStatusTable").c_str());
 	gBTS.init();
-	gSubscriberRegistry.init();
 	gParser.addCommands();
 
 	COUT("\nStarting the system...");
@@ -389,11 +431,12 @@ int main(int argc, char *argv[])
 	LOG(INFO) << "checking transceiver";
 	//gTRX.ARFCN(0)->powerOn();
 	//sleep(gConfig.getNum("TRX.Timeout.Start"));
-	//bool haveTRX = gTRX.ARFCN(0)->powerOn(false); // (pat) Dont power on the radio before initing it, particularly SETTSC below; radio can crash.
-	bool haveTRX = gTRX.ARFCN(0)->powerOff();
+	//bool haveTRX = gTRX.ARFCN(0)->powerOn(false);		This prints an inapplicable warning message.
+	bool haveTRX = gTRX.ARFCN(0)->trxRunning();			// This does not print an inapplicable warning message.
 
 	Thread transceiverThread;
 	if (!haveTRX) {
+		LOG(ALERT) << "starting the transceiver";
 		transceiverThread.start((void*(*)(void*)) startTransceiver, NULL);
 		// sleep to let the FPGA code load
 		// TODO: we should be "pinging" the radio instead of sleeping
@@ -403,7 +446,7 @@ int main(int argc, char *argv[])
 	}
 
 	// Start the SIP interface.
-	gSIPInterface.start();
+	SIP::SIPInterfaceStart();
 
 	// Start the peer interface
 	gPeerInterface.start();
@@ -433,6 +476,9 @@ int main(int argc, char *argv[])
 			gConfig.mSchema["TRX.TxAttenOffset"].updateDefaultValue(val);
 		}
 	}
+
+	// Limit valid ARFCNs to current band
+	gConfig.mSchema["GSM.Radio.C0"].updateValidValues(getARFCNsString(gConfig.getNum("GSM.Radio.Band")));
 
 	//
 	// Configure the radio.
@@ -515,6 +561,7 @@ int main(int argc, char *argv[])
 	gBTS.addAGCH(&CCCH2);
 
 	// C-V C0T0 SDCCHs
+	// (pat) I thought config 'GSM.CCCH.CCCH-CONF' was supposed to control the number of SDCCH allocated?
 	SDCCHLogicalChannel C0T0SDCCH[4] = {
 		SDCCHLogicalChannel(0,0,gSDCCH_4_0),
 		SDCCHLogicalChannel(0,0,gSDCCH_4_1),
@@ -560,6 +607,14 @@ int main(int argc, char *argv[])
 		int numChan = numARFCNs-1;
 		LOG(CRIT) << "GSM.Channels.NumC7s not defined. Defaulting to " << numChan << ".";
 		gConfig.set("GSM.Channels.NumC7s",numChan);
+	}
+
+	// sanity check on channel counts
+	// the clamp here could be improved to take the customer's current ratio of C1:C7 and scale it back to fit in the window
+	if (((numARFCNs * 8) - 1) < (gConfig.getNum("GSM.Channels.NumC1s") + gConfig.getNum("GSM.Channels.NumC7s"))) {
+		LOG(CRIT) << "scaling back GSM.Channels.NumC1s and GSM.Channels.NumC7s to fit inside number of available timeslots";
+		gConfig.set("GSM.Channels.NumC1s",numARFCNs*7);
+		gConfig.set("GSM.Channels.NumC7s",numARFCNs-1);
 	}
 
 	if (gConfig.getBool("GSM.Channels.C1sFirst")) {
@@ -626,7 +681,7 @@ int main(int argc, char *argv[])
 	const char* sockpath = gConfig.getStr("CLI.SocketPath").c_str();
 	char rmcmd[strlen(sockpath)+5];
 	sprintf(rmcmd,"rm -f %s",sockpath);
-	if (system(rmcmd)) {}
+	if (system(rmcmd)) {}	// The 'if' shuts up gcc warnings.
 	strcpy(cmdSockName.sun_path,sockpath);
 	LOG(INFO) "binding CLI datagram socket at " << sockpath;
 	if (bind(sock, (struct sockaddr *) &cmdSockName, sizeof(struct sockaddr_un))) {
@@ -635,10 +690,19 @@ int main(int argc, char *argv[])
 		gReports.incr("OpenBTS.Exit.CLI.Socket");
 		exit(1);
 	}
-
 	COUT("\nsystem ready\n");
-	COUT("\nuse the OpenBTSCLI utility to access CLI\n");
+	if (chmod(sockpath, S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH|S_IWOTH) < 0)
+	{
+		perror("sockpath");
+		// don't exit, at this point, we must run CLI as root
+		COUT("\nuse the OpenBTSCLI utility to access CLI as root\n");
+	} else
+	{
+		COUT("\nuse the OpenBTSCLI utility to access CLI\n");
+	}
 	LOG(INFO) << "system ready";
+
+	gParser.startCommandLine();
 
 	while (1) {
 		char cmdbuf[1000];
@@ -667,12 +731,13 @@ int main(int argc, char *argv[])
 		LOG(EMERG) << "required configuration parameter " << e.key() << " not defined, aborting";
 		gReports.incr("OpenBTS.Exit.Error.ConfigurationParamterNotFound");
 	}
+	LOG(ALERT) << "exiting OpenBTS as directed by command line...";
+
 
 	//if (gTransceiverPid) kill(gTransceiverPid, SIGKILL);
 	close(sock);
 
 }
-
 
 /** Return warning strings about a potential conflicting value */
 vector<string> configurationCrossCheck(const string& key) {
@@ -717,7 +782,7 @@ vector<string> configurationCrossCheck(const string& key) {
 		int gprs = gConfig.getNum("GPRS.ChannelCodingControl.RSSI");
 		int gsm = gConfig.getNum("GSM.Radio.RSSITarget");
 		if ((gprs - gsm) != 10) {
-			warning << "GPRS.ChannelCodingControl.RSSI (" << gprs << ") should normally be 10db higher than GSM.Radio.RSSITarget (" << gsm << ")";
+			warning << "GPRS.ChannelCodingControl.RSSI (" << gprs << ") should normally be 10db greater than GSM.Radio.RSSITarget (" << gsm << ")";
 			warnings.push_back(warning.str());
 			warning.str(std::string());
 		}
@@ -753,36 +818,6 @@ vector<string> configurationCrossCheck(const string& key) {
 			warning.str(std::string());
 		}
 
-	// Control.LUR.WhiteList depends on Control.WhiteListing.Message, Control.LUR.WhiteListing.RejectCause and Control.WhiteListing.ShortCode
-	} else if (key.compare("Control.LUR.WhiteList") == 0 || key.compare("Control.WhiteListing.Message") == 0 ||
-				key.compare("Control.LUR.WhiteListing.RejectCause") == 0 || key.compare("Control.WhiteListing.ShortCode") == 0) {
-		if (gConfig.getBool("Control.LUR.WhiteList")) {
-			if (!gConfig.getStr("Control.WhiteListing.Message").length()) {
-				warning << "Control.LUR.WhiteList is enabled but will not be functional until Control.WhiteListing.Message is set";
-				warnings.push_back(warning.str());
-				warning.str(std::string());
-			} else if (!gConfig.getStr("Control.LUR.WhiteListing.RejectCause").length()) {
-				warning << "Control.LUR.WhiteList is enabled but will not be functional until Control.WhiteListing.RejectCause is set";
-				warnings.push_back(warning.str());
-				warning.str(std::string());
-			} else if (!gConfig.getStr("Control.WhiteListing.ShortCode").length()) {
-				warning << "Control.LUR.WhiteList is enabled but will not be functional until Control.WhiteListing.ShortCode is set";
-				warnings.push_back(warning.str());
-				warning.str(std::string());
-			}
-		}
-
-	// GSM.CellSelection.NCCsPermitted needs to contain our own GSM.Identity.BSIC.NCC
-	} else if (key.compare("GSM.CellSelection.NCCsPermitted") == 0 || key.compare("GSM.Identity.BSIC.NCC") == 0) {
-		int ourNCCMask = gConfig.getNum("GSM.CellSelection.NCCsPermitted");
-		int NCCMaskBit = 1 << gConfig.getNum("GSM.Identity.BSIC.NCC");
-		if ((NCCMaskBit & ourNCCMask) == 0) {
-			warning << "GSM.CellSelection.NCCsPermitted is not set to a mask which contains the local network color code defined in GSM.Identity.BSIC.NCC. ";
-			warning << "Set GSM.CellSelection.NCCsPermitted to " << NCCMaskBit;
-			warnings.push_back(warning.str());
-			warning.str(std::string());
-		}
-
 	// Control.LUR.FailedRegistration.Message depends on Control.LUR.FailedRegistration.ShortCode
 	} else if (key.compare("Control.LUR.FailedRegistration.Message") == 0 || key.compare("Control.LUR.FailedRegistration.ShortCode") == 0) {
 		if (gConfig.getStr("Control.LUR.FailedRegistration.Message").length() && !gConfig.getStr("Control.LUR.FailedRegistration.ShortCode").length()) {
@@ -814,6 +849,69 @@ vector<string> configurationCrossCheck(const string& key) {
 		string sip = gConfig.getStr("SIP.SMSC");
 		if (sms.compare("application/vnd.3gpp.sms") == 0 && sip.compare("smsc") != 0) {
 			warning << "SMS.MIMEType is set to \"application/vnc.3gpp.sms\", SIP.SMSC should usually be set to \"smsc\"";
+			warnings.push_back(warning.str());
+			warning.str(std::string());
+		} else if (sms.compare("text/plain") == 0 && sip.compare("") != 0) {
+			warning << "SMS.MIMEType is set to \"text/plain\", SIP.SMSC should usually be empty (use unconfig to clear)";
+			warnings.push_back(warning.str());
+			warning.str(std::string());
+		}
+
+	// Control.Emergency.Geolocation depends on Control.Emergency.GatewaySwitch
+	} else if (key.compare("Control.Emergency.Geolocation") == 0 || key.compare("Control.Emergency.GatewaySwitch") == 0) {
+		if (gConfig.getStr("Control.Emergency.Geolocation").length() && !gConfig.getStr("Control.Emergency.GatewaySwitch").length()) {
+			warning << "Control.Emergency.Geolocation is enabled but will not be functional until Control.Emergency.GatewaySwitch is set";
+			warnings.push_back(warning.str());
+			warning.str(std::string());
+		}
+
+	// SIP.Local.IP cannot be 127.0.0.1 when any of the SIP.Proxy.* settings are non-localhost
+	} else if (key.compare("SIP.Local.IP") == 0 || key.compare("SIP.Proxy.Emergency") == 0 ||
+				key.compare("SIP.Proxy.Registration") == 0 || key.compare("SIP.Proxy.SMS") == 0 ||
+				key.compare("SIP.Proxy.Speech") == 0 || key.compare("SIP.Proxy.USSD") == 0) {
+		string loopback = "127.0.0.1";
+		string local = gConfig.getStr("SIP.Local.IP");
+		if (local.compare(loopback) == 0) {
+			string emergency = gConfig.getStr("SIP.Proxy.Emergency");
+			string registration = gConfig.getStr("SIP.Proxy.Registration");
+			string sms = gConfig.getStr("SIP.Proxy.SMS");
+			string speech = gConfig.getStr("SIP.Proxy.Speech");
+			string ussd = gConfig.getStr("SIP.Proxy.USSD");
+			if (emergency.find(loopback) == std::string::npos || registration.find(loopback) == std::string::npos ||
+				sms.find(loopback) == std::string::npos || speech.find(loopback) == std::string::npos ||
+				(ussd.length() && ussd.find(loopback) == std::string::npos)) {
+				warning << "A non-local IP is being used for one or more SIP.Proxy.* settings but SIP.Local.IP is still set to 127.0.0.1. ";
+				warning << "Set SIP.Local.IP to the IP address of this machine as seen by the proxies.";
+				warnings.push_back(warning.str());
+				warning.str(std::string());
+			}
+		}
+
+	// GSM.MS.Power.Min cannot be higher than GSM.MS.Power.Max
+	} else if (key.compare("GSM.MS.Power.Min") == 0 || key.compare("GSM.MS.Power.Max") == 0) {
+		if (gConfig.getNum("GSM.MS.Power.Min") > gConfig.getNum("GSM.MS.Power.Max")) {
+			warning << "GSM.MS.Power.Min is set higher than GSM.MS.Power.Max. Swap the values or set a new minimum.";
+			warnings.push_back(warning.str());
+			warning.str(std::string());
+		}
+
+	// GSM.Channels.NumC1s + GSM.Channels.NumC1s must fall within 8 * GSM.Radio.ARFCNs
+	} else if (key.compare("GSM.Radio.ARFCNs") == 0 || key.compare("GSM.Channels.NumC1s") == 0 || key.compare("GSM.Channels.NumC7s") == 0) {
+		int max = (8 * gConfig.getNum("GSM.Radio.ARFCNs")) - 1;
+		int current = gConfig.getNum("GSM.Channels.NumC1s") + gConfig.getNum("GSM.Channels.NumC7s");
+		if (max < current) {
+			warning << "There are only " << max << " channels available but " << current << " are configured. ";
+			warning << "Reduce GSM.Channels.NumC1s and/or GSM.Channels.NumC7s accordingly.";
+			warnings.push_back(warning.str());
+			warning.str(std::string());
+		} else if (max > current) {
+			int avail = max-current;
+			if (avail == 1) {
+				warning << "There is still " << avail << " channel available for additional capacity. ";
+			} else {
+				warning << "There are still " << avail << " channels available for additional capacity. ";
+			}
+			warning << "Increase GSM.Channels.NumC1s and/or GSM.Channels.NumC7s accordingly.";
 			warnings.push_back(warning.str());
 			warning.str(std::string());
 		}

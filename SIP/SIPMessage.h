@@ -16,50 +16,129 @@
 
 
 
-#ifndef SIP_MESSAGE_H
-#define SIP_MESSAGE_H
+#ifndef _SIP2MESSAGE_H_
+#define _SIP2MESSAGE_H_
+#include <string>
+#include "SIPParse.h"
+#include "config.h"		// For VERSION
+
+#include <ControlTransfer.h>	// For CodecSet
 
 namespace SIP {
+using namespace std;
+class SipDialog;
+class SipBase;
 
 
+//struct SipBody {
+//	string mContentType;
+//	string mBody;
+//	SipBody(string wContentType,string wBody) : mContentType(wContentType),mBody(wBody) {}
+//};
 
-osip_message_t * sip_register( const char * sip_username, short timeout, short local_port, const char * local_ip, 
-const char * proxy_ip, const char * from_tag, const char * via_branch, const char * call_id, int cseq,
-string *RAND, const char *IMSI, const char *SRES);
+DEFINE_MEMORY_LEAK_DETECTOR_CLASS(SipMessage,MemCheckSipMessage)
+class SipMessage : public MemCheckSipMessage {
+	friend ostream& operator<<(ostream& os, const SipMessage*msg);
+	friend ostream& operator<<(ostream& os, const SipMessage&msg);
+	public:
+	string msmContent;		// The full message content as a string of chars.
+
+	string msmCallId;		// Put in every message to identify dialog.
+	// Historically we use the callid without the @host for dialog identification purposes.  (Which is wrong.)
+	//string smGetCallId() const { return string(msmCallId,0,msmCallId.find_first_of('@')); }
+	string smGetCallId() const { return msmCallId; }
+
+	string msmReqUri;
+	SipPreposition msmTo;
+	SipPreposition msmFrom;
+	string msmReqMethod;
+	string msmVias;		// Via lines, including the first one with mViaBranch and mViaSentBy broken out.
+	string msmRoutes;		// Via lines, including the first one with mViaBranch and mViaSentBy broken out.
+	string msmRecordRoutes;		// Via lines, including the first one with mViaBranch and mViaSentBy broken out.
+	string msmContactValue;
+	//list<SipBody> msmBodies;
+	string msmContentType;
+	string msmBody;
+	int msmCode;
+	string msmReason;
+	int msmCSeqNum;
+	string msmCSeqMethod;
+	SipParamList msmHeaders;	// Other unrecognized headers.  We use SipParamList because its the same.
+	string msmAuthenticateValue;	// The www-authenticate value as a string.
+	string msmAuthorizationValue;	// The Authorization value as a string.
+
+	void smAddViaBranch(string transport, string branch);
+	void smAddViaBranch(SipBase *dialog,string branch);
+	string smGetBranch();
+	string smGetReturnIPAndPort();
+	void smCopyTopVia(SipMessage *other);
+	void smAddBody(string contentType, string body);
+	string smGenerate();
+	SipMessage() : msmCode(0), msmCSeqNum(0) {}	// mCSeq will be filled in later.
+	int smCSeqNum() const { return msmCSeqNum; }
+	void smAddHeader(string name, string value) {
+		SipParam param(name,value);
+		msmHeaders.push_back(param);
+	}
+
+	// Accessors:
+	bool isRequest() { return msmCode == 0; }
+	string smGetRemoteTag() { return isRequest() ? msmFrom.mTag : msmTo.mTag; }
+	string smGetLocalTag() { return isRequest() ? msmTo.mTag : msmFrom.mTag; }
+	string smCSeqMethod() const { return msmCSeqMethod; }
+	string smGetToHeader() const { return msmTo.value(); }
+	string smUriUsername();
+	string smGetInviteImsi();
+	string smGetMessageBody() const;
+	string smGetMessageContentType() const;
+	string smGetProxy() const {
+		string topvia = commaListFront(msmVias);
+		if (topvia.empty()) { return string(""); }	// oops
+		SipVia via(topvia);
+		return via.mSentBy;
+	}
+	const char *smGetMethodName() const { return msmReqMethod.c_str(); }
+	const char *smGetReason() const { return msmReason.c_str(); }
+	string smGetRand401();
+	int smGetCode() const { return msmCode; }
+	int smGetCodeClass() const { return (msmCode / 100) * 100; }
+
+	// Other accessors.
+	string smGetFirstLine() const;
+	string smGetPrecis() const;		// A short message description for messages.
+	string text(bool verbose = false) const;
+
+	// These get inlined.
+	bool isINVITE() const { return !strcmp(smGetMethodName(),"INVITE"); }
+	bool isMESSAGE() const { return !strcmp(smGetMethodName(),"MESSAGE"); }
+	bool isCANCEL() const { return !strcmp(smGetMethodName(),"CANCEL"); }
+	bool isBYE() const { return !strcmp(smGetMethodName(),"BYE"); }
+	bool isACK() const { return !strcmp(smGetMethodName(),"ACK"); }
+	// Has the message been initialized yet?  We always add callid first thing, so check that.
+	bool smIsEmpty() const { return msmContent.empty() && msmCallId.empty(); }
+};
+
+bool sameMsg(SipMessage *msg1, SipMessage *msg2);
 
 
+struct SipMessageAckOrCancel : SipMessage {
+	SipMessageAckOrCancel(string method, SipMessage *other);
+};
 
-osip_message_t * sip_message( const char * dialed_number, const char * sip_username, short local_port, const char * local_ip, const char * proxy_ip, const char * from_tag, const char * via_branch, const char * call_id, int cseq, const char* message, const char* content_type=NULL);
+struct SipMessageRequestWithinDialog : SipMessage {
+	SipMessageRequestWithinDialog(string reqMethod, SipBase *dialog, string branch="");
+};
 
-osip_message_t * sip_invite( const char * dialed_number, short rtp_port,const char * sip_username, short local_port, const char * local_ip, const char * proxy_ip, const char * from_tag, const char * via_branch, const char * call_id, int cseq, unsigned codec);
+struct SipMessageReply : SipMessage {
+	SipMessageReply(SipMessage *request,int code, string reason, SipBase *dialog);
+};
 
-osip_message_t * sip_reinvite( const char* RemoteUsername, const char* RemoteIP, const char* SIPDisplayname, const char* SIPUsername, const char* fromTag, const char* fromUsername, const char* fromIP, const char* toTag, const char* toUsername, const char* toIP, const char* viaBranch, const char* callID, const char* callIP, int cseq, unsigned codec, short wRTPPort, const char* wSessionID, const char* wSessionVersion);
+struct SipMessageHandoverRefer : SipMessage {
+	SipMessageHandoverRefer(const SipBase *dialog, string peer);
+};
 
-osip_message_t * sip_invite_referred( const char * dialed_number, short rtp_port,const char * sip_username, short local_port, const char * local_ip, const char * proxy_ip, const char * from_tag, const char * via_branch, const char * call_id, int cseq, unsigned codec);
-
-osip_message_t * sip_ack( const char * req_uri, const char * dialed_number, const char * sip_username, short wlocal_port, const char * local_ip, const char * proxy_ip, const osip_from_t* from_header, const osip_to_t* to_header, const char * via_branch, const osip_call_id_t* call_id_header, int cseq);
-
-
-osip_message_t * sip_bye( const char * req_uri, const char * dialed_number, const char * sip_username, short local_port, const char * local_ip, const char * proxy_ip, short proxy_port, const osip_from_t *from_header, const osip_to_t * to_header, const char * via_branch, const osip_call_id_t* call_id_header, int cseq);
-
-osip_message_t * sip_cancel( osip_message_t * invite,  const char * host, const char * username, short  port);
-
-osip_message_t * sip_okay_sdp( osip_message_t * inv, const char * sip_username, const char * local_ip, short wlocal_port, short rtp_port, unsigned audio_codecs );
-
-osip_message_t * sip_okay( osip_message_t * inv, const char * sip_username, const char * local_ip, short wlocal_port);
-
-osip_message_t * sip_error( osip_message_t * invite,  const char * host, const char * username, short port, short code, const char* reason);
-
-osip_message_t * sip_info(unsigned info, const char *dialed_number, short rtp_port,const char * sip_username, short local_port, const char * local_ip, const char * proxy_ip, const char * from_tag, const char * via_branch, const osip_call_id_t* call_id_header, int cseq);
-
-osip_message_t * sip_b_okay( osip_message_t * bye  );
-
-osip_message_t * sip_trying( osip_message_t * invite, const char * sip_username, const char * local_ip);
-
-osip_message_t * sip_ringing( osip_message_t * invite, const char * sip_username, const char * local_ip);
-
-
-
+ostream& operator<<(ostream& os, const SipMessage&msg);
+ostream& operator<<(ostream& os, const SipMessage*msg);
+extern const char *extractIMSI(const char *imsistring);
 };
 #endif
-

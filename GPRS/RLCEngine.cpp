@@ -452,7 +452,7 @@ void RLCUpEngine::engineUpAdvanceWindow()
 				segs[n].E = payload.LIByteE();
 				end = segs[n].E;
 				segs[n].M = payload.LIByteM();
-				payload.set(payload.tail(8));
+				payload.dup(payload.tail(8));
 			}
 			unsigned original_size = payload.size();
 
@@ -486,7 +486,7 @@ void RLCUpEngine::engineUpAdvanceWindow()
 				BitVector foo(payload.segment(0,8*lenbytes));
 				addUpPDU(foo);
 				if (segs[i].LI) { sendPDU(); }
-				payload.set(payload.tail(8*lenbytes));
+				payload.dup(payload.tail(8*lenbytes));
 			}
 			// Final M bit means add rest of the payload to the nextpdu.
 			if (payload.size() && segs[n-1].M) {

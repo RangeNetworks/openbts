@@ -174,6 +174,9 @@ class ARFCNManager {
 	*/
 	bool powerOn(bool warn);
 
+	/** Just test if the transceiver is running without printing alarming messages. */
+	bool trxRunning();
+
         /**     
 		Set maximum expected delay spread.
 		@param km Max network range in kilometers.
