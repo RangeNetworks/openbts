@@ -38,3 +38,10 @@ TransceiverRAD1/transceiver
 apps/OpenBTS
 apps/OpenBTSCLI
 apps/OpenBTSDo
+GSMShare/A51Test
+GSMShare/AMRTest
+GSMShare/ViterbiTest
+TransceiverRAD1/PowerScanner
+debian/files
+debian/substvars
+debian/tmp/
