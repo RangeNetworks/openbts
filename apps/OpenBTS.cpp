@@ -857,27 +857,18 @@ vector<string> configurationCrossCheck(const string& key) {
 			warning.str(std::string());
 		}
 
-	// Control.Emergency.Geolocation depends on Control.Emergency.GatewaySwitch
-	} else if (key.compare("Control.Emergency.Geolocation") == 0 || key.compare("Control.Emergency.GatewaySwitch") == 0) {
-		if (gConfig.getStr("Control.Emergency.Geolocation").length() && !gConfig.getStr("Control.Emergency.GatewaySwitch").length()) {
-			warning << "Control.Emergency.Geolocation is enabled but will not be functional until Control.Emergency.GatewaySwitch is set";
-			warnings.push_back(warning.str());
-			warning.str(std::string());
-		}
-
 	// SIP.Local.IP cannot be 127.0.0.1 when any of the SIP.Proxy.* settings are non-localhost
-	} else if (key.compare("SIP.Local.IP") == 0 || key.compare("SIP.Proxy.Emergency") == 0 ||
+	} else if (key.compare("SIP.Local.IP") == 0 ||
 				key.compare("SIP.Proxy.Registration") == 0 || key.compare("SIP.Proxy.SMS") == 0 ||
 				key.compare("SIP.Proxy.Speech") == 0 || key.compare("SIP.Proxy.USSD") == 0) {
 		string loopback = "127.0.0.1";
 		string local = gConfig.getStr("SIP.Local.IP");
 		if (local.compare(loopback) == 0) {
-			string emergency = gConfig.getStr("SIP.Proxy.Emergency");
 			string registration = gConfig.getStr("SIP.Proxy.Registration");
 			string sms = gConfig.getStr("SIP.Proxy.SMS");
 			string speech = gConfig.getStr("SIP.Proxy.Speech");
 			string ussd = gConfig.getStr("SIP.Proxy.USSD");
-			if (emergency.find(loopback) == std::string::npos || registration.find(loopback) == std::string::npos ||
+			if (registration.find(loopback) == std::string::npos ||
 				sms.find(loopback) == std::string::npos || speech.find(loopback) == std::string::npos ||
 				(ussd.length() && ussd.find(loopback) == std::string::npos)) {
 				warning << "A non-local IP is being used for one or more SIP.Proxy.* settings but SIP.Local.IP is still set to 127.0.0.1. ";
