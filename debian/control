@@ -11,5 +11,5 @@ Section: comm
 Priority: optional
 Architecture: i386
 Essential: no
-Depends: sqlite3, libusb-1.0-0, libortp8, libc6-i686, pkg-config, range-libzmq, range-liba53, libreadline6
+Depends: sqlite3, libusb-1.0-0, libortp8, libc6-i686, pkg-config, range-libzmq, liba53, libreadline6
 Description: Range Networks - OpenBTS GSM+GPRS Radio Access Network Node
