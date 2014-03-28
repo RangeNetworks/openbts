@@ -14,6 +14,7 @@ git:
   submodules: false
 
 before_install:
+ - sudo apt-get update 
  - sudo apt-get install -qq libortp-dev, libusb-1.0-0-dev, libreadline-dev
  - git clone https://github.com/RangeNetworks/liba53.git
  - cd liba53
@@ -33,5 +34,4 @@ before_install:
 
 script:
   - dpkg-buildpackage
-
 
