@@ -9,4 +9,4 @@
 [submodule "NodeManager"]
 	path = NodeManager
 	url = git@github.com:RangeNetworks/NodeManager.git
-	branch = 4.0
+	branch = master
