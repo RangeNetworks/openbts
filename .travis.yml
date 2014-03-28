@@ -1,8 +1,14 @@
 language: cpp
 compiler: gcc
 
-#notifications:
-#  irc: "chat.freenode.net#openbts"
+notifications:
+  irc:
+    channels:
+      - "chat.freenode.net#openbts"
+    template:
+      - "%{repository} : %{message} : %{build_url}"
+    on_success: change
+    on_failure: always
 
 git:
   submodules: false

@@ -3,7 +3,7 @@ Section: comm
 Priority: optional
 Maintainer: Range Networks, Inc. <info@rangenetworks.com>
 Homepage: http://www.rangenetworks.com/
-Build-Depends: build-essential, debhelper (>= 7), pkg-config, autoconf, libtool, liba53, libortp-dev, libusb-1.0-0-dev, libreadline-dev
+Build-Depends: build-essential, debhelper (>= 7), pkg-config, autoconf, libtool, range-libzmq, liba53, libortp-dev, libusb-1.0-0-dev, libreadline-dev
 Standards-Version: 3.7.3
 
 Package: openbts
