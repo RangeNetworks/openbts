@@ -1,6 +1,6 @@
 /*
 * Copyright 2010 Kestrel Signal Processing, Inc.
-* Copyright 2012, 2013 Range Networks, Inc.
+* Copyright 2012, 2013, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
 *
@@ -176,7 +176,7 @@ ConfigurationKeyMap getAllConfigurationKeys()
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
-	tmp = new ConfigurationKey("PowerScanner.DBPath","/var/run/OpenBTS/PowerScannerResults.db",
+	tmp = new ConfigurationKey("PowerScanner.DBPath","/var/run/PowerScannerResults.db",
 		"",
 		ConfigurationKey::FACTORY,
 		ConfigurationKey::FILEPATH,

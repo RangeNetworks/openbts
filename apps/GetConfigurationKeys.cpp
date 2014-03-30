@@ -129,7 +129,7 @@ ConfigurationKeyMap getConfigurationKeys()
 	ConfigurationKeyMap map;
 	ConfigurationKey *tmp;
 
-	tmp = new ConfigurationKey("CLI.SocketPath","/var/run/OpenBTS/command",
+	tmp = new ConfigurationKey("CLI.SocketPath","/var/run/command",
 		"",
 		ConfigurationKey::FACTORY,
 		ConfigurationKey::FILEPATH,
@@ -485,7 +485,7 @@ ConfigurationKeyMap getConfigurationKeys()
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
-	tmp = new ConfigurationKey("Control.Reporting.PhysStatusTable","/var/run/OpenBTS/ChannelTable.db",
+	tmp = new ConfigurationKey("Control.Reporting.PhysStatusTable","/var/run/ChannelTable.db",
 		"",
 		ConfigurationKey::CUSTOMERWARN,
 		ConfigurationKey::FILEPATH,
@@ -507,7 +507,7 @@ ConfigurationKeyMap getConfigurationKeys()
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
-	tmp = new ConfigurationKey("Control.Reporting.TMSITable","/var/run/OpenBTS/TMSITable.db",
+	tmp = new ConfigurationKey("Control.Reporting.TMSITable","/var/run/TMSITable.db",
 		"",
 		ConfigurationKey::CUSTOMERWARN,
 		ConfigurationKey::FILEPATH,
@@ -542,7 +542,7 @@ ConfigurationKeyMap getConfigurationKeys()
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
-	tmp = new ConfigurationKey("Control.Reporting.TransactionTable","/var/run/OpenBTS/TransactionTable.db",
+	tmp = new ConfigurationKey("Control.Reporting.TransactionTable","/var/run/TransactionTable.db",
 		"",
 		ConfigurationKey::CUSTOMERWARN,
 		ConfigurationKey::FILEPATH,
@@ -583,7 +583,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		true,
 		"File path for SMSCB scheduling database.  "
 			"By default, this feature is disabled.  "
-			"To enable, specify a file path for the database e.g. /var/run/OpenBTS/SMSCB.db.  "
+			"To enable, specify a file path for the database e.g. /var/run/SMSCB.db.  "
 			"To disable again, execute \"unconfig Control.SMSCB.Table\"."
 	);
 	map[tmp->getName()] = *tmp;
@@ -2405,7 +2405,7 @@ ConfigurationKeyMap getConfigurationKeys()
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
-	tmp = new ConfigurationKey("Peering.NeighborTable.Path","/var/run/OpenBTS/NeighborTable.db",
+	tmp = new ConfigurationKey("Peering.NeighborTable.Path","/var/run/NeighborTable.db",
 		"",
 		ConfigurationKey::CUSTOMERWARN,
 		ConfigurationKey::FILEPATH,

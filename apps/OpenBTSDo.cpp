@@ -1,5 +1,5 @@
 /*
-* Copyright 2011, 2012 Range Networks, Inc.
+* Copyright 2011, 2012, 2014 Range Networks, Inc.
 *
 * This software is distributed under the terms of the GNU Affero Public License.
 * See the COPYING file in the main directory for details.
@@ -34,7 +34,7 @@
 #include <limits.h>
 
 
-#define DEFAULT_CMD_PATH "/var/run/OpenBTS/command"
+#define DEFAULT_CMD_PATH "/var/run/command"
 
 int main(int argc, char *argv[])
 {

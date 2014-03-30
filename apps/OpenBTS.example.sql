@@ -8,7 +8,7 @@
 PRAGMA foreign_keys=OFF;
 BEGIN TRANSACTION;
 CREATE TABLE IF NOT EXISTS CONFIG ( KEYSTRING TEXT UNIQUE NOT NULL, VALUESTRING TEXT, STATIC INTEGER DEFAULT 0, OPTIONAL INTEGER DEFAULT 0, COMMENTS TEXT DEFAULT '');
-INSERT OR IGNORE INTO "CONFIG" VALUES('CLI.SocketPath','/var/run/OpenBTS/command',0,0,'Path for Unix domain datagram socket used for the OpenBTS console interface.');
+INSERT OR IGNORE INTO "CONFIG" VALUES('CLI.SocketPath','/var/run/command',0,0,'Path for Unix domain datagram socket used for the OpenBTS console interface.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('Control.Call.QueryRRLP.Early','0',0,0,'1=enabled, 0=disabled - Query every MS for its location via RRLP during the setup of a call.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('Control.Call.QueryRRLP.Late','0',0,0,'1=enabled, 0=disabled - Query every MS for its location via RRLP during the teardown of a call.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('Control.GSMTAP.GPRS','0',0,0,'1=enabled, 0=disabled - Capture GPRS signaling and traffic at L1/L2 interface via GSMTAP.');
@@ -33,14 +33,14 @@ INSERT OR IGNORE INTO "CONFIG" VALUES('Control.LUR.SendTMSIs','0',0,0,'1=enabled
 INSERT OR IGNORE INTO "CONFIG" VALUES('Control.LUR.TestMode','0',0,0,'Used for testing the LUR procedure.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('Control.LUR.UnprovisionedRejectCause','0x04',0,0,'Reject cause for location updating failures for unprovisioned phones, that is, the IMSI was not found in the Registrar database.  The SIP result code from the Registrar in this case is 401.  Reject causes come from GSM 04.08 10.5.3.6.  Reject cause 0x02 or 0x04 is usually the right one.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('Control.NumSQLTries','3',0,0,'Number of times to retry SQL queries before declaring a database access failure.');
-INSERT OR IGNORE INTO "CONFIG" VALUES('Control.Reporting.PhysStatusTable','/var/run/OpenBTS/ChannelTable.db',1,0,'File path for channel status reporting database.  Static.');
+INSERT OR IGNORE INTO "CONFIG" VALUES('Control.Reporting.PhysStatusTable','/var/run/ChannelTable.db',1,0,'File path for channel status reporting database.  Static.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('Control.Reporting.StatsTable','/var/log/OpenBTSStats.db',1,0,'File path for statistics reporting database.  Static.');
-INSERT OR IGNORE INTO "CONFIG" VALUES('Control.Reporting.TMSITable','/var/run/OpenBTS/TMSITable.db',1,0,'File path for TMSITable database.  Static.');
+INSERT OR IGNORE INTO "CONFIG" VALUES('Control.Reporting.TMSITable','/var/run/TMSITable.db',1,0,'File path for TMSITable database.  Static.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('Control.Reporting.TransactionMaxCompletedRecords','100',1,0,'Maximum completed records to be stored for gathering by an external stats tool.  Static.');
-INSERT OR IGNORE INTO "CONFIG" VALUES('Control.Reporting.TransactionTable','/var/run/OpenBTS/TransactionTable.db',1,0,'File path for transaction table database.  Static.');
+INSERT OR IGNORE INTO "CONFIG" VALUES('Control.Reporting.TransactionTable','/var/run/TransactionTable.db',1,0,'File path for transaction table database.  Static.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('Control.SACCHTimeout.BumpDown','1',0,0,'Decrease the RSSI by this amount to induce more power in the MS each time we fail to receive a response from it on SACCH.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('Control.SMS.QueryRRLP','0',0,0,'1=enabled, 0=disabled - Query every MS for its location via RRLP during an SMS.');
-INSERT OR IGNORE INTO "CONFIG" VALUES('Control.SMSCB.Table','',1,0,'File path for SMSCB scheduling database.  By default, this feature is disabled.  To enable, specify a file path for the database e.g. /var/run/OpenBTS/SMSCB.db.  To disable again, execute "unconfig Control.SMSCB.Table".  Static.');
+INSERT OR IGNORE INTO "CONFIG" VALUES('Control.SMSCB.Table','',1,0,'File path for SMSCB scheduling database.  By default, this feature is disabled.  To enable, specify a file path for the database e.g. /var/run/SMSCB.db.  To disable again, execute "unconfig Control.SMSCB.Table".  Static.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('Control.TMSITable.MaxAge','576',0,0,'Maximum allowed age in hours for a TMSI entry in the TMSITable.  This is not the authorization/registration expiry period, this is how long the BTS remembers assigned TMSIs.  Currently old entries are only discarded at startup.  ');
 INSERT OR IGNORE INTO "CONFIG" VALUES('Control.VEA','0',0,0,'1=enabled, 0=disabled - Use very early assignment for speech call establishment.  See GSM 04.08 Section 7.3.2 for a detailed explanation of assignment types.  If VEA is selected, GSM.CellSelection.NECI should be set to 1.  See GSM 04.08 Sections 9.1.8 and 10.5.2.4 for an explanation of the NECI bit.  Note that some handset models exhibit bugs when VEA is used and these bugs may affect performance.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('Control.WatchdogMinutes','0',0,0,'Number of minutes before the radio watchdog expires and OpenBTS is restarted, set to 0 to disable.');
@@ -183,7 +183,7 @@ INSERT OR IGNORE INTO "CONFIG" VALUES('Log.Alarms.Max','20',0,0,'Maximum number 
 INSERT OR IGNORE INTO "CONFIG" VALUES('Log.File','',0,0,'Path to use for textfile based logging.  By default, this feature is disabled.  To enable, specify an absolute path to the file you wish to use, eg: /tmp/my-debug.log.  To disable again, execute "unconfig Log.File".');
 INSERT OR IGNORE INTO "CONFIG" VALUES('Log.Level','NOTICE',0,0,'Default logging level when no other level is defined for a file.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('Peering.Neighbor.RefreshAge','60',0,0,'Seconds before refreshing parameters from a neighbor.');
-INSERT OR IGNORE INTO "CONFIG" VALUES('Peering.NeighborTable.Path','/var/run/OpenBTS/NeighborTable.db',1,0,'File path for neighbor information database.  Static.');
+INSERT OR IGNORE INTO "CONFIG" VALUES('Peering.NeighborTable.Path','/var/run/NeighborTable.db',1,0,'File path for neighbor information database.  Static.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('Peering.Port','16001',1,0,'The UDP port used by the peer interface for handover.  Static.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('Peering.ResendCount','20',0,0,'Number of tries to send message over the peer interface before giving up.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('Peering.ResendTimeout','100',0,0,'Milliseconds before resending a message on the peer interface.');
