@@ -26,6 +26,11 @@ before_install:
  - ./build.sh
  - sudo dpkg -i *.deb
  - cd ..
+ - git clone https://github.com/RangeNetworks/libcoredumper.git
+ - cd libcoredumper
+ - ./build.sh
+ - sudo dpkg -i *.deb
+ - cd ..
  - sed -i 's/git@github.com:/git:\/\/github.com\//' .gitmodules
  - git submodule update --init --recursive
 
