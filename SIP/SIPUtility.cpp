@@ -220,8 +220,11 @@ bool IPAddressSpec::ipSet(string addrSpec, const char * provenance)
 	}
 
 	if (!resolveAddress(&mipSockAddr,addrSpec.c_str())) {
-		LOG(CRIT) << "cannot resolve IP address for " << addrSpec <<" from "<<provenance;	// << sbText();
-		return false;
+		//try to resolve with default port if it fails without
+		if (!resolveAddress(&mipSockAddr,addrSpec.c_str(), 5060)) {
+			LOG(CRIT) << "cannot resolve IP address for " << addrSpec <<" from "<<provenance;	// << sbText();
+			return false;
+		}
 	}
 
 	{	char host[256];
