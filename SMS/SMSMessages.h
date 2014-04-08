@@ -71,7 +71,7 @@ class TLAddress : public TLElement {
 
 private:
 
-	GSM::TypeOfNumber mType;
+	GSM::TypeOfNumber mType;  // International and other flags
 	GSM::NumberingPlan mPlan;
 	GSM::L3BCDDigits mDigits;
 

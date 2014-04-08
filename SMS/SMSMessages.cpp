@@ -75,6 +75,11 @@ CPMessage * SMS::parseSMS( const GSM::L3Frame& frame )
 }
 
 
+/*
+ * Returns
+	  RPData*
+
+ */
 RPData *SMS::hex2rpdata(const char *hexstring)
 {
 	RPData *rp_data = NULL;
@@ -381,7 +386,7 @@ void TLAddress::parse(const TLFrame& src, size_t& rp)
 	if (src.readField(rp, 1) != 1) SMS_READ_ERROR;	
 	mType = (TypeOfNumber)src.readField(rp, 3);
 	mPlan = (NumberingPlan)src.readField(rp, 4);
-	mDigits.parse(src,rp,length);
+	mDigits.parse(src,rp,length, mType == InternationalNumber);
 }
 
 

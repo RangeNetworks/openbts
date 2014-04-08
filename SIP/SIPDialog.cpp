@@ -79,12 +79,9 @@ SipDialog *SipDialog::newSipDialogMT(DialogType dtype, SipMessage *req)
 		proxy = gConfig.getStr(dtype == SIPDTMTSMS ? "SIP.Proxy.SMS" : "SIP.Proxy.Speech");
 	}
 	SipDialog *dialog = new SipDialog(dtype,proxy,"INVITE or MESSAGE via");
-	/* TEMPORARY WORKAROUND : smqueue needs to handle this "To:" header properly, disabled for now to ship 4.0.	
 	// 2-2014: RFC 3267 8.2.6.2 says the UAS (sip server) MUST add a "to" tag to a response, and MAY add a "to" tag to a provisional (100) response.
 	// The reason is in case the request is forked, the client could distinguish responses from multiple servers, a case that would not happen for us.
-	dialog->dsSetLocalHeaderMT(&req->msmTo,true);	//dtype == SIPDTMTC);
-	*/
-	dialog->dsSetLocalHeaderMT(&req->msmTo,dtype == SIPDTMTC);		
+	dialog->dsSetLocalHeaderMT(&req->msmTo,dtype == SIPDTMTC);
 	dialog->dsSetRemoteHeader(&req->msmFrom);
 	//dialog->mSipUsername = req->smUriUsername();	// IMSI/TMSI is in both the URI and the To: header.
 	// TODO: Validate username - must be valid IMSI or TMSI.

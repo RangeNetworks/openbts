@@ -88,7 +88,7 @@ void SMSCommon::l3sendSms(const L3Message &msg, SAPI_t sapi)
 
 
 /**
-	Process the RPDU.
+	Process the incomming RPDU.
 	@param mobileID The sender's IMSI.
 	@param RPDU The RPDU to process.
 	@return true if successful.
@@ -100,33 +100,22 @@ bool MOSMSMachine::handleRPDU(const RLFrame& RPDU)
 		case RPMessage::Data: {
 			string contentType = gConfig.getStr("SMS.MIMEType");
 			ostringstream body;
+			string toAddress = "";
 
 			if (contentType == "text/plain") {
-				// TODO: Clean this mess up!
 				RPData data;
 				data.parse(RPDU);
 				TLSubmit submit;
 				submit.parse(data.TPDU());
 				
 				body << submit.UD().decode();	// (pat) TODO: efficiencize this.
+				toAddress = string(submit.DA().digits());
 			} else if (contentType == "application/vnd.3gpp.sms") {
+				toAddress = "smsc";  // If encoded this is expected in destination address
 				RPDU.hex(body);
 			} else {
 				LOG(ERR) << "\"" << contentType << "\" is not a valid SMS payload type";
 			}
-			// (pat) In this case the recipient address is buried in the message somewhere.
-			string address = gConfig.getStr("SIP.SMSC");
-
-			/* The SMSC is not defined, we are using an older version */
-			if (address.length() == 0) {
-				RPData data;
-				data.parse(RPDU);
-				TLSubmit submit;
-				submit.parse(data.TPDU());
-
-				address = string(submit.DA().digits());
-			}
-
 			// Steps:
 			// 1 -- Complete transaction record.
 			// 2 -- Send TL-SUBMIT to the server.
@@ -136,7 +125,7 @@ bool MOSMSMachine::handleRPDU(const RLFrame& RPDU)
 			// Step 1 and 2 -- Complete the transaction record and send TL-SUMBIT to server.
 			// Form the TLAddress into a CalledPartyNumber for the transaction.
 			// Attach calledParty and message body to the transaction.
-			SipDialog::newSipDialogMOSMS(tran()->tranID(), tran()->subscriber(), address, body.str(), contentType);
+			SipDialog::newSipDialogMOSMS(tran()->tranID(), tran()->subscriber(), toAddress, body.str(), contentType);
 			return true;
 		}
 		case RPMessage::Ack:
@@ -623,6 +612,7 @@ void initMTSMS(TranEntry *tran)
 }
 
 #if UNUSED 	// (pat) what was I thinking here? 
+xxxxxxxx This version is not used
 // Parse an incoming SMS message into RPData, save everything else we need.
 // We do this immediately upon reception of a SIP message to error check it before queueing it for delivery to an MS.
 // Return result or NULL on failure.  SIP should return error 400 "Bad Request" in this case.

@@ -58,7 +58,6 @@ using namespace Control;
 
 const bool rtpUseRealTime = true;	// Enables a bug fix for the RTP library.
 
-// TEMPORARY WORKAROUND : until smqueue can be brought up to speed, this needs enabling by default
 bool gPeerIsBuggySmqueue = true;
 
 // These need to be declared here instead of in the header because of interaction with InterthreadQueue.h.

@@ -192,6 +192,7 @@ void L3BCDDigits::parse(const L3Frame& src, size_t &rp, size_t numOctets, bool i
 {
 	unsigned i=0;
 	size_t readOctets = 0;
+	LOG(DEBUG) << "parse international " << international;
 	if (international) mDigits[i++] = '+';
 	while (readOctets < numOctets) {
 		unsigned d2 = src.readField(rp,4);
@@ -222,6 +223,7 @@ void L3BCDDigits::write(L3Frame& dest, size_t &wp) const
 	unsigned index = 0;
 	unsigned numDigits = strlen(mDigits);
 	if (index < numDigits && mDigits[index] == '+') {
+		LOG(DEBUG) << "write got +";
 		index++;
 	}
 	while (index < numDigits) {
@@ -254,6 +256,7 @@ ostream& operator<<(ostream& os, const L3BCDDigits& digits)
 void L3CalledPartyBCDNumber::writeV( L3Frame &dest, size_t &wp ) const
 {
 	dest.writeField(wp, 0x01, 1);
+	LOG(DEBUG) << "writeV mType" << mType;
 	dest.writeField(wp, mType, 3);
 	dest.writeField(wp, mPlan, 4);
 	mDigits.write(dest,wp);
@@ -265,6 +268,7 @@ void L3CalledPartyBCDNumber::parseV( const L3Frame &src, size_t &rp, size_t expe
 	// ext bit must be 1
 	if (src.readField(rp, 1) != 1) L3_READ_ERROR;	
 	mType = (TypeOfNumber)src.readField(rp, 3);
+	LOG(DEBUG) << "parseV mType" << mType;
 	mPlan = (NumberingPlan)src.readField(rp, 4);
 	mDigits.parse(src,rp,expectedLength-1, mType == InternationalNumber);
 }
@@ -289,7 +293,8 @@ void L3CallingPartyBCDNumber::writeV( L3Frame &dest, size_t &wp ) const
 {
 	// If Octet3a is extended, then write 0 else 1.
 	dest.writeField(wp, (!mHaveOctet3a & 0x01), 1);
-	dest.writeField(wp, *digits() == '+' ? InternationalNumber : mType, 3);
+	LOG(DEBUG) << "writeV mType" << mType << " first digit " << *digits();
+	dest.writeField(wp, mType, 3);
 	dest.writeField(wp, mPlan, 4);
 
 	if(mHaveOctet3a){
@@ -306,14 +311,15 @@ void L3CallingPartyBCDNumber::writeV( L3Frame &dest, size_t &wp ) const
 
 
 
-// (pat) 24.018 10.5.4.9 quote: "This IE is not used in the MS to network direction."
+// (pat) 24.008 10.5.4.9 quote: "This IE is not used in the MS to network direction."
 // Which is a good thing because I do not think this parseV is correct.
 void L3CallingPartyBCDNumber::parseV( const L3Frame &src, size_t &rp, size_t expectedLength) 
 {
 	size_t remainingLength = expectedLength;
 	// Read out first bit = 1.
-	mHaveOctet3a = ! src.readField(rp, 1);	
+	mHaveOctet3a = !src.readField(rp, 1);	// Bit is reversed 0 means you have an octet
 	mType = (TypeOfNumber)src.readField(rp, 3);
+	LOG(DEBUG) << "parseV mType" << mType;
 	mPlan = (NumberingPlan)src.readField(rp, 4);
 	remainingLength -= 1;
 
@@ -325,7 +331,7 @@ void L3CallingPartyBCDNumber::parseV( const L3Frame &src, size_t &rp, size_t exp
 		remainingLength -= 1;
 	}
 
-	mDigits.parse(src,rp,remainingLength);
+	mDigits.parse(src,rp,remainingLength, mType == InternationalNumber);
 }
 
 
