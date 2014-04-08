@@ -28,7 +28,7 @@
 #include <GSML3Message.h>
 #include <GSML3CCElements.h>
 #include <GSML3MMElements.h>
-
+#include <Logger.h>
 
 namespace SMS {
 
@@ -81,13 +81,19 @@ public:
 
 	TLAddress(GSM::TypeOfNumber wType, GSM::NumberingPlan wPlan, const char* wDigits)
 		:TLElement(),
-		mType(wType),mPlan(wPlan),mDigits(wDigits)
-	{ }
+		mPlan(wPlan), mDigits(wDigits)
+	{
+		mType = (wDigits[0] == '+') ?  GSM::InternationalNumber : GSM::NationalNumber;
+		LOG(DEBUG) << "TLaddrress ctor type=" << mType << " Digits " << wDigits;
+	}
 
 	TLAddress(const char* wDigits)
 		:TLElement(),
-		mType(GSM::NationalNumber),mPlan(GSM::E164Plan),mDigits(wDigits)
-	{ }
+		mPlan(GSM::E164Plan), mDigits(wDigits)
+	{
+		mType = (wDigits[0] == '+') ?  GSM::InternationalNumber : GSM::NationalNumber;
+		LOG(DEBUG) << "TLaddrress ctor type=" << mType << " Digits " << wDigits;
+	}
 
 	const char *digits() const { return mDigits.digits(); }
 	GSM::TypeOfNumber type() const { return mType; }

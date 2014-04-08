@@ -22,7 +22,7 @@
 #include "GSML3Message.h"
 #include <iostream>
 #include <ControlTransfer.h>
-
+#include <Logger.h>
 
 namespace GSM {
 
@@ -179,12 +179,17 @@ private:
 public:
 
 	L3CallingPartyBCDNumber()
-		:mType(UnknownTypeOfNumber),mPlan(UnknownPlan)
+		:mType(UnknownTypeOfNumber), mPlan(UnknownPlan),
+		mHaveOctet3a(false)
 	{ }
 
 	L3CallingPartyBCDNumber( const char * wDigits )
-		:mType(NationalNumber),mPlan(E164Plan),mDigits(wDigits)
-	{ }
+		:mPlan(E164Plan), mDigits(wDigits),
+		mHaveOctet3a(false)
+	{
+		mType = (wDigits[0] == '+') ?  GSM::InternationalNumber : GSM::NationalNumber;
+		LOG(DEBUG) << "L3CallingPartyBCDNumber ctor type=" << mType << " Digits " << wDigits;
+	}
 
 	L3CallingPartyBCDNumber(const L3CallingPartyBCDNumber &other)
 		:mType(other.mType),mPlan(other.mPlan),mDigits(other.mDigits),
@@ -224,8 +229,11 @@ public:
 	{ }
 
 	L3CalledPartyBCDNumber(const char * wDigits)
-		:mType(NationalNumber),mPlan(E164Plan),mDigits(wDigits)
-	{ }
+		:mPlan(E164Plan), mDigits(wDigits)
+	{
+		mType = (wDigits[0] == '+') ?  GSM::InternationalNumber : GSM::NationalNumber;
+		LOG(DEBUG) << "L3CallingPartyBCDNumber ctor type=" << mType << " Digits " << wDigits;
+	}
 
 	// (pat) This auto-conversion from CallingParty to CalledParty was used in the SMS code,
 	// however, it was creating a disaster during unintended auto-conversions of L3Messages,

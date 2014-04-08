@@ -86,7 +86,7 @@ RPData *SMS::hex2rpdata(const char *hexstring)
 
 	BitVector2 RPDUbits(strlen(hexstring)*4);
 	if (!RPDUbits.unhex(hexstring)) {
-		return false;
+		return NULL;
 	}
 	LOG(DEBUG) << "SMS RPDU bits: " << RPDUbits;
 
@@ -116,7 +116,7 @@ RPData *SMS::hex2rpdata(const char *hexstring)
 
 TLMessage *SMS::parseTPDU(const TLFrame& TPDU, bool directionUplink)
 {
-	LOG(DEBUG) << "SMS: parseTPDU MTI=" << TPDU.MTI();
+	LOG(DEBUG) << "SMS: parseTPDU MTI=" << (TLMessage::MessageType)TPDU.MTI();
 	if (directionUplink) {
 	  // Handle just the uplink cases.
 	  switch ((TLMessage::MessageType)TPDU.MTI()) {
@@ -248,10 +248,11 @@ void RPUserData::parseV(const L3Frame& src, size_t &rp, size_t expectedLength)
 		SMS_READ_ERROR;
 	}
 	mTPDU.resize(numBits);
-	LOG(DEBUG) << "mTPDU length=" << mTPDU.length() << "data=" << mTPDU;
+	LOG(DEBUG) << "mTPDU length=" << mTPDU.length() << " data=" << mTPDU;
 	src.segmentCopyTo(mTPDU,rp,numBits);
 	rp += numBits;
 }
+
 
 void RPUserData::writeV(L3Frame& dest, size_t &wp) const
 {
@@ -299,6 +300,7 @@ void RPData::parseBody(const RLFrame& src, size_t &rp)
 	mOriginator.parseLV(src,rp);
 	mDestination.parseLV(src,rp);
 	mUserData.parseLV(src,rp);
+	//LOG(DEBUG) << "parseBody orig=" << mOriginator << " dest=" << mDestination;
 }
 
 
@@ -307,6 +309,7 @@ void RPData::writeBody(RLFrame& dest, size_t& wp) const
 	// GSM 04.11 7.3.1.1
 	// This is the downlink form.
 	mOriginator.writeLV(dest,wp);
+	//LOG(DEBUG) << "writeBody orig=" << mOriginator << " dest=" << mDestination;
 	mDestination.writeLV(dest,wp);
 	mUserData.writeLV(dest,wp);
 }
@@ -386,6 +389,7 @@ void TLAddress::parse(const TLFrame& src, size_t& rp)
 	if (src.readField(rp, 1) != 1) SMS_READ_ERROR;	
 	mType = (TypeOfNumber)src.readField(rp, 3);
 	mPlan = (NumberingPlan)src.readField(rp, 4);
+	//LOG(DEBUG) << "parse mType " << mType;
 	mDigits.parse(src,rp,length, mType == InternationalNumber);
 }
 
@@ -757,6 +761,7 @@ void TLSubmit::parseBody(const TLFrame& src, size_t& rp)
 	parseSRR(src);
 	mMR = src.readField(rp,8);
 	mDA.parse(src,rp);
+	//LOG(DEBUG) << "Destination " << mDA.digits();
 	mPI = src.readField(rp,8);
 	mDCS = src.readField(rp,8);
 	mVP.VPF(mVPF);
