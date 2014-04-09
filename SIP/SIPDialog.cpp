@@ -297,8 +297,20 @@ TranEntry *SipDialog::createMTTransaction(SipMessage *invite)
 {
 	// Create an incipient TranEntry.  It does not have a TI yet.
 	TranEntry *tran = NULL;
-	//string& callerId = this->mRemoteUsername;
-	string callerId = sipRemoteDisplayname();
+	string callerId;
+	if (gConfig.getStr("GSM.CallerID.Source").compare("username") == 0) {
+		callerId = sipRemoteUsername();
+		LOG(INFO) << "source=username, callerId = " << callerId;
+	} else if (gConfig.getStr("GSM.CallerID.Source").compare("p-asserted-identity") == 0) {
+		string tmpcid = invite->msmHeaders.paramFind("P-Asserted-Identity");
+		unsigned first = tmpcid.find("<sip:");
+		unsigned last = tmpcid.find_last_of("@");
+		callerId = tmpcid.substr(first+5, last-first-5);
+		LOG(INFO) << "source=p-asserted-identity, callerId = " << callerId;
+	} else {
+		callerId = sipRemoteDisplayname();
+		LOG(INFO) << "source=username, callerId = " << callerId;
+	}
 	FullMobileId msid;
 	msid.mImsi = invite->smGetInviteImsi();
 	if (invite->isINVITE()) {

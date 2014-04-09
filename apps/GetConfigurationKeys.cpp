@@ -1408,6 +1408,21 @@ ConfigurationKeyMap getConfigurationKeys()
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
+	tmp = new ConfigurationKey("GSM.CallerID.Source","displayname",
+                "",
+                ConfigurationKey::CUSTOMERTUNE,
+                ConfigurationKey::CHOICE,
+                "displayname,username,p-asserted-identity",
+                false,
+                "The source for numeric Caller ID has traditionally been the username field. After version 4.0 this behavior "
+                        "was changed to use the displayname field as it is a more accepted practice. This parameter will "
+                        "allow those with existing integrations to easily return to the legacy behavior until their SIP "
+                        "switches can be reconfigured. Additionally, using the P-Asserted-Identity header to source the "
+                        "Caller ID number is supported."
+        );
+        map[tmp->getName()] = *tmp;
+        delete tmp;
+
 	// (pat 8-30-2013)  We experienced a BTS lockup at Burning Man that I believe was caused
 	// by QMax == 5 being too high.  The BTS showed all channels being allocated but none being used.
 	// After RACH the MS listens to BCCH and CCCH for T3126, which is defined by equations
@@ -1906,7 +1921,6 @@ ConfigurationKeyMap getConfigurationKeys()
 	);
 	map[tmp->getName()] = *tmp;
 	delete tmp;
-
 
 	// (pat) This seems redundant with GSM.Neighbors, because if you want to limit the number of neighbors sent
 	// you can just leave them out of GSM.Neighbors.  But not quite - this is a limit on the number of neighbors
