@@ -170,7 +170,7 @@ void TranEntry::setDialog(SIP::SipDialog *dialog) { mDialog = dialog; dialog->se
 void TranEntry::txFrame(GSM::AudioFrame* frame, unsigned numFlushed) { getDialog()->txFrame(frame,numFlushed); }
 GSM::AudioFrame *TranEntry::rxFrame() { return getDialog()->rxFrame(); }	// Crashes if rtp not established.
 
-short TranEntry::getRTPPort() const
+unsigned TranEntry::getRTPPort() const
 {
 	if (SipDialog *dialog = getDialog()) { return dialog->RTPPort(); }
 	return 0;

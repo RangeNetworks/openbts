@@ -251,7 +251,7 @@ class SipRtp {
 	public:
 	/**@name RTP state and parameters. */
 	//@{
-	short mRTPPort;
+	unsigned mRTPPort;
 	//short mRTPRemPort;
 	//string mRTPRemIP;
 	Control::CodecSet mCodec;
@@ -275,7 +275,7 @@ class SipRtp {
 	RtpSession * RTPSession() const { return mSession; }
 
 	/** Return the RTP Port being used. */
-	short RTPPort() const { return mRTPPort; }
+	unsigned RTPPort() const { return mRTPPort; }
 
 	bool txDtmf();
 

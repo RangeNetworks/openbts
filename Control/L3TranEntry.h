@@ -448,7 +448,7 @@ public:
 	//@{
 
 	//unused SIP::SipState getSipState() const;
-	short getRTPPort() const;
+	unsigned getRTPPort() const;
 
 
 	// Obviously, these are only for TransactionEntries for voice calls.
