@@ -30,10 +30,12 @@
 #include <GSMConfig.h>
 #include <GSML3CommonElements.h>
 
+//#include "md5.h"
 
 
 namespace SIP {
 using namespace std;
+//using namespace MD5;
 
 // Unused, but here it is if you want it:
 // Pair is goofed up, so just make our own.  It is trivial:
@@ -326,6 +328,51 @@ std::ostream& operator<<(std::ostream& os, const SipTimer&t)
 {
 	os <<t.text();
 	return os;
+}
+
+string makeMD5(string input)
+{
+	// (mike) disabled for now until licensing on md5 code can be clarified
+	//char buffer[2 * MD5_DIGEST_SIZE + 1];
+	//md5_ctx ctx;
+	//MD5_Init(&ctx);   
+	//MD5_Update(&ctx, reinterpret_cast<const unsigned char *> (input.c_str()), input.size());
+	//MD5_hexdigest(&ctx,buffer);
+	//string str = buffer;
+	//
+	//return str;
+
+	// alternative to including md5 code in the project, kind of funky but it works for now
+	ostringstream os;
+	os << "echo -n \"" << input << "\" | md5sum | cut -d \" \" -f1";
+	FILE *f = popen(os.str().c_str(), "r");
+	if (f == NULL) {
+		LOG(CRIT) << "error: popen failed";
+		return false;
+	}
+	char digest[33];
+	char *buffer = fgets(digest, 33, f);
+	if (buffer != NULL && strlen(buffer) == 33) buffer[32] = 0;
+	if (buffer == NULL || strlen(buffer) != 32) {
+		LOG(CRIT) << "error: popen result failed";
+	}
+	int st = pclose(f);
+	if (st == -1) {
+		LOG(CRIT) << "error: pclose failed";
+	}
+	string str = buffer;
+
+	return str;
+}
+
+
+string makeResponse(string username, string realm, string password, string method, string uri, string nonce)
+{
+   static const string separatorStr(":");
+   string str1 = makeMD5( username + separatorStr + realm + separatorStr + password);
+   string str2 = makeMD5( method + separatorStr + uri);
+   string str3 = makeMD5( str1 + separatorStr + nonce + separatorStr + str2);
+   return str3;
 }
 
 };	// namespace SIP

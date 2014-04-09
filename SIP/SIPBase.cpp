@@ -466,7 +466,19 @@ SipMessage *SipBase::makeRegisterMsg(DialogType wMethod, const L3LogicalChannel*
 	// The examples in 24.1 show a From-tag but no To-tag.
 	// The To-tag includes the optional <>, and Paul at null team incorrectly thought the <> were required,
 	// so we will include them as that appears to be common practice.
-	string myUriString = makeUri(username,dsPeer()->mipName,0);	// The port, if any, is already in mipName.
+
+	string myUriString;
+	string authUri;
+	string authUsername;
+	string realm = gConfig.getStr("SIP.Realm");
+	if (realm.length() > 0) {
+		authUri = string("sip:") + realm;
+		authUsername = string("IMSI") + msid.mImsi;
+		myUriString = makeUri(username,realm,0);
+	} else {
+		myUriString = makeUri(username,dsPeer()->mipName,0);	// The port, if any, is already in mipName.
+	}
+
 	//string fromUriString = makeUriWithTag(username,dsPeer()->mipName,make_tag());	// The port, if any, is already in mipName.
 	SipPreposition toHeader("",myUriString,"");
 	SipPreposition fromHeader("",myUriString,make_tag());
@@ -479,7 +491,13 @@ SipMessage *SipBase::makeRegisterMsg(DialogType wMethod, const L3LogicalChannel*
 	if (wMethod == SIPDTRegister ) {
 		expires = 60*gConfig.getNum("SIP.RegistrationPeriod");
 		if (SRES && strlen(SRES)) {
-			msg->msmAuthorizationValue = format("Digest, nonce=%s, uri=%s, response=%s",RAND.c_str(),msid.mImsi.c_str(),SRES);
+			if (realm.length() > 0) {
+				string response = makeResponse(authUsername, realm, SRES, registerStr, authUri, RAND);
+				msg->msmAuthorizationValue = format("Digest realm=\"%s\", username=\"%s\", nonce=\"%s\", uri=\"%s\", response=\"%s\", algorithm=MD5, qop=\"auth\" ",
+					realm.c_str(), authUsername.c_str(), RAND.c_str(), authUri.c_str(), response.c_str());
+			} else {
+				msg->msmAuthorizationValue = format("Digest, nonce=%s, uri=%s, response=%s",RAND.c_str(),msid.mImsi.c_str(),SRES);
+			}
 		}
 	} else if (wMethod == SIPDTUnregister ) {
 		expires = 0;

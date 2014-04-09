@@ -15,6 +15,7 @@
 #define LOG_GROUP LogGroup::Control		// Can set Log.Level.Control for debugging
 
 #include <set>
+#include <algorithm> // for std::remove
 #include "L3TranEntry.h"
 #include <GSMLogicalChannel.h>
 #include "ControlCommon.h"
@@ -681,6 +682,9 @@ MachineStatus LUAuthentication::machineRunState(int state, const GSM::L3Message*
 			uint64_t lRAND;
 			string rand = ludata()->mRegistrationResult.mRand;	// mRAND;
 			rand = rand.substr(0,rand.find('.'));
+			if (gConfig.getStr("SIP.Realm").length() > 0) {
+				rand.erase(std::remove(rand.begin(), rand.end(), '-'), rand.end());
+			}
 			if (rand.size() != 32) {
 				LOG(ALERT) << "Invalid RAND challenge returned by Registrar (RAND length=" <<rand.size() <<")";
 				// (pat) LUFinish may still permit services depending on failOpen().

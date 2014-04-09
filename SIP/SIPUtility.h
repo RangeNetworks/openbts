@@ -185,6 +185,11 @@ extern string make_tag();
 extern string make_branch(const char *name=NULL);
 extern string globallyUniqueId(const char *start);
 extern string dequote(const string);
+
+extern string makeMD5(string input);
+extern string makeResponse(string username, string realm, string password, string method, string uri, string nonce);
+
+
 };
 #endif
 // vim: ts=4 sw=4
