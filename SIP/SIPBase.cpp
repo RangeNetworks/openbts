@@ -493,7 +493,7 @@ SipMessage *SipBase::makeRegisterMsg(DialogType wMethod, const L3LogicalChannel*
 		if (SRES && strlen(SRES)) {
 			if (realm.length() > 0) {
 				string response = makeResponse(authUsername, realm, SRES, registerStr, authUri, RAND);
-				msg->msmAuthorizationValue = format("Digest realm=\"%s\", username=\"%s\", nonce=\"%s\", uri=\"%s\", response=\"%s\", algorithm=MD5, qop=\"auth\" ",
+				msg->msmAuthorizationValue = format("Digest realm=\"%s\", username=\"%s\", nonce=\"%s\", uri=\"%s\", response=\"%s\", algorithm=MD5 ",
 					realm.c_str(), authUsername.c_str(), RAND.c_str(), authUri.c_str(), response.c_str());
 			} else {
 				msg->msmAuthorizationValue = format("Digest, nonce=%s, uri=%s, response=%s",RAND.c_str(),msid.mImsi.c_str(),SRES);

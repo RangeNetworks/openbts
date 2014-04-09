@@ -724,7 +724,7 @@ MachineStatus LUAuthentication::machineRunState(int state, const GSM::L3Message*
 			} else
 #endif
 			{
-				string SRESstr = format("%x",mobileSRES);
+				string SRESstr = format("%08x",mobileSRES);
 				return machPush(new L3RegisterMachine(tran(),SIPDTRegister,
 														SRESstr, &ludata()->mRegistrationResult),
 								stateRegister2Response);
