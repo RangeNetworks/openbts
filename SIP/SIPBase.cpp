@@ -554,8 +554,22 @@ SipMessage *SipBase::makeRequest(string method,string requestUri, string whoami,
 	invite->smAddViaBranch(this,branch);
 	invite->msmCSeqMethod = invite->msmReqMethod;
 	invite->msmCSeqNum = mLocalCSeq;		// We dont need to advance for an initial request; caller advances if necessary.
-	invite->msmTo = *toHeader;
-	invite->msmFrom = *fromHeader;
+
+	string realm = gConfig.getStr("SIP.Realm");
+	if (realm.length() > 0) {
+		string tousername = toHeader->uriUsername();
+		string fromusername = fromHeader->uriUsername();
+		string toTag = toHeader->getTag();
+		string fromTag = fromHeader->getTag();
+		string toUriString = makeUri(tousername ,realm,0);
+		string fromUriString = makeUri(fromusername ,realm,0);
+		invite->msmTo = SipPreposition("",toUriString, toTag );
+		invite->msmFrom = SipPreposition("",fromUriString, fromTag );
+	} else {
+		invite->msmTo = *toHeader;
+		invite->msmFrom = *fromHeader;
+	}
+
 	invite->msmContactValue = localContact(whoami);
 	string prefid = this->preferredIdentity(whoami);
 	static const string cPreferredIdentityString("P-Preferred-Identity");
