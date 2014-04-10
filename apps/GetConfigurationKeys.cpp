@@ -2708,7 +2708,7 @@ ConfigurationKeyMap getConfigurationKeys()
 		"SIP Realm for interop with certain switches. Filling in a host here will also activate an new REGISTER auth method."
 	);
 	map[tmp->getName()] = *tmp;
-        delete tmp;
+	delete tmp;
 
 	tmp = new ConfigurationKey("SIP.RegistrationPeriod","90",
 		"minutes",
