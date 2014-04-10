@@ -2699,6 +2699,17 @@ ConfigurationKeyMap getConfigurationKeys()
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
+	tmp = new ConfigurationKey("SIP.Realm","",
+		"",
+		ConfigurationKey::DEVELOPER,
+		ConfigurationKey::STRING_OPT,
+		"^[0-9a-zA-Z_.-]",
+		false,
+		"SIP Realm for interop with certain switches. Filling in a host here will also activate an new REGISTER auth method."
+	);
+	map[tmp->getName()] = *tmp;
+        delete tmp;
+
 	tmp = new ConfigurationKey("SIP.RegistrationPeriod","90",
 		"minutes",
 		ConfigurationKey::DEVELOPER,
