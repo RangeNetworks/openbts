@@ -26,6 +26,7 @@
 #include <L3TranEntry.h>
 #include <L3StateMachine.h>
 #include <GSML3MMElements.h>	// for L3CMServiceType
+#include <algorithm>
 
 namespace SIP {
 using namespace Control;
@@ -124,8 +125,13 @@ SipDialog *SipDialog::newSipDialogMOSMS(
 	SipDialog *dialog = new SipDialog(SIPDTMOSMS,gConfig.getStr("SIP.Proxy.SMS"),"SIP.Proxy.SMS");
 	dialog->dsSetLocalMO(fromMsId,gPeerIsBuggySmqueue ? true : false);
 	string calledDomain = dialog->localIP();
-	dialog->dsSetRemoteUri(makeUri(calledDigits,calledDomain));
-
+	if (gConfig.getStr("SIP.Realm").length() > 0) {
+		string tmpURI = makeUri(calledDigits,calledDomain);
+		tmpURI.erase(std::remove(tmpURI.begin(), tmpURI.end(), '+'), tmpURI.end());
+		dialog->dsSetRemoteUri(tmpURI);
+	} else {
+		dialog->dsSetRemoteUri(makeUri(calledDigits,calledDomain));
+	}
 	dialog->smsBody = body;				// Temporary until smqueue is fixed.
 	dialog->smsContentType = contentType;		// Temporary until smqueue is fixed.
 
