@@ -1408,14 +1408,14 @@ ConfigurationKeyMap getConfigurationKeys()
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
-	tmp = new ConfigurationKey("GSM.CallerID.Source","displayname",
+	tmp = new ConfigurationKey("GSM.CallerID.Source","username",
                 "",
                 ConfigurationKey::CUSTOMERTUNE,
                 ConfigurationKey::CHOICE,
                 "displayname,username,p-asserted-identity",
                 false,
                 "The source for numeric Caller ID has traditionally been the username field. After version 4.0 this behavior "
-                        "was changed to use the displayname field as it is a more accepted practice. This parameter will "
+                        "will be changed to use the displayname field as it is a more accepted practice. This parameter will "
                         "allow those with existing integrations to easily return to the legacy behavior until their SIP "
                         "switches can be reconfigured. Additionally, using the P-Asserted-Identity header to source the "
                         "Caller ID number is supported."
