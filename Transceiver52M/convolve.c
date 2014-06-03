@@ -443,7 +443,7 @@ static void sse_conv_cmplx_8n(float *x, float *h, float *y, int h_len, int len)
 
 			m4 = _mm_shuffle_ps(m0, m1, _MM_SHUFFLE(0, 2, 0, 2));
 			m5 = _mm_shuffle_ps(m0, m1, _MM_SHUFFLE(1, 3, 1, 3));
-			m6 = _mm_shuffle_ps(m2, m2, _MM_SHUFFLE(0, 2, 0, 2));
+			m6 = _mm_shuffle_ps(m2, m3, _MM_SHUFFLE(0, 2, 0, 2));
 			m7 = _mm_shuffle_ps(m2, m3, _MM_SHUFFLE(1, 3, 1, 3));
 
 			/* Load (unaligned) input data */
