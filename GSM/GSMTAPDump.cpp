@@ -57,6 +57,11 @@ void gWriteGSMTAP(unsigned ARFCN, unsigned TS, unsigned FN,
 		case GSM::SDCCH_4_0:
 		case GSM::SDCCH_4_1:
 		case GSM::SDCCH_4_2:
+			if(gConfig.getStr("Control.SMSCB.Table").length() != 0){
+				stype = GSMTAP_CHANNEL_CBCH52;
+				scn = to - GSM::SDCCH_4_0;
+				break;
+			}
 		case GSM::SDCCH_4_3:
 			stype = GSMTAP_CHANNEL_SDCCH4;
 			scn = to - GSM::SDCCH_4_0;

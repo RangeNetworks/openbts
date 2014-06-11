@@ -1071,13 +1071,19 @@ void CBCHL2::l2WriteHighSide(const GSM::L3Frame& l3)
 	assert(l3.primitive()==UNIT_DATA);
 	assert(l3.size()==88*8);
 	L2Frame outFrame(DATA);
-	// Chop the L3 frame into 4 L2 frames.
+	// Chop the L3 frame into 4 L2 frames. 
 	for (unsigned i=0; i<4; i++) {
-		outFrame.fillField(0,0x02,4);
+		// If it is the fourth frame, set the Last Block Bit to 0x03. 
+		if(i==3){
+			outFrame.fillField(0,0x03,4);
+		}   
+		else {
+			outFrame.fillField(0,0x02,4);
+		}
 		outFrame.fillField(4,i,4);
 		const BitVector2 thisSeg = l3.cloneSegment(i*22*8,22*8);
 		thisSeg.copyToSegment(outFrame,8);
-		OBJLOG(DEBUG) << "CBCHL2 outgoing L2 frame: " << outFrame;
+		OBJLOG(DEBUG) <<"Frame "<< i <<" of 4 " << "CBCHL2 outgoing L2 frame: " << outFrame;
 		mL2Downstream->writeHighSide(outFrame);
 	}
 }
