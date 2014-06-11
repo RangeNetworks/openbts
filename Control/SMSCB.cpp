@@ -124,7 +124,7 @@ void SMSCBSendMessage(sqlite3* DB, sqlite3_stmt* stmt, GSM::CBCHLogicalChannel* 
 			while (dp<82)  { thisPage[dp++] = 0; thisPage[dp++]='\r'; }
 		} else {
 			// 03.38 section 5
-			codingScheme = 0x10; // 7'
+			codingScheme = 0x01; // 7'
 			int buf = 0;
 			int shift = 0;
 			// The spec (above) says to put this language stuff in, but it doesn't work on my samsung galaxy y.
