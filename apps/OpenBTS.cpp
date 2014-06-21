@@ -55,6 +55,7 @@ ReportingTable gReports(gConfig.getStr("Control.Reporting.StatsTable").c_str());
 #include <SIP2Interface.h>
 #include "NeighborTable.h"
 #include <Peering.h>
+#include <NodeManager.h>
 
 #include <sys/wait.h>
 
@@ -114,6 +115,8 @@ Peering::PeerInterface gPeerInterface;
 /** The global neighbor table. */
 Peering::NeighborTable gNeighborTable;
 
+/** The remote node manager. */
+NodeManager gNodeManager;
 
 /** Define a function to call any time the configuration database changes. */
 void purgeConfig(void*,int,char const*, char const*, sqlite3_int64)
@@ -703,6 +706,7 @@ int main(int argc, char *argv[])
 	LOG(INFO) << "system ready";
 
 	gParser.startCommandLine();
+	gNodeManager.start(45060);
 
 	while (1) {
 		char cmdbuf[1000];
