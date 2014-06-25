@@ -38,10 +38,10 @@ NODEMANAGER_INCLUDEDIR = $(top_srcdir)/NodeManager
 JSONBOX_INCLUDEDIR = $(top_srcdir)/NodeManager/JsonBox-0.4.3/include
 SCANNING_INCLUDEDIR = $(top_srcdir)/Scanning
 
-SVNDEV = -D'SVN_REV="$(shell svn info $(top_builddir) | grep "Last Changed Rev:" | cut -d " " -f 4) CommonLibs:rev$(shell svn info $(top_builddir)/CommonLibs | grep "Last Changed Rev:" | cut -d " " -f 4)"'
+REPOREV = -D'REPO_REV="$(shell ./$(top_builddir)/Globals/GrabRepoInfo.sh $(top_builddir))"'
 
 STD_DEFINES_AND_INCLUDES = \
-	$(SVNDEV) \
+	$(REPOREV) \
 	-I$(COMMON_INCLUDEDIR) \
 	-I$(CONTROL_INCLUDEDIR) \
 	-I$(GSM_INCLUDEDIR) \
