@@ -602,7 +602,7 @@ signed ::ARFCNManager::getFactoryCalibration(const char * param)
 	signed value;
 	int status = sendCommand("READFACTORY", param, &value);
 	if (status!=0) {
-		LOG(ALERT) << "READFACTORY failed with status " << status;
+		LOG(INFO) << "READFACTORY failed with status " << status;
 		return false;
 	}
 	return value;
