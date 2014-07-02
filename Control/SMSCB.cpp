@@ -176,11 +176,13 @@ void* Control::SMSCBSender(void*)
 
 	while (1) {
 		// Get the next message ready to send.
-		const char* query =
+		char query[200];
+		sprintf(query,
 			"SELECT"
 			" GS,MESSAGE_CODE,UPDATE_NUMBER,MSGID,MESSAGE,LANGUAGE_CODE,SEND_COUNT,ROWID"
 			" FROM SMSCB"
-			" WHERE SEND_TIME==(SELECT min(SEND_TIME) FROM SMSCB)";
+			" WHERE SEND_TIME==(SELECT min(SEND_TIME) FROM SMSCB)"
+			" AND SEND_TIME<=%u", (unsigned)time(NULL));
 		sqlite3_stmt *stmt;
 		if (sqlite3_prepare_statement(DB,&stmt,query)) {
 			LOG(ALERT) << "Cannot access SMSCB database: " << sqlite3_errmsg(DB);
