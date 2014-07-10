@@ -29,6 +29,7 @@
 
 #include <ortp/telephonyevents.h>
 
+#include <config.h>
 #include <Logger.h>
 #include <Timeval.h>
 #include <GSMConfig.h>
@@ -980,7 +981,11 @@ void SipRtp::initRTP1(const char *d_ip_addr, unsigned d_port, unsigned dialogId)
 	rtp_session_signal_connect(mSession,"timestamp_jump",(RtpCallback)ourRtpTimestampJumpCallback,dialogId);
 
 	gCountRtpSockets++;
-	rtp_session_set_local_addr(mSession, "0.0.0.0", mRTPPort );
+#ifdef ORTP_NEW_API
+	rtp_session_set_local_addr(mSession, "0.0.0.0", mRTPPort, -1);
+#else
+	rtp_session_set_local_addr(mSession, "0.0.0.0", mRTPPort);
+#endif
 	rtp_session_set_remote_addr(mSession, d_ip_addr, d_port);
 	WATCHF("*** initRTP local=%d remote=%s %d\n",mRTPPort,d_ip_addr,d_port);
 
