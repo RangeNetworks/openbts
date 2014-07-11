@@ -117,8 +117,12 @@ fi
 AC_CHECK_LIB(a53, _init, ,[AC_MSG_ERROR([Cannot link with -la53. Install the liba53 package or manually build and install with $ sudo ./tools/install_liba53.sh])])
 
 dnl Check for sip+rtp libs
-#AC_CHECK_LIB([ortp], [main])
-
+AC_MSG_CHECKING([ortp api version])
+AS_IF([gcc -I=/usr/local/include -o config/test_ortp_version config/test_ortp_version.cpp -lortp &> /dev/null], [
+	AC_DEFINE(ORTP_NEW_API, 1, rtp_session_set_local_addr takes four arguments)
+	AC_MSG_RESULT([>= 0.22.0])
+	],
+	[AC_MSG_RESULT([< 0.22.0])])
 dnl Check for other misc libs
 #AC_CHECK_LIB([c], [main])
 #AC_CHECK_LIB([dl], [main])

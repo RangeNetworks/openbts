@@ -26,6 +26,7 @@ config: configure-stamp
 configure-stamp: configure
 	dh_testdir
 	# Add here commands to configure the package.
+	autoreconf -i
 	./configure $(confflags)
 	touch configure-stamp
 
