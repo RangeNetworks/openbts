@@ -9,6 +9,8 @@ Makefile
 aclocal.m4
 build-arch-stamp
 build-indep-stamp
+compile
+config/test_ortp_version
 config.guess
 config.h
 config.log
