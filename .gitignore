@@ -39,7 +39,7 @@ TransceiverRAD1/sigProcLibTest
 TransceiverRAD1/transceiver
 apps/OpenBTS
 apps/OpenBTSCLI
-apps/OpenBTSDo
+apps/JSONEventsClient
 GSMShare/A51Test
 GSMShare/AMRTest
 GSMShare/ViterbiTest

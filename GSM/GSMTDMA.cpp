@@ -1,7 +1,8 @@
 /*
 * Copyright 2008, 2009, 2010 Free Software Foundation, Inc.
+* Copyright 2014 Range Networks, Inc.
 *
-* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
+* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -11,6 +12,8 @@
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
+
+#define LOG_GROUP LogGroup::GSM		// Can set Log.Level.GSM for debugging
 
 
 #include "GSMTDMA.h"
@@ -64,24 +67,15 @@ const unsigned BCCHFrames[] = {2,3,4,5};
 MAKE_TDMA_MAPPING(BCCH,TDMA_BEACON_BCCH,true,false,0x55,true,51);
 
 // Note that we removed frames for the SDCCH components of the Combination-V C0T0.
+// (pat) This comes from GSM 5.02 clause 7 table 5 of 9 page 46.
 const unsigned RACHC5Frames[] = {4,5,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,45,46};
-MAKE_TDMA_MAPPING(RACHC5,TDMA_BEACON,false,true,0x55,true,51);
+// allowedSlots == 0x1 means only on timeslot 0.
+MAKE_TDMA_MAPPING(RACHC5,TDMA_BEACON,false,true,0x1,true,51);
 
-// CCCH 0-2 are used in C-IV and C-V.  The others are used in C-IV only.
+// Combination-V beacon has three CCCH.
+const unsigned CCCH_C5Frames[] = { 6,7,8,9, 12,13,14,15, 16,17,18,19 };
+MAKE_TDMA_MAPPING(CCCH_C5,TDMA_BEACON_CCCH,true,false,0x01,true,51);
 
-const unsigned CCCH_0Frames[] = {6,7,8,9};
-MAKE_TDMA_MAPPING(CCCH_0,TDMA_BEACON_CCCH,true,false,0x55,true,51);
-
-const unsigned CCCH_1Frames[] = {12,13,14,15};
-MAKE_TDMA_MAPPING(CCCH_1,TDMA_BEACON_CCCH,true,false,0x55,true,51);
-
-const unsigned CCCH_2Frames[] = {16,17,18,19};
-MAKE_TDMA_MAPPING(CCCH_2,TDMA_BEACON_CCCH,true,false,0x55,true,51);
-
-const unsigned CCCH_3Frames[] = {22,23,24,25};
-MAKE_TDMA_MAPPING(CCCH_3,TDMA_BEACON_CCCH,true,false,0x55,true,51);
-
-// TODO -- Other CCCH subchannels 4-8 for support of C-IV.
 
 const unsigned SDCCH_4_0DFrames[] = {22,23,24,25};
 MAKE_TDMA_MAPPING(SDCCH_4_0D,SDCCH_4_0,true,false,0x01,true,51);
@@ -232,7 +226,8 @@ MAKE_TDMA_MAPPING(SACCH_C8_7U,SDCCH_8_7,false,true,0xFF,true,102);
 
 
 
-// (pat) The basic 26-multi-frame has SACCH in timeslot #12 and an idle frame in timeslot #35.
+// GSM 5.02 clause 7 table 1 of 9. (after sec 6.5)
+// (pat) The basic 26-multi-frame has SACCH in timeslot #12 and an idle frame in timeslot #25.
 // The entries below all follow this format, but a single SACCH message,
 // comprised of 4 frames, starts at a different spot for each TCH,
 // which is another way of saying that the TCH itself starts in a different place,

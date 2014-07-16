@@ -2,11 +2,11 @@
 
 /*
 * Copyright 2008, 2009 Free Software Foundation, Inc.
-* Copyright 2011 Range Networks, Inc.
+* Copyright 2011, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -26,15 +26,7 @@
 #include "L3MobilityManagement.h"
 #include "L3StateMachine.h"
 #include "L3LogicalChannel.h"
-//#include "TransactionTable.h"
-#include "RadioResource.h"
-//#include "MobilityManagement.h"
-//#include <GSMLogicalChannel.h>
-//#include <GSML3Message.h>
-//#include <GSML3MMMessages.h>
-//#include <GSML3RRMessages.h>
-//#include <SIPUtility.h>
-//#include <SIPInterface.h>
+#include <GSMConfig.h>
 
 #include <Logger.h>
 #undef WARNING
@@ -52,10 +44,11 @@ using namespace Control;
 // (pat) DCCH is a TCHFACCHLogicalChannel or SDCCHLogicalChannel
 void Control::DCCHDispatcher(L3LogicalChannel *DCCH)
 {
-	while (1) {
+	while (! gBTS.btsShutdown()) {
 		// This 'try' is redundant, but we are ultra-cautious here since a mistake means a crash.
 		try {
 			// Wait for a transaction to start.
+			LOG(DEBUG);
 			LOG(DEBUG) << "waiting for " << *DCCH << " ESTABLISH or HANDOVER_ACCESS";
 			L3Frame *frame = DCCH->waitForEstablishOrHandover();
 			LOG(DEBUG) << *DCCH << " received " << *frame;

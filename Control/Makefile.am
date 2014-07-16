@@ -1,7 +1,7 @@
 #
 # Copyright 2008 Free Software Foundation, Inc.
 # Copyright 2010 Kestrel Signal Processing, Inc.
-# Copyright 2011 Range Networks, Inc.
+# Copyright 2011, 2014 Range Networks, Inc.
 #
 # This software is distributed under the terms of the GNU Public License.
 # See the COPYING file in the main directory for details.
@@ -32,27 +32,31 @@ noinst_LTLIBRARIES = libcontrol.la
 
 # L3CallControl.cpp
 libcontrol_la_SOURCES = \
+	L3TermCause.cpp \
+	L3CallControl.cpp \
+	PagingEntry.cpp \
+	L3Handover.cpp \
 	L3SMSControl.cpp \
 	L3MobilityManagement.cpp \
-	L3CallControl.cpp \
 	L3StateMachine.cpp \
 	L3SupServ.cpp \
 	L3MMLayer.cpp \
 	L3TranEntry.cpp \
 	L3LogicalChannel.cpp \
 	L3Utils.cpp \
-	L3Handover.cpp \
 	TMSITable.cpp \
 	ControlTransfer.cpp \
-	RadioResource.cpp \
 	DCCHDispatch.cpp \
-	SMSCB.cpp \
-	RRLPServer.cpp
+	SMSCB.cpp
 
 
 # TODO - move CollectMSInfo.cpp and RRLPQueryController.cpp to RRLP directory.
 
 noinst_HEADERS = \
+	L3TermCause.h \
+	CodecSet.h \
+	PagingEntry.h \
+	L3Handover.h \
 	L3SMSControl.h \
 	L3CallControl.h \
 	L3MobilityManagement.h \
@@ -64,7 +68,4 @@ noinst_HEADERS = \
 	L3Utils.h \
 	ControlCommon.h \
 	ControlTransfer.h \
-	TMSITable.h \
-	RadioResource.h \
-	TMSITable.h \
-	RRLPServer.h
+	TMSITable.h

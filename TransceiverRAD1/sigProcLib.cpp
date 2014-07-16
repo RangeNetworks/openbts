@@ -1,7 +1,8 @@
 /*
 * Copyright 2008 Free Software Foundation, Inc.
+* Copyright 2014 Range Networks, Inc.
 *
-* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
+* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -20,6 +21,7 @@
 #include "GSMCommon.h"
 
 #include <Logger.h>
+using namespace GSM;
 
 #define TABLESIZE 1024
 
@@ -1223,7 +1225,7 @@ signalVector *createLPF(float cutoffFreq,
     // Blackman -- less brickwall (sloping transition) but larger stopband attenuation
     float yw = 0.42 - 0.5*cos(((float)i)*M_2PI_F/(float)(filterLen)) + 0.08*cos(((float)i)*2*M_2PI_F/(float)(filterLen));
     // Hamming -- more brickwall with smaller stopband attenuation
-    //float yw = 0.53836F - 0.46164F * cos(((float)i)*M_2PI_F/(float)(filterLen+1));
+//    float yw = 0.53836F - 0.46164F * cos(((float)i)*M_2PI_F/(float)(filterLen+1));
     *itr++ = (complex) ys*yg*yw;
     sum += ys*yg*yw;
   }

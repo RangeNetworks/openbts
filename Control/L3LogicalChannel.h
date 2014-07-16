@@ -1,9 +1,9 @@
 /*
-* Copyright 2013 Range Networks, Inc.
+* Copyright 2013, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -16,8 +16,10 @@
 #ifndef _L3LOGICALCHANNEL_H_
 #define _L3LOGICALCHANNEL_H_ 1
 #include "ControlTransfer.h"
+#include "L3TermCause.h"
+//#include <GSML3RRElements.h>
+#include <L3Enums.h>
 #include <GSMTransfer.h>
-#include <GSML3RRElements.h>
 
 namespace Control {
 using namespace GSM;
@@ -62,14 +64,14 @@ class L3LogicalChannel {
 	// The MMContext holds the active Transactions on a channel.
 	// It can be moved to a different channel by RR Procedures.
 	// (In contrast, an MMUser is associated with an IMSI.)
-	MMContext *mChContext;	// TODO: RefCntPointer?
+	MMContext *mChContext;	// When set we increment the use count in the MMContext.
 	protected:
 	L3LogicalChannel *mNextChan;	// Used in GSM during channel reassignment.
 	//L3LogicalChannel *mPrevChan;
 
 	public:
 	bool chanRunning();
-	InterthreadQueue<L3Frame> ml3UplinkQ;	// uplink SACCH message are enqueued here.
+	//InterthreadQueue<L3Frame> ml3UplinkQ;	// uplink SACCH message are enqueued here.
 
 	private:
 	// This can be thought of as the RR state, as known from an L3 perspective.
@@ -94,17 +96,17 @@ class L3LogicalChannel {
 
 	public:
 	// Pass-throughs from Layer2.  These will be different for GSM or UMTS.
-	virtual GSM::L3Frame * l2recv(unsigned timeout_ms = 15000, unsigned SAPI=0) = 0;
+	virtual GSM::L3Frame * l2recv(unsigned timeout_ms = 15000) = 0;
 	// In GSM the l2send methods may block in LAPDm.
-	virtual void l2sendf(const GSM::L3Frame& frame, SAPI_t SAPI=SAPI0) = 0;
-	virtual void l2sendm(const GSM::L3Message& msg, const GSM::Primitive& prim=GSM::DATA, SAPI_t SAPI=SAPI0) = 0;
+	virtual void l2sendf(const GSM::L3Frame& frame) = 0;
+	virtual void l2sendm(const GSM::L3Message& msg, GSM::Primitive prim=GSM::L3_DATA, SAPI_t SAPI=SAPI0) = 0;
 	virtual void l2sendp(const GSM::Primitive& prim, SAPI_t SAPI=SAPI0) = 0;
-	void l3sendm(const GSM::L3Message& msg, const GSM::Primitive& prim=GSM::DATA, SAPI_t SAPI=SAPI0);
+	void l3sendm(const GSM::L3Message& msg, const GSM::Primitive& prim=GSM::L3_DATA, SAPI_t SAPI=SAPI0);
 	void l3sendf(const GSM::L3Frame& frame);
 	void l3sendp(const GSM::Primitive& prim, SAPI_t SAPI=SAPI0);
-	virtual unsigned N200() const = 0;
-	virtual bool multiframeMode(unsigned SAPI) const = 0;	// Used by SMS code.
-	virtual const char* descriptiveString() const;
+	//unused virtual unsigned N200() const = 0;
+	virtual bool multiframeMode(SAPI_t SAPI) const = 0;	// Used by SMS code.
+	virtual const char * descriptiveString() const;
 	virtual bool radioFailure() const = 0;
 	virtual GSM::ChannelType chtype() const =0;
 	bool isSDCCH() const;
@@ -118,9 +120,11 @@ class L3LogicalChannel {
 	L3LogicalChannel* getSACCHL3();
 
 	MMContext *chanGetContext(bool create);
+	void chanSetHandoverPenalty(NeighborPenalty &penalty);
 	std::string chanGetImsi(bool verbose) const;	// If the IMSI is known, return it, else string("") or if verbose, something to display in error messages and CLI.
+	time_t chanGetDuration() const;
 	//void chanSetContext(MMContext* wTranSet);
-	void chanFreeContext();
+	void chanFreeContext(TermCause cause);
 	void reassignComplete();
 	void reassignFailure();
 	void reassignStart();
@@ -130,14 +134,16 @@ class L3LogicalChannel {
 	//void setMMC(MMUser *mmc) { mMMC = mmc; }
 	//void chanLost();
 	// Send a channel release message, then release it.
-	void chanClose(GSM::L3RRCause cause,GSM::Primitive prim);	// prim is RELEASE or HARDRELEASE
+	void chanClose(GSM::RRCause cause,		// cause sent to the handset.
+		GSM::Primitive prim,	// prim is RELEASE or HARDRELEASE
+		TermCause upstreamCause);	// All active transactions closed with this - sent upstram via SIP.
 	// Request an immediate channel release.
 	// Dont use HARDRELEASE if you can avoid it - only used when the channel is already completely cleared.
-	void chanRelease(Primitive prim);
+	void chanRelease(Primitive prim,TermCause cause);
 
 	RefCntPointer<TranEntry> chanGetVoiceTran();
 	//void chanSetVoiceTran(TranEntry *trans);
-	void chanEnqueueFrame(L3Frame *frame);
+	//void chanEnqueueFrame(L3Frame *frame);
 
 	/** Block until a HANDOVER_ACCESS or ESTABLISH arrives. */
 	GSM::L3Frame* waitForEstablishOrHandover();

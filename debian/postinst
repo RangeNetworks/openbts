@@ -30,10 +30,7 @@ fi
 
 sqlite3 /etc/OpenBTS/OpenBTS.db ".read /etc/OpenBTS/OpenBTS.example.sql" > /dev/null 2>&1
 
-chown openbts:openbts /home/openbts/CLI
 chown openbts:openbts /home/openbts/openbtsconfig
-chown openbts:openbts /home/openbts/startBTS
-chown openbts:openbts /home/openbts/killBTS
 
 }
 

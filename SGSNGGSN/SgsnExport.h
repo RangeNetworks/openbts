@@ -1,10 +1,9 @@
 /*
-* Copyright 2011 Range Networks, Inc.
-* All Rights Reserved.
+* Copyright 2011, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -137,6 +136,7 @@ class MSUEAdapter {
 	int sgsnGetMultislotClass(uint32_t mshandle);
 	bool sgsnGetGeranFeaturePackI(uint32_t mshandle);
 #endif
+	string sgsnFindImsiByHandle(uint32_t handle);
 	private:
 	virtual uint32_t msGetHandle() = 0;	// return URNTI or TLLI
 	friend std::ostream& operator<<(std::ostream&os,const SgsnInfo*);

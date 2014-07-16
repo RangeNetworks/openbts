@@ -4,7 +4,7 @@
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -32,7 +32,8 @@ implementation, although no code is copied directly.
 namespace GSM {
 
 // Forward refs.
-class SAPMux;
+class L2SAPMux;
+class L2LogicalChannelBase;
 
 /**@name L2 Processing Errors */
 //@{
@@ -42,8 +43,8 @@ class SAPMux;
 //unused: #define L2_READ_ERROR {throw L2ReadError();}
 
 /** L2 Write Error is thrown if there is an error in the data on the output side. */
-//unused: class L2WriteError : public GSMError { };
-//unused: #define L2_WRITE_ERROR {throw L2WriteError();}
+//unused: class l2dlWriteError : public GSMError { };
+//unused: #define L2_WRITE_ERROR {throw l2dlWriteError();}
 //@}
 
 /**
@@ -52,7 +53,7 @@ class SAPMux;
 */
 enum LAPDState {
 	LAPDStateUnused,
-	LinkReleased,
+	LinkReleased,			// (pat) a.k.a. Idle state 4.06 5.4.5.
 	AwaitingEstablish,		///< note that the BTS should never be in this state  (pat) Incorrect, state is used during link establishment.
 	AwaitingRelease,
 	LinkEstablished,
@@ -74,28 +75,25 @@ class L2DL {
 
 	protected:
 
-	SAPMux *mL2Downstream;		///< a pointer to the lower layer
-	L2LogicalChannel *mL2Upstream;	///< The logical channel containing the SAPMux containing us.
-
+	friend class L2SAPMux;
+	L2SAPMux *mL2Downstream;		///< a pointer to the lower layer
 
 	public:
 
-	L2DL()
-		:mL2Downstream(NULL), mL2Upstream(NULL)
-	{ }
+	L2DL() :mL2Downstream(NULL) { }
 
 	virtual ~L2DL() {}
 
 
-	void l2Downstream(SAPMux *wDownstream) { mL2Downstream = wDownstream; }
-	void l2Upstream(L2LogicalChannel *wUpstream) { mL2Upstream = wUpstream; }
+	void l2Downstream(L2SAPMux *wDownstream) { mL2Downstream = wDownstream; }
 
-	virtual void l2open(std::string wDescriptiveString) = 0;
+	virtual void l2dlOpen(std::string wDescriptiveString) = 0;
 
 	/** N201 value for a given frame format on this channel, GSM 04.06 5.8.3. */
 	virtual unsigned N201(GSM::L2Control::ControlFormat) const = 0;
 
 	/** N200 value for this channel, GSM 04.06 5.8.2. */
+	// (pat) The values for N200 herein are for state timerRecovery; otherwise N200 is supposed to be 5.
 	virtual unsigned N200() const = 0;
 
 	/** T200 timeout for this channel, GSM 04.06 5.8.1. */
@@ -115,47 +113,19 @@ class L2DL {
 		until they receive an ACK from the MS.  If the MS has wandered out of range
 		that will be until the N200*T200 LAPDm timeout, which is 30.6 secs for FACCH, 20.7 secs for SDCCH, 4.5s for SACCH.
 	*/
-	virtual void l2WriteHighSide(const GSM::L3Frame&) = 0;
+	virtual void l2dlWriteHighSide(const GSM::L3Frame&) = 0;
 
 
 	/** The L1->L2 interface */
-	virtual void writeLowSide(const GSM::L2Frame&) = 0;
+	virtual void l2dlWriteLowSide(const GSM::L2Frame&) = 0;
 
 	/** The L2->L3 interface. */
-	virtual L3Frame* l2ReadHighSide(unsigned timeout=3600000) = 0;
+	//virtual L3Frame* l2ReadHighSide(unsigned timeout=3600000) = 0;
 
 	// (pat) Never called on non-LAPDm channels, but let's return 0 rather than crashing.
 	virtual LAPDState getLapdmState() const { return LAPDStateUnused; }
 };
 
-
-
-
-/**
-	A "thin" L2 for CCCH.
-	This is a downlink-only channel.
-	It supports only the Bbis L2 frame format (GSM 04.06 2.1).
-	The "uplink" component of the CCCH is the RACH.
-	See GSM 04.03 4.1.2.
-*/
-class CCCHL2 : public L2DL {
-
-	public:
-
-	unsigned N201(GSM::L2Control::ControlFormat format) const
-		{ assert(format==L2Control::UFormat); return 22; }
-
-	unsigned N200() const { return 0; }
-
-	void l2open(std::string) {}
-
-	void writeLowSide(const GSM::L2Frame&) { assert(0); }
-
-	L3Frame* l2ReadHighSide(unsigned timeout=3600000) { if (timeout) {} assert(0); return NULL; }	// The 'if' shuts up gcc.
-
-	void l2WriteHighSide(const GSM::L3Frame&);
-
-};
 
 
 /**
@@ -171,13 +141,13 @@ class CBCHL2 : public L2DL {
 
 	unsigned N200() const { return 0; }
 
-	void l2open(std::string) {}
+	void l2dlOpen(std::string) {}
 
-	void writeLowSide(const GSM::L2Frame&) { assert(0); }
+	void l2dlWriteLowSide(const GSM::L2Frame&) { assert(0); }
 
-	L3Frame* l2ReadHighSide(unsigned timeout=3600000) { if (timeout) {} assert(0); return NULL; }	// The 'if' shuts up gcc.
+	//L3Frame* l2ReadHighSide(unsigned timeout=3600000) { if (timeout) {} assert(0); return NULL; }	// The 'if' shuts up gcc.
 
-	void l2WriteHighSide(const GSM::L3Frame&);
+	void l2dlWriteHighSide(const GSM::L3Frame&);
 
 };
 
@@ -187,6 +157,7 @@ class CBCHL2 : public L2DL {
 
 
 /**
+	LAPDm == Link Access Procedure on the Dm channel.
 	LAPDm transceiver, GSM 04.06, borrows from ITU-T Q.921 (LAPD) and ISO-13239 (HDLC).
 	Dedicated control channels need full-blown LAPDm.
 
@@ -220,7 +191,7 @@ class L2LAPDm : public L2DL {
 	Thread mUpstreamThread;		///< a thread for upstream traffic and T200 timeouts
 	bool mRunning;				///< true once the service loop starts
 	protected:
-	L3FrameFIFO mL3Out;			///< we connect L2->L3 through a FIFO
+	//L3FrameFIFO mL3Out;			///< we connect L2->L3 through a FIFO
 	private:
 	L2FrameFIFO mL1In;			///< we connect L1->L2 through a FIFO
 
@@ -243,7 +214,7 @@ class L2LAPDm : public L2DL {
 	LAPDState mState;		///< current protocol state
 	Signal mAckSignal;		///< signal used to wake a thread waiting for an ack
 	//@}
-	bool mEstablishmentInProgress;	///< flag described in GSM 04.06 5.4.1.4
+	Bool_z mEstablishmentInProgress;	///< flag described in GSM 04.06 5.4.1.4
 	/**@name Segmentation and retransmission. */
 	//@{
 	BitVector2 mRecvBuffer;	///< buffer to concatenate received I-frames, same role as sk_rcvbuf in vISDN
@@ -257,6 +228,7 @@ class L2LAPDm : public L2DL {
 	//@}
 
 	/** A handy idle frame. */
+	// (pat) This is sent from TCHFACCHL1Encoder::dispatch()
 	L2Frame mIdleFrame;
 
 	/** A lock to control multi-threaded access to L1->L2. */
@@ -283,14 +255,14 @@ class L2LAPDm : public L2DL {
 
 
 	/** Process an uplink L2 frame. */
-	void writeLowSide(const GSM::L2Frame&);
+	void l2dlWriteLowSide(const GSM::L2Frame&);
 
 	/**
 		Read the L3 output, with a timeout.
 		Caller is responsible for deleting returned object.
 	*/
-	L3Frame* l2ReadHighSide(unsigned timeout=3600000)
-		{ return mL3Out.read(timeout); }
+	//L3Frame* l2ReadHighSide(unsigned timeout=3600000)
+	//	{ LOG(DEBUG); return mL3Out.read(timeout); }
 
 	/**
 		Process a downlink L3 frame.
@@ -299,11 +271,11 @@ class L2LAPDm : public L2DL {
 		enqueued for transmission.
 		That can take up to 1/2 second.
 	*/
-	void l2WriteHighSide(const GSM::L3Frame&);
+	void l2dlWriteHighSide(const GSM::L3Frame&);
 
 
 	/** Prepare the channel for a new transaction. */
-	virtual void l2open(std::string wDescriptiveString);
+	virtual void l2dlOpen(std::string wDescriptiveString);
 
 	/** Set the "master" SAP, SAP0; should be called no more than once. */
 	void master(L2LAPDm* wMaster)
@@ -321,7 +293,7 @@ class L2LAPDm : public L2DL {
 
 	/** Send an L2Frame on the L2->L1 interface. */
 	void writeL1(const L2Frame&);
-	/** Send an L3Frame upstream on the L2->L# interface. */
+	/** Send an L3Frame upstream on the L2->L3 interface. */
 	virtual void writeL3(L3Frame *f);	// Over-ridden only by SACCHL2
 
 	void writeL1Ack(const L2Frame&);			///< send an ack-able frame on L2->L1
@@ -331,20 +303,20 @@ class L2LAPDm : public L2DL {
 	void linkError();
 
 	/** Clear the state variables to released condition. */
-	void clearState(Primitive releaseType=RELEASE);
+	void releaseLink(bool notifyL3,Primitive releaseType /*=RELEASE*/);
 
 	/** Clear the ABM-related state variables. */
 	void clearCounters();
 
 	/** Go to the "link released" state. */
-	// (pat) This sends the releaseType upward toward L3 but not downward; downward we send a DISC message to the peer.
-	void releaseLink(Primitive releaseType=RELEASE);
+	void releaseLink(Primitive releaseType);
 	
 	/** We go here when something goes really wrong. */
-	void abnormalRelease();
+	void abnormalRelease(bool sendDM);
+	void normalRelease();
 
 	/** Abort link on unexpected message. */
-	void unexpectedMessage();
+	void unexpectedMessage(int whence);
 
 	/** Process an ack.  Also forces state to LinkEstablished. */
 	void processAck(unsigned NR);
@@ -353,7 +325,7 @@ class L2LAPDm : public L2DL {
 	void retransmissionProcedure();
 
 	/** Clear any outgoing L3 frame. */
-	void discardIQueue() { mDiscardIQueue=true; }
+	//void discardIQueue() { mDiscardIQueue=true; }
 
 	/**
 		Accept and concatenate an I-frame data payload.
@@ -397,7 +369,7 @@ class L2LAPDm : public L2DL {
 		lapd_send_uframe with arguments that specify the DISC frame.
 		In OpenBTS, you just call sendUFrameDISC.
 	*/
-	void sendMultiframeData(const L3Frame&);	///< send an L3 frame in one or more I-frames
+	bool sendMultiframeData(const L3Frame&);	///< send an L3 frame in one or more I-frames
 	void sendIFrame(const BitVector2&, bool);	///< GSM 04.06 3.8.1, 5.5.1, with payload and "M" flag
 	void sendUFrameSABM();						///< GMS 04.06 3.8.2, 5.4.1
 	void sendUFrameDISC();						///< GSM 04.06 3.8.3, 5.4.4.2
@@ -438,9 +410,9 @@ class L2LAPDm : public L2DL {
 	bool stuckChannel(const L2Frame&);
 
 	/**
-		The upstream service loop handles incoming L2 frames and T200 timeouts.
+		The upstream service loop handles incoming L2 frames from L1 and T200 timeouts.
 	*/
-	void serviceLoop();
+	void lapServiceLoop();
 
 	friend void *LAPDmServiceLoopAdapter(L2LAPDm*);
 
@@ -517,7 +489,7 @@ class SACCHL2 : public L2LAPDm {
 	/** SACCH does not use idle frames. */
 	void sendIdle() {};
 
-	void writeL3(L3Frame *f);	// Over-ridden only by SACCHL2
+	// same as base class: void writeL3(L3Frame *f);	// Over-ridden only by SACCHL2
 
 	public:
 

@@ -1,8 +1,9 @@
 /*
 * Copyright 2008, 2010 Free Software Foundation, Inc.
 * Copyright 2010 Kestrel Signal Processing, Inc.
+* Copyright 2014 Range Networks, Inc.
 *
-* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
+* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -18,7 +19,7 @@
 #ifndef GSML3MESSAGE_H
 #define GSML3MESSAGE_H
 
-#include <Globals.h>
+#include <OpenBTSConfig.h>
 #include "GSMCommon.h"
 #include "GSMTransfer.h"
 
@@ -92,9 +93,8 @@ class L3Message {
 	/**
 		Generate an L3Frame for this message.
 		The caller is responsible for deleting the memory.
-		(pat) TODO: This is called only from RRLPServer, and apparently unnecessarily.  Get rid of this.
 	*/
-	L3Frame* frame(GSM::Primitive prim=DATA) const;
+	L3Frame* frame(GSM::Primitive prim=L3_DATA) const;
 
 	/** Return the L3 protocol discriptor. */
 	virtual GSM::L3PD PD() const =0;

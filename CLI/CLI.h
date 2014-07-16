@@ -1,7 +1,8 @@
 /*
 * Copyright 2009, 2014 Free Software Foundation, Inc.
+* Copyright 2014 Range Networks, Inc.
 *
-* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
+* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -23,6 +24,7 @@
 
 
 namespace CommandLine {
+using std::string; using std::ostream;
 
 enum CLIStatus { SUCCESS=0,
 	BAD_NUM_ARGS=1,
@@ -34,8 +36,14 @@ enum CLIStatus { SUCCESS=0,
 	};
 
 
+struct CLIParseError {
+	string msg;
+	CLIParseError(string wMsg) : msg(wMsg) {}
+};
+
+
 /** A table for matching strings to actions. */
-typedef CLIStatus (*CLICommand)(int,char**,std::ostream&);
+typedef CLIStatus (*CLICommand)(int,char**,ostream&);
 typedef std::map<std::string,CLICommand> ParseTable;
 
 /** The help table. */
@@ -49,7 +57,19 @@ class Parser {
 	HelpTable mHelpTable;
 	static const int mMaxArgs = 10;
 
+	/**
+		Parse and execute a command string.
+		@line a writeable copy of the original line
+		@cline the original line
+		@os output stream
+		@return status code
+	*/
+	CLIStatus execute(char* line, ostream& os) const;
+	int Execute(bool console, const char cmdbuf[], int outfd);
+	void Prompt() const;
+
 	public:
+	std::string mCommandName;	// Name of the running program, eg, "OpenBTS"
 
 	void addCommands();
 
@@ -57,7 +77,7 @@ class Parser {
 		Process a command line.
 		@return 0 on sucess, -1 on exit request, error codes otherwise
 	*/
-	CLIStatus process(const char* line, std::ostream& os) const;
+	CLIStatus process(const char* line, ostream& os) const;
 	void startCommandLine();	// (pat) Start a simple command line processor.
 
 	/** Add a command to the parsing table. */
@@ -69,21 +89,19 @@ class Parser {
 
 	/** Return a help string. */
 	const char *help(const std::string& cmd) const;
-
-	private:
-
-	/**
-		Parse and execute a command string.
-		@line a writeable copy of the original line
-		@cline the original line
-		@os output stream
-		@return status code
-	*/
-	CLIStatus execute(char* line, std::ostream& os) const;
+	void printHelp(ostream &os) const;		// print help for all commands into os.
+	void cliServer();		// Run the command processor.
 
 };
 
-extern CLIStatus printChansV4(std::ostream& os,bool showAll, bool longList = false, bool tabSeparated = false);
+extern std::map<string,string> cliParse(int &argc, char **&argv, ostream &os, const char *optstring);
+
+extern CLIStatus configCmd(string mode, int argc, char** argv, ostream& os);
+extern CLIStatus unconfig(int argc, char** argv, ostream& os);
+extern CLIStatus rmconfig(int argc, char** argv, ostream& os);
+extern CLIStatus rawconfig(int argc, char** argv, ostream& os);
+
+extern CLIStatus printChansV4(std::ostream& os,bool showAll, int verbosity = 0, bool tabSeparated = false);
 
 } 	// namespace CommandLine
 

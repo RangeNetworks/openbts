@@ -3,11 +3,11 @@
 */
 /*
 * Copyright 2008, 2009, 2010 Free Software Foundation, Inc.
-* Copyright 2011, 2012 Range Networks, Inc.
+* Copyright 2011, 2012, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -18,6 +18,8 @@
 
 */
 
+#define LOG_GROUP LogGroup::GSM		// Can set Log.Level.GSM for debugging
+
 
 
 
@@ -25,6 +27,7 @@
 #include <iostream>
 
 #include "GSML3RRMessages.h"
+#include "GSMConfig.h"	// For gBTS
 #include <Logger.h>
 
 
@@ -247,7 +250,7 @@ void L3PagingRequestType1::text(ostream& os) const
 	L3RRMessage::text(os);
 	os << " mobileIDs=(";
 	for (unsigned i=0; i<mMobileIDs.size(); i++) {
-		os << "(" << mMobileIDs[i] << "," << mChannelsNeeded[i] << "),";
+		os << "(" << mMobileIDs[i] << "," << mChannelsNeeded[i] << ") ";
 	}
 	os << ")";
 }
@@ -287,6 +290,9 @@ void L3SystemInformationType1::writeBody(L3Frame& dest, size_t &wp) const
 */
 	mCellChannelDescription.writeV(dest,wp);
 	mRACHControlParameters.writeV(dest,wp);
+	// (pat 4-2014) SysInfo Type 1 Rest Octets are "mandatory" as per 44.018 9.1.31
+	// It is one byte.  We are sending the default padding for this byte (0x2b), which is fine;
+	// per 10.5.2.32 the "L" (default) value indicates that NCH is not present.
 }
 
 
@@ -520,6 +526,28 @@ void L3SystemInformationType6::text(ostream& os) const
 	os << " NCCPermitted=(" << mNCCPermitted << ")";
 }
 
+void L3ImmediateAssignment::writeStartTime(L3Frame& dest, size_t &wp) const
+{
+	// The names T1, T2, T3 are defined in GSM 4.08 table 10.5.2.39 (same as 10.5.79)
+	unsigned T1 = (mStartTimeFrame/1326)%32;
+	unsigned T3 = mStartTimeFrame%51;
+	unsigned T2 = mStartTimeFrame%26;
+
+	// Recompute original startframe:
+	// Note that T3-T2 may be negative:
+	//int recomputed = 51 * (((int)T3-(int)T2) % 26) + T3 + 51 * 26 * T1;
+	//unsigned startframemod = (startframe % 42432);
+
+	// Note: The fields are written here Most-Significant-Bit first in each byte,
+	// then the bytes are reversed in the encoder before being sent to the radio.
+	// 		 	7      6      5      4      3     2      1      0
+	//	  [			T1[4:0]                 ][   T3[5:3]        ]  Octet 1
+	//	  [       T3[2:0]     ][            T2[4:0]             ]  Octet 2
+	dest.writeField(wp,T1,5);
+	dest.writeField(wp,T3,6);	// Yes T3 comes before T2.
+	dest.writeField(wp,T2,5);
+}
+
 void L3ImmediateAssignment::writeBody( L3Frame &dest, size_t &wp ) const
 {
 	size_t wpstart = wp;
@@ -541,8 +569,10 @@ void L3ImmediateAssignment::writeBody( L3Frame &dest, size_t &wp ) const
 	// No mobile allocation in non-hopping systems.
 	// A zero-length LV.  Just write L=0.  (pat) LV, etc. defined in GSM04.07 sec 11.2.1.1
 	dest.writeField(wp,0,8);
-	//assert(wp-wpstart == l2BodyLength() * 8);
-	// Note: optional starting Time not implemented.
+	if (mStartTimePresent) {
+		dest.writeField(wp,0x7c,8);	// The type of the TLV.
+		writeStartTime(dest,wp);
+	}
 	mIARestOctets.writeBits(dest,wp);
 	assert(wp-wpstart == fullBodyLength() * 8);
 }
@@ -550,17 +580,24 @@ void L3ImmediateAssignment::writeBody( L3Frame &dest, size_t &wp ) const
 
 void L3ImmediateAssignment::text(ostream& os) const
 {
+	L3RRMessage::text(os);
 	os << "PageMode=("<<mPageMode<<")";
 	os << " DedicatedModeOrTBF=("<<mDedicatedModeOrTBF<<")";
 	os << " ChannelDescription=("<<mChannelDescription<<")";
 	os << " RequestReference=("<<mRequestReference<<")";
 	os << " TimingAdvance="<<mTimingAdvance;
+	if (mStartTimePresent) {
+		Time now = gBTS.time();
+		int msecsFuture = ((Time(mStartTimeFrame) - now.FN()).FN() * gFrameMicroseconds) / 1000;
+		os <<LOGVARM(mStartTimeFrame) <<"(" <<msecsFuture <<"ms)";
+	}
 	mIARestOctets.text(os); 
 }
 
 
 void L3ChannelRequest::text(ostream& os) const
 {
+	L3RRMessage::text(os);
 	os << "RA=" << mRA;
 	os << " time=" << mTime;
 }

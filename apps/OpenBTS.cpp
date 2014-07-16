@@ -5,7 +5,7 @@
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -20,15 +20,20 @@
 #include <fstream>
 #include <vector>
 #include <string>
+#include <config.h>	// For VERSION
+#include <sys/types.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
-#include <Configuration.h>
+#include "OpenBTSConfig.h"
 std::vector<std::string> configurationCrossCheck(const std::string& key);
 std::string getARFCNsString(unsigned band);
 // Load configuration from a file.
 static const char *cOpenBTSConfigEnv = "OpenBTSConfigFile";
 static const char *cOpenBTSConfigFile = getenv(cOpenBTSConfigEnv)?getenv(cOpenBTSConfigEnv):"/etc/OpenBTS/OpenBTS.db";
-ConfigurationTable gConfig(cOpenBTSConfigFile,"OpenBTS", getConfigurationKeys());
+OpenBTSConfig gConfig(cOpenBTSConfigFile,"OpenBTS", getConfigurationKeys());
+
+
 #include <Logger.h>
 Log dummy("openbts",gConfig.getStr("Log.Level").c_str(),LOG_LOCAL7);
 
@@ -43,8 +48,8 @@ ReportingTable gReports(gConfig.getStr("Control.Reporting.StatsTable").c_str());
 //#include <GSML3RRMessages.h>
 #include <GSMLogicalChannel.h>
 
-#include <Control/L3TranEntry.h>
 #include <ControlTransfer.h>
+#include <Control/TMSITable.h>
 
 #include <Globals.h>
 
@@ -55,6 +60,7 @@ ReportingTable gReports(gConfig.getStr("Control.Reporting.StatsTable").c_str());
 #include <SIP2Interface.h>
 #include "NeighborTable.h"
 #include <Peering.h>
+#include <GSML3RRElements.h>
 #include <NodeManager.h>
 
 #include <sys/wait.h>
@@ -63,6 +69,8 @@ ReportingTable gReports(gConfig.getStr("Control.Reporting.StatsTable").c_str());
 #include <unistd.h>
 #include <string.h>
 #include <signal.h>
+
+#include "SelfDetect.h"
 
 // (pat) mcheck.h is for mtrace, which permits memory leak detection.
 // Set env MALLOC_TRACE=logfilename
@@ -73,7 +81,7 @@ ReportingTable gReports(gConfig.getStr("Control.Reporting.StatsTable").c_str());
 using namespace std;
 using namespace GSM;
 
-const char* gDateTime = __DATE__ " " __TIME__;
+const char* gDateTime = TIMESTAMP_ISO;
 
 
 // All of the other globals that rely on the global configuration file need to
@@ -124,6 +132,9 @@ void purgeConfig(void*,int,char const*, char const*, sqlite3_int64)
 	// (pat) NO NO NO.  Do not call LOG from here - it may result in infinite recursion.
 	// LOG(INFO) << "purging configuration cache";
 	gConfig.purge();
+	gConfig.configUpdateKeys();
+	// (pat) FIXME: We cannot regenerate the beacon too often because the changemark is only 2 bits;
+	// we need to be more careful to update the beacon only when it really changes.
 	gBTS.regenerateBeacon();
 	gResetWatchdog();
 	gLogGroup.setAll();
@@ -138,9 +149,9 @@ pid_t gTransceiverPid = 0;
 void startTransceiver()
 {
 	//if local kill the process currently listening on this port
-	char killCmd[32];
 	if (gConfig.getStr("TRX.IP") == "127.0.0.1"){
-		sprintf(killCmd,"fuser -k -n udp %d",(int)gConfig.getNum("TRX.Port"));
+		char killCmd[32];
+		snprintf(killCmd,31,"fuser -k -n udp %d",(int)gConfig.getNum("TRX.Port"));
 		if (system(killCmd)) {}
 	}
 
@@ -148,13 +159,24 @@ void startTransceiver()
 	// If the path is not defined, the transceiver must be started by some other process.
 	char TRXnumARFCN[4];
 	sprintf(TRXnumARFCN,"%1d",(int)gConfig.getNum("GSM.Radio.ARFCNs"));
-	std::string extra_args = gConfig.getStr("TRX.Args");
-	LOG(NOTICE) << "starting transceiver " << transceiverPath << " w/ " << TRXnumARFCN << " ARFCNs and Args:" << extra_args;
+	//std::string extra_args = gConfig.getStr("TRX.Args");	// (pat 3-2014) remvoed pending demonstrated need.
+	string usernotice = format("starting transceiver %s with %s ARFCNs", transceiverPath, TRXnumARFCN);
+	if (getenv(cOpenBTSConfigEnv)) {
+		usernotice += " using config file: ";
+		usernotice += cOpenBTSConfigFile;
+	}
+
+	static char *argv[10]; int argc = 0;
+	argv[argc++] = const_cast<char*>(transceiverPath);
+	argv[argc++] = TRXnumARFCN;
+	argv[argc] = NULL;
+
+	LOG(ALERT) << usernotice;
 	gTransceiverPid = vfork();
 	LOG_ASSERT(gTransceiverPid>=0);
 	if (gTransceiverPid==0) {
 		// Pid==0 means this is the process that starts the transceiver.
-	    execlp(transceiverPath,transceiverPath,TRXnumARFCN,extra_args.c_str(),(void*)NULL);
+	    execvp(transceiverPath,argv);
 		LOG(EMERG) << "cannot find " << transceiverPath;
 		_exit(1);
 	} else {
@@ -305,6 +327,10 @@ void createStats()
 	gReports.create("GPRS.TBF");
 	// number of MSInfo records generated
 	gReports.create("GPRS.MSInfo");
+
+	// (pat) 1-2014 Added RTP thread performance reporting.
+	gReports.create("OpenBTS.RTP.AverageSlack");	// Average head room.
+	gReports.create("OpenBTS.RTP.MinSlack");	// Minimum slack.  Negative is a whoops.
 }
 
 
@@ -326,15 +352,17 @@ void createStats()
 // 11. Doug recommends increasing GSM.Ny1 for handover testing.
 // Note reserved ports: SR uses port 5064 and asterisk uses port 5060.
 // Example using two radios on one computer:
-// TRX.RadioNumber			1			2
-// TRX.Port					5700		5900
-// GSM.Radio.C0				51			60
-// GSM.Identity.BSIC.BCC	2			3
-// GSM.Identity.LAC			1007		1008
-// SIP.Local.Port			5062		5066
-// RTP.Start				16484		16600
-// Peering.Port				16001		16002
-// GSM.Neighbors	127.0.0.1:16002		127.0.0.1:16001
+// TRX.RadioNumber				1			2
+// TRX.Port						5700		5900
+// GSM.Radio.C0					51			60
+// GSM.Identity.BSIC.BCC		2			3
+// GSM.Identity.LAC				1007		1008
+// SIP.Local.Port				5062		5066
+// NodeManager.Commands.Port	45060		45062
+// CLI.Port						49300		49302
+// RTP.Start					16484		16600
+// Peering.Port					16001		16002
+// GSM.Neighbors		127.0.0.1:16002		127.0.0.1:16001
 // Each BTS needs separate versions of these .db files that normally reside in /var/run:  Just put them in the cur dir like this:
 // Peering.NeighborTable.Path NeighborTable.db
 // Control.Reporting.TransactionTable TransactionTable.db
@@ -344,11 +372,75 @@ void createStats()
 
 namespace GSM { extern void TestTCHL1FEC(); };	// (pat) This is cheating, but I dont want to include the whole GSML1FEC.h.
 
-
-int main(int argc, char *argv[])
+/** Application specific NodeManager logic for handling requests. */
+JsonBox::Object nmHandler(JsonBox::Object& request)
 {
-	//mtrace();       // (pat) Enable memory leak detection.  Unfortunately, huge amounts of code have been started in the constructors above.
-	gLogGroup.setAll();
+	JsonBox::Object response;
+	std::string command = request["command"].getString();
+
+	if (command.compare("monitor") == 0) {
+		response["code"] = JsonBox::Value(200);
+		response["data"]["noiseRSSI"] = JsonBox::Value(0 - gTRX.ARFCN(0)->getNoiseLevel());
+		response["data"]["msTargetRSSI"] = JsonBox::Value((signed)gConfig.getNum("GSM.Radio.RSSITarget"));
+		// FIXME -- This needs to take GPRS channels into account. See #762. (note from CLI::load section)
+		response["data"]["gsmSDCCHActive"] = JsonBox::Value((int)gBTS.SDCCHActive());
+		response["data"]["gsmSDCCHTotal"] = JsonBox::Value((int)gBTS.SDCCHTotal());
+		response["data"]["gsmTCHActive"] = JsonBox::Value((int)gBTS.TCHActive());
+		response["data"]["gsmTCHTotal"] = JsonBox::Value((int)gBTS.TCHTotal());
+		response["data"]["gsmAGCHQueue"] = JsonBox::Value((int)gBTS.AGCHLoad());
+		response["data"]["gsmPCHQueue"] = JsonBox::Value((int)gBTS.PCHLoad());
+	} else if (command.compare("tmsis") == 0) {
+		int verbosity = 2;
+		bool rawFlag = true;
+		unsigned maxRows = 10000;
+		vector< vector<string> > view = gTMSITable.tmsiTabView(verbosity, rawFlag, maxRows);
+
+		int count = 0;
+		JsonBox::Array a;
+		for (vector< vector<string> >::iterator it = view.begin(); it != view.end(); ++it) {
+			// skip the header line
+			// TODO : use the header line to grab appropriate fields and indexes
+			if (count == 0) {
+				count++;
+				continue;
+			}
+			vector<string> &row = *it;
+			JsonBox::Object o;
+			o["IMSI"] = row.at(0);
+			o["TMSI"] = row.at(1);
+			o["IMEI"] = row.at(2);
+			o["AUTH"] = row.at(3);
+			o["CREATED"] = row.at(4);
+			o["ACCESSED"] = row.at(5);
+			o["TMSI_ASSIGNED"] = row.at(6);
+			o["PTMSI_ASSIGNED"] = row.at(7);
+			o["AUTH_EXPIRY"] = row.at(8);
+			o["REJECT_CODE"] = row.at(9);
+			o["ASSOCIATED_URI"] = row.at(10);
+			o["ASSERTED_IDENTITY"] = row.at(11);
+			o["WELCOME_SENT"] = row.at(12);
+			o["A5_SUPPORT"] = row.at(13);
+			o["POWER_CLASS"] = row.at(14);
+			o["RRLP_STATUS"] = row.at(15);
+			o["OLD_TMSI"] = row.at(16);
+			o["OLD_MCC"] = row.at(17);
+			o["OLD_MNC"] = row.at(18);
+			o["OLD_LAC"] = row.at(19);
+			a.push_back(JsonBox::Value(o));
+		}
+		response["code"] = JsonBox::Value(200);
+		response["data"] = JsonBox::Value(a);
+	} else {
+            response["code"] = JsonBox::Value(501);
+	}
+
+	return response;
+}
+
+static bool bAllowMultipleInstances = false;
+
+void processArgs(int argc, char *argv[])
+{
 	// TODO: Properly parse and handle any arguments
 	if (argc > 1) {
 		bool testflag = false;
@@ -356,7 +448,7 @@ int main(int argc, char *argv[])
 			if (!strcmp(argv[argi], "--version") || !strcmp(argv[argi], "-v")) {
 				// Print the version number and exit immediately.
 				cout << gVersionString << endl;
-				return 0;
+				exit(0);
 			}
 			if (!strcmp(argv[argi], "--test")) {
 				testflag = true;
@@ -364,14 +456,20 @@ int main(int argc, char *argv[])
 			}
 			if (!strcmp(argv[argi], "--gensql")) {
 				cout << gConfig.getDefaultSQL(string(argv[0]), gVersionString) << endl;
-				return 0;
+				exit(0);
 			}
 			if (!strcmp(argv[argi], "--gentex")) {
 				cout << gConfig.getTeX(string(argv[0]), gVersionString) << endl;
-				return 0;
+				exit(0);
 			}
 
-			// (pat) Adding support for specified sql file.
+			// Allow multiple occurrences of the program to run.
+			if (!strcmp(argv[argi], "-m")) {
+				bAllowMultipleInstances = true;
+				continue;
+			}
+
+			// (pat) Adding support for specified sql config file.
 			// Unfortunately, the Config table was inited quite some time ago,
 			// so stick this arg in the environment, whence the ConfigurationTable can find it, and then reboot.
 			if (!strcmp(argv[argi],"--config")) {
@@ -393,8 +491,96 @@ int main(int argc, char *argv[])
 			printf("OpenBTS: unrecognized argument: %s\nexiting...\n",argv[argi]);
 		}
 
-		if (testflag) { GSM::TestTCHL1FEC(); return 0; }
+		if (testflag) { GSM::TestTCHL1FEC(); exit(0); }
 	}
+}
+
+struct TimeSlot {
+	int mCN, mTN;
+	TimeSlot(int wCN,int wTN) : mCN(wCN), mTN(wTN) {}
+};
+
+std::deque<TimeSlot> timeSlotList;
+
+static int initTimeSlots()	// Return how many slots used by beacon.
+{
+	// The first timeslot is special for the beacon:
+	unsigned beaconSlots = 1;
+
+	int numARFCNs = gConfig.getNum("GSM.Radio.ARFCNs");
+	int scount = 0;
+	for (int cn = 0; cn < numARFCNs; cn++) {
+		for (int tn = 0; tn < 8; tn++) {
+			if (cn == 0 && (beaconSlots & (1<<tn))) {
+				// This cn,tn is used by the beacon.
+				scount++;
+				continue;
+			}
+			timeSlotList.push_back(TimeSlot(cn,tn));
+		}
+	}
+	return scount;
+}
+
+// (pat 3-2014) A collection of routines to retrieve or validate the timeslot configuration.
+// This no longer writes the config variables; they are recalculated at each OpenBTS startup.
+// I expect customers to mostly use the 'auto' setting now.
+struct TimeSlots {
+
+	// Return the max possible C1 + C7 slots.  Now that we support multiple beacon types it depends on CCCH-CONF.
+	static int maxC1plusC7() {
+		unsigned numARFCNs = gConfig.getNum("GSM.Radio.ARFCNs");
+		return 8*numARFCNs - countBeaconTimeslots(gConfig.getNum("GSM.CCCH.CCCH-CONF"));
+	}
+
+	// Default number of C7s is determined by CCCH-CONF and number of ARFCNs.
+	static int defaultC7s() {
+		// If CCCH-CONF is not 1 we need at least 1 x C7.  Well, not really, if VEA is set and user is willing to forego SMS.
+		int minC7s = (gConfig.getNum("GSM.CCCH.CCCH-CONF") == 1) ? 0 : 1;
+		return max(minC7s,(int)gConfig.getNum("GSM.Radio.ARFCNs")-1);
+	}
+
+	static int getNumC7s() {
+		if (!gConfig.defines("GSM.Channels.NumC7s")) {
+			LOG(CRIT) << "GSM.Channels.NumC7s not defined. Defaulting to " << defaultC7s() << ".";
+			return defaultC7s();
+		}
+		if (gConfig.getStr("GSM.Channels.NumC7s") == "auto") {
+			return defaultC7s(); // Same thing as above, but silently.
+		}
+		return gConfig.getNum("GSM.Channels.NumC7s");
+	}
+
+	// Default number of C1s is all timeslots except beacon and C7s.
+	static int defaultC1s() {
+		return maxC1plusC7() - getNumC7s();
+	}
+
+	// (pat) If config NumC1s or NumC7s is undefined or "auto", we will set ok values, but the caller still
+	// must check that getNumC1s() + getNumC7s() <= maxC1plusC7() to catch the case where the user set specific and invalid values.
+	static int getNumC1s() {
+		if (!gConfig.defines("GSM.Channels.NumC1s")) {
+			LOG(CRIT) << "GSM.Channels.NumC1s not defined. Defaulting to " << defaultC1s() << ".";
+			return defaultC1s();
+		}
+		if (gConfig.getStr("GSM.Channels.NumC1s") == "auto") {
+			return defaultC1s();		// Same thing as above, but silently.
+		}
+		return gConfig.getNum("GSM.Channels.NumC1s");
+	}
+};
+
+
+int main(int argc, char *argv[])
+{
+	//mtrace();       // (pat) Enable memory leak detection.  Unfortunately, huge amounts of code have been started in the constructors above.
+	gLogGroup.setAll();
+	processArgs(argc, argv);
+
+	// register ourself to prevent two instances (and check that no other
+	// one is running).  Note that this MUST be done after the logger gets
+	// initialized.
+	if (!bAllowMultipleInstances) gSelf.RegisterProgram(argv[0]);
 
 	createStats();
 
@@ -405,41 +591,39 @@ int main(int argc, char *argv[])
 	gNeighborTable.NeighborTableInit(
 		gConfig.getStr("Peering.NeighborTable.Path").c_str());
 
-	int sock = socket(AF_UNIX,SOCK_DGRAM,0);
-	if (sock<0) {
-		perror("creating CLI datagram socket");
-		LOG(ALERT) << "cannot create socket for CLI";
-		gReports.incr("OpenBTS.Exit.CLI.Socket");
-		exit(1);
-	}
 
 	try {
 
 	srandom(time(NULL));
 
 	gConfig.setUpdateHook(purgeConfig);
-	LOG(ALERT) << "OpenBTS (re)starting, ver " << VERSION << " build date " << __DATE__;
+	LOG(ALERT) << "OpenBTS (re)starting, ver " << VERSION << " build date/time " << TIMESTAMP_ISO;
 	LOG(ALERT) << "OpenBTS reading config file "<<cOpenBTSConfigFile;
 
 	COUT("\n\n" << gOpenBTSWelcome << "\n");
 	Control::controlInit();		// init Layer3: TMSITable, TransactionTable.
 	gPhysStatus.open(gConfig.getStr("Control.Reporting.PhysStatusTable").c_str());
-	gBTS.init();
+	gBTS.gsmInit();
 	gParser.addCommands();
 
 	COUT("\nStarting the system...");
 
-	// is the radio running?
-	// Start the transceiver interface.
-	LOG(INFO) << "checking transceiver";
-	//gTRX.ARFCN(0)->powerOn();
-	//sleep(gConfig.getNum("TRX.Timeout.Start"));
-	//bool haveTRX = gTRX.ARFCN(0)->powerOn(false);		This prints an inapplicable warning message.
-	bool haveTRX = gTRX.ARFCN(0)->trxRunning();			// This does not print an inapplicable warning message.
+	// (pat 3-16-2014) If there are multiple instances of OpenBTS running, dont go talking to some random transceiver.
+	// (pat) We dont - we talk to the transceiver on the specified port.
+	bool haveTRX = false;
+	//if (! bAllowMultipleInstances) {
+		// is the radio running?
+		// Start the transceiver interface.
+		LOG(INFO) << "checking transceiver";
+		//gTRX.ARFCN(0)->powerOn();
+		//sleep(gConfig.getNum("TRX.Timeout.Start"));
+		//bool haveTRX = gTRX.ARFCN(0)->powerOn(false);		This prints an inapplicable warning message.
+		haveTRX = gTRX.ARFCN(0)->trxRunning();			// This does not print an inapplicable warning message.
+	//}
 
 	Thread transceiverThread;
 	if (!haveTRX) {
-		LOG(ALERT) << "starting the transceiver";
+		//LOG(ALERT) << "starting the transceiver";
 		transceiverThread.start((void*(*)(void*)) startTransceiver, NULL);
 		// sleep to let the FPGA code load
 		// TODO: we should be "pinging" the radio instead of sleeping
@@ -524,120 +708,71 @@ int main(int argc, char *argv[])
 
 	// Turn on and power up.
 	C0radio->powerOn(true);
-	C0radio->setPower(gConfig.getNum("GSM.Radio.PowerManager.MinAttenDB"));
+	// (pat 3-2014) This previously started OpenBTS at maximum power (which is MinAtten)
+	// We want to bring the radio up at lowest power and ramp up.
+	C0radio->setPower(gConfig.getNum("GSM.Radio.PowerManager.MaxAttenDB")); // Previously: "GSM.Radio.PowerManager.MinAttenDB"
 
-	//
-	// Create a C-V channel set on C0T0.
-	//
 
-	// C-V on C0T0
-	C0radio->setSlot(0,5);
-	// SCH
-	SCHL1FEC SCH;
-	SCH.downstream(C0radio);
-	SCH.open();
-	// FCCH
-	FCCHL1FEC FCCH;
-	FCCH.downstream(C0radio);
-	FCCH.open();
-	// BCCH
-	BCCHL1FEC BCCH;
-	BCCH.downstream(C0radio);
-	BCCH.open();
-	// RACH
-	RACHL1FEC RACH(gRACHC5Mapping);
-	RACH.downstream(C0radio);
-	RACH.open();
-	// CCCHs
-	CCCHLogicalChannel CCCH0(gCCCH_0Mapping);
-	CCCH0.downstream(C0radio);
-	CCCH0.open();
-	CCCHLogicalChannel CCCH1(gCCCH_1Mapping);
-	CCCH1.downstream(C0radio);
-	CCCH1.open();
-	CCCHLogicalChannel CCCH2(gCCCH_2Mapping);
-	CCCH2.downstream(C0radio);
-	CCCH2.open();
-	// use CCCHs as AGCHs
-	gBTS.addAGCH(&CCCH0);
-	gBTS.addAGCH(&CCCH1);
-	gBTS.addAGCH(&CCCH2);
+	// (pat) GSM 5.02 6.4 describes the permitted channel combinations.
+	// I am leaving out the SACCH in these descriptions; all TCH or SDCCH include the same number of SACCH.
+	// Combination-V is BCCH beacon + 3 AGCH + 4 SDCCH.  See GSM 5.02 figure 7 (page 59)
+	//		Note: A complete C-V mapping requires two consecutive 51-multiframes because of the way SACCH are interleaved.
+	// Combination-IV is BCCH beacon + 9 AGCH.
+	//		BS_CC_CHANS specifies how many timeslots support CCCH, from 1 to 4.
+	//		BS_AG_BLKS_RES specifies the number of beacon AGCH NOT used by paging.
+	// Combination-VII is 8 SDCCH.
+	// Combination-I is a TCH/F+FACCH+SACCH (ie, traffic channel.)
 
-	// C-V C0T0 SDCCHs
-	// (pat) I thought config 'GSM.CCCH.CCCH-CONF' was supposed to control the number of SDCCH allocated?
-	SDCCHLogicalChannel C0T0SDCCH[4] = {
-		SDCCHLogicalChannel(0,0,gSDCCH_4_0),
-		SDCCHLogicalChannel(0,0,gSDCCH_4_1),
-		SDCCHLogicalChannel(0,0,gSDCCH_4_2),
-		SDCCHLogicalChannel(0,0,gSDCCH_4_3),
-	};
-	Thread C0T0SDCCHControlThread[4];
-	// Subchannel 2 used for CBCH if SMSCB enabled.
-	bool SMSCB = (gConfig.getStr("Control.SMSCB.Table").length() != 0);
-	CBCHLogicalChannel CBCH(gSDCCH_4_2);
-	Thread CBCHControlThread;
-	for (int i=0; i<4; i++) {
-		if (SMSCB && (i==2)) continue;
-		C0T0SDCCH[i].downstream(C0radio);
-		C0T0SDCCHControlThread[i].start((void*(*)(void*))Control::DCCHDispatcher,&C0T0SDCCH[i]);
-		C0T0SDCCH[i].open();
-		gBTS.addSDCCH(&C0T0SDCCH[i]);
-	}
-	// Install CBCH if used.
-	if (SMSCB) {
-		LOG(INFO) << "creating CBCH for SMSCB";
-		CBCH.downstream(C0radio);
-		CBCH.open();
-		gBTS.addCBCH(&CBCH);
-		CBCHControlThread.start((void*(*)(void*))Control::SMSCBSender,NULL);
-	}
+	gBTS.createBeacon(C0radio);
 
 
 	//
 	// Configure the other slots.
 	//
 
-	// Count configured slots.
-	unsigned sCount = 1;
-
-
-	if (!gConfig.defines("GSM.Channels.NumC1s")) {
-		int numChan = numARFCNs*7;
-		LOG(CRIT) << "GSM.Channels.NumC1s not defined. Defaulting to " << numChan << ".";
-		gConfig.set("GSM.Channels.NumC1s",numChan);
-	}
-	if (!gConfig.defines("GSM.Channels.NumC7s")) {
-		int numChan = numARFCNs-1;
-		LOG(CRIT) << "GSM.Channels.NumC7s not defined. Defaulting to " << numChan << ".";
-		gConfig.set("GSM.Channels.NumC7s",numChan);
-	}
-
 	// sanity check on channel counts
 	// the clamp here could be improved to take the customer's current ratio of C1:C7 and scale it back to fit in the window
-	if (((numARFCNs * 8) - 1) < (gConfig.getNum("GSM.Channels.NumC1s") + gConfig.getNum("GSM.Channels.NumC7s"))) {
-		LOG(CRIT) << "scaling back GSM.Channels.NumC1s and GSM.Channels.NumC7s to fit inside number of available timeslots";
-		gConfig.set("GSM.Channels.NumC1s",numARFCNs*7);
-		gConfig.set("GSM.Channels.NumC7s",numARFCNs-1);
+	if (TimeSlots::maxC1plusC7() < TimeSlots::getNumC1s() + TimeSlots::getNumC7s()) {
+		LOG(CRIT) << "scaling back GSM.Channels.NumC1s and GSM.Channels.NumC7s to fit inside number of available timeslots.";
+		// NOTE!!! Must set NumC7s before calling defaultC1s.
+		//gConfig.set("GSM.Channels.NumC7s",TimeSlots::defaultC7s());
+		//gConfig.set("GSM.Channels.NumC1s",TimeSlots::defaultC1s());
+		// Update: Just set them both to auto permanently.
+		gConfig.set("GSM.Channels.NumC7s","auto");
+		gConfig.set("GSM.Channels.NumC1s","auto");
 	}
+
+	// Count configured slots.
+	int sCount = initTimeSlots();	// Returns number of timeslots used by beacon.
+
+	gNumC7s = TimeSlots::getNumC7s();
+	gNumC1s = TimeSlots::getNumC1s();
+	LOG(NOTICE) << format("Creating %d Combination-1 (TCH/F) timeslots and %d Combination-7 (SDCCH) timeslots",gNumC1s,gNumC7s);
 
 	if (gConfig.getBool("GSM.Channels.C1sFirst")) {
 		// Create C-I slots.
-		for (int i=0; i<gConfig.getNum("GSM.Channels.NumC1s"); i++) {
-			gBTS.createCombinationI(gTRX,sCount/8,sCount%8);
+		for (int i=0; timeSlotList.size() && i<gNumC1s; i++) {
+			TimeSlot ts = timeSlotList.front();
+			timeSlotList.pop_front();
+			gBTS.createCombinationI(gTRX,ts.mCN,ts.mTN);
 			sCount++;
 		}
 	}
 
 	// Create C-VII slots.
-	for (int i=0; i<gConfig.getNum("GSM.Channels.NumC7s"); i++) {
-		gBTS.createCombinationVII(gTRX,sCount/8,sCount%8);
+	for (int i=0; timeSlotList.size() && i<gNumC7s; i++) {
+		TimeSlot ts = timeSlotList.front();
+		timeSlotList.pop_front();
+		gBTS.createCombinationVII(gTRX,ts.mCN,ts.mTN);
 		sCount++;
 	}
 
 	if (!gConfig.getBool("GSM.Channels.C1sFirst")) {
 		// Create C-I slots.
-		for (int i=0; i<gConfig.getNum("GSM.Channels.NumC1s"); i++) {
-			gBTS.createCombinationI(gTRX,sCount/8,sCount%8);
+		for (int i=0; timeSlotList.size() && i<gNumC1s; i++) {
+			TimeSlot ts = timeSlotList.front();
+			timeSlotList.pop_front();
+			gBTS.createCombinationI(gTRX,ts.mCN,ts.mTN);
 			sCount++;
 		}
 	}
@@ -647,87 +782,38 @@ int main(int argc, char *argv[])
 	}
 
 	// Set up idle filling on C0 as needed for unconfigured slots..
-	while (sCount<8) {
+	while (timeSlotList.size() && timeSlotList.front().mCN == 0) {
+		timeSlotList.pop_front();
 		gBTS.createCombination0(gTRX,sCount);
 		sCount++;
 	}
 
-	/* (pat) See GSM 05.02 6.5.2 and 3.3.2.3
-		Note: The number of different paging subchannels on       
-		the CCCH is:                                        
-                                                           
-		MAX(1,(3 - BS-AG-BLKS-RES)) * BS-PA-MFRMS           
-			if CCCH-CONF = "001"                        
-		(9 - BS-AG-BLKS-RES) * BS-PA-MFRMS                  
-			for other values of CCCH-CONF               
-	*/
-
-	// Set up the pager.
-	// Set up paging channels.
-	// HACK -- For now, use a single paging channel, since paging groups are broken.
-	gBTS.addPCH(&CCCH2);
-
 	// Be sure we are not over-reserving.
-	if (gConfig.getNum("GSM.Channels.SDCCHReserve")>=(int)gBTS.SDCCHTotal()) {
-		unsigned val = gBTS.SDCCHTotal() - 1;
+	if (0 == gBTS.SDCCHTotal()) {
+		LOG(CRIT) << "No SDCCH channels are allocated!  OpenBTS may not function properly.";
+	} else if (gConfig.getNum("GSM.Channels.SDCCHReserve")>=(int)gBTS.SDCCHTotal()) {
+		int val = gBTS.SDCCHTotal() - 1;
+		if (val < 0) { val = 0; }
 		LOG(CRIT) << "GSM.Channels.SDCCHReserve too big, changing to " << val;
 		gConfig.set("GSM.Channels.SDCCHReserve",val);
 	}
 
 
 	// OK, now it is safe to start the BTS.
-	gBTS.start();
+	gBTS.gsmStart();
 
 
-	struct sockaddr_un cmdSockName;
-	cmdSockName.sun_family = AF_UNIX;
-	const char* sockpath = gConfig.getStr("CLI.SocketPath").c_str();
-	char rmcmd[strlen(sockpath)+5];
-	sprintf(rmcmd,"rm -f %s",sockpath);
-	if (system(rmcmd)) {}	// The 'if' shuts up gcc warnings.
-	strcpy(cmdSockName.sun_path,sockpath);
-	LOG(INFO) "binding CLI datagram socket at " << sockpath;
-	if (bind(sock, (struct sockaddr *) &cmdSockName, sizeof(struct sockaddr_un))) {
-		perror("binding name to cmd datagram socket");
-		LOG(ALERT) << "cannot bind socket for CLI at " << sockpath;
-		gReports.incr("OpenBTS.Exit.CLI.Socket");
-		exit(1);
-	}
-	COUT("\nsystem ready\n");
-	if (chmod(sockpath, S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH|S_IWOTH) < 0)
-	{
-		perror("sockpath");
-		// don't exit, at this point, we must run CLI as root
-		COUT("\nuse the OpenBTSCLI utility to access CLI as root\n");
-	} else
-	{
-		COUT("\nuse the OpenBTSCLI utility to access CLI\n");
-	}
 	LOG(INFO) << "system ready";
 
-	gParser.startCommandLine();
-	gNodeManager.start(45060);
+	gNodeManager.setAppLogicHandler(&nmHandler);
+	gNodeManager.start(gConfig.getNum("NodeManager.Commands.Port"), gConfig.getNum("NodeManager.Events.Port"));
 
-	while (1) {
-		char cmdbuf[1000];
-		struct sockaddr_un source;
-		socklen_t sourceSize = sizeof(source);
-		int nread = recvfrom(sock,cmdbuf,sizeof(cmdbuf)-1,0,(struct sockaddr*)&source,&sourceSize);
-		gReports.incr("OpenBTS.CLI.Command");
-		cmdbuf[nread]='\0';
-		LOG(INFO) << "received command \"" << cmdbuf << "\" from " << source.sun_path;
-		std::ostringstream sout;
-		int res = gParser.process(cmdbuf,sout);
-		const std::string rspString= sout.str();
-		const char* rsp = rspString.c_str();
-		LOG(INFO) << "sending " << strlen(rsp) << "-char result to " << source.sun_path;
-		if (sendto(sock,rsp,strlen(rsp)+1,0,(struct sockaddr*)&source,sourceSize)<0) {
-			LOG(ERR) << "can't send CLI response to " << source.sun_path;
-			gReports.incr("OpenBTS.CLI.Command.ResponseFailure");
-		}
-		// res<0 means to exit the application
-		if (res<0) break;
-	}
+	COUT("\nsystem ready\n");
+	COUT("\nuse the OpenBTSCLI utility to access CLI\n");
+	gParser.cliServer();	// (pat) This does not return unless the user directs us to kill OpenBTS.
+
+	LOG(ALERT) << "exiting OpenBTS ...";
+	// End CLI Interface code
 
 	} // try
 
@@ -735,11 +821,21 @@ int main(int argc, char *argv[])
 		LOG(EMERG) << "required configuration parameter " << e.key() << " not defined, aborting";
 		gReports.incr("OpenBTS.Exit.Error.ConfigurationParamterNotFound");
 	}
-	LOG(ALERT) << "exiting OpenBTS as directed by command line...";
+	catch (exception e) {
+		// (pat) This is C++ standard exception.  It will be thrown for string or STL [Standard Template Library] errors.
+		// They are also thrown from the zmq library used by the NodeManager, but the numnuts dont put any useful information in the e.what(0 field.
+		// man zmq_cpp for more info.
+		LOG(EMERG) << "C++ standard exception occurred: "<<e.what();
+	}
+	catch (...) {
+		LOG(EMERG) << "Unrecognized C++  exception occurred, exiting...";
+		//printf("OpenBTS: exception occurred, exiting...\n"); fflush(stdout);
+	}
 
 
 	//if (gTransceiverPid) kill(gTransceiverPid, SIGKILL);
-	close(sock);
+
+	exit(0);
 
 }
 
@@ -890,10 +986,10 @@ vector<string> configurationCrossCheck(const string& key) {
 			warning.str(std::string());
 		}
 
-	// GSM.Channels.NumC1s + GSM.Channels.NumC1s must fall within 8 * GSM.Radio.ARFCNs
+	// GSM.Channels.NumC1s + GSM.Channels.NumC1s must fall within allowed timeslots.
 	} else if (key.compare("GSM.Radio.ARFCNs") == 0 || key.compare("GSM.Channels.NumC1s") == 0 || key.compare("GSM.Channels.NumC7s") == 0) {
-		int max = (8 * gConfig.getNum("GSM.Radio.ARFCNs")) - 1;
-		int current = gConfig.getNum("GSM.Channels.NumC1s") + gConfig.getNum("GSM.Channels.NumC7s");
+		int max = TimeSlots::maxC1plusC7();
+		int current = TimeSlots::getNumC1s() + TimeSlots::getNumC7s();
 		if (max < current) {
 			warning << "There are only " << max << " channels available but " << current << " are configured. ";
 			warning << "Reduce GSM.Channels.NumC1s and/or GSM.Channels.NumC7s accordingly.";

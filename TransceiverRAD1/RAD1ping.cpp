@@ -1,5 +1,6 @@
 /*
 * Copyright 2008, 2009 Free Software Foundation, Inc.
+* Copyright 2014 Range Networks, Inc.
 *
 * This software is distributed under the terms of the GNU Public License.
 * See the COPYING file in the main directory for details.
@@ -41,7 +42,9 @@ int main(int argc, char *argv[]) {
   else gLogInit("DEBUG");
 
   int deviceID = 0;
-  if (argc>2) deviceID = atoi(argv[2]);
+  if (argc>2) {
+  	deviceID = atoi(argv[2]);
+  }
 
   gLogInit("openbts",argv[1],LOG_LOCAL7);
 

@@ -5,7 +5,7 @@
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -23,8 +23,9 @@
 #ifndef GLOBALS_H
 #define GLOBALS_H
 
+#if !defined(BUILD_CLI)
 #include <GSMCommon.h>
-#include <Configuration.h>
+#include <OpenBTSConfig.h>
 #include <CLI.h>
 #include <PhysicalStatus.h>
 //#include <TMSITable.h>
@@ -33,6 +34,10 @@
 
 #ifndef RN_DEVERLOPER_MODE
 #define RN_DEVERLOPER_MODE 0
+#endif
+
+#ifndef RN_DISABLE_MEMORY_LEAK_TEST
+#define RN_DISABLE_MEMORY_LEAK_TEST 1
 #endif
 
 namespace GPRS { extern unsigned GPRSDebug; }
@@ -44,7 +49,8 @@ extern const char* gDateTime;
 	Just about everything goes into the configuration table.
 	This should be defined in the main body of the top-level application.
 */
-extern ConfigurationTable gConfig;
+extern OpenBTSConfig gConfig;
+#endif // !defined(BUILD_CLI)
 
 /** The OpenBTS welcome message. */
 extern const char* gOpenBTSWelcome;
@@ -52,6 +58,7 @@ extern const char* gOpenBTSWelcome;
 /** The OpenBTS version string. */
 extern const char *gVersionString;
 
+#if !defined(BUILD_CLI)
 /** The central parser. */
 extern CommandLine::Parser gParser;
 
@@ -70,4 +77,9 @@ size_t gWatchdogRemaining();
 bool gWatchdogExpired();
 
 extern ReportingTable gReports;
+
+extern const char *gVERSION(void);
+extern const char *gFEATURES(void);
+extern const char *gPROD_CAT(void);
+#endif // !defined(BUILD_CLI)
 #endif

@@ -1,5 +1,6 @@
 /*
 * Copyright 2008, 2014 Free Software Foundation, Inc.
+* Copyright 2014 Range Networks, Inc.
 *
 * This software is distributed under the terms of the GNU Public License.
 * See the COPYING file in the main directory for details.
@@ -62,10 +63,10 @@ private:
   bool skipRx;			///< set if USRP is transmit-only.
 
   static const unsigned int currDataSize_log2 = 21;
-  static const unsigned long currDataSize = (1 << currDataSize_log2);
+  static const unsigned int currDataSize = (1 << currDataSize_log2);
   short *data;
-  unsigned long dataStart;
-  unsigned long dataEnd;
+  unsigned int dataStart;
+  unsigned int dataEnd;
   TIMESTAMP timeStart;
   TIMESTAMP timeEnd;
   bool isAligned;
@@ -80,8 +81,8 @@ private:
   TIMESTAMP latestWriteTimestamp;  ///< timestamp of most recent ping command
   TIMESTAMP pingTimestamp;	   ///< timestamp of most recent ping response
   static const TIMESTAMP PINGOFFSET = 272;  ///< undetermined delay b/w ping response timestamp and true receive timestamp
-  unsigned long hi32Timestamp;
-  unsigned long lastPktTimestamp;
+  unsigned int hi32Timestamp;
+  unsigned int lastPktTimestamp;
 
   double rxGain;
 
@@ -216,10 +217,10 @@ private:
   bool setRxFreq(double wFreq, double wAdjFreq = 0);
 
   /** Returns the starting write Timestamp*/
-  TIMESTAMP initialWriteTimestamp(void) { return 40000;}
+  TIMESTAMP initialWriteTimestamp(void) { return 90000;}
 
   /** Returns the starting read Timestamp*/
-  TIMESTAMP initialReadTimestamp(void) { return 40000;}
+  TIMESTAMP initialReadTimestamp(void) { return 90000;}
 
   /** returns the full-scale transmit amplitude **/
   double fullScaleInputValue() {return 32000.0;}

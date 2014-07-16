@@ -1,7 +1,8 @@
 /*
 * Copyright (c) 2008, 2010 Kestrel Signal Processing, Inc.
+* Copyright 2014 Range Networks, Inc.
 *
-* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
+* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribution.
 
     This program is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -16,9 +17,10 @@ Harvind S. Samra, hssamra@kestrelsp.com
 
 
 #include "sigProcLib.h"
-//#include "radioInterface.h"
 #include <Logger.h>
 #include <Configuration.h>
+#include <GSMCommon.h>
+using namespace GSM;
 
 using namespace std;
 

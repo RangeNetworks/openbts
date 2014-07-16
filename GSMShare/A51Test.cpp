@@ -12,7 +12,7 @@
  * This software may be export-controlled by US law.
  *
  * This software is free for commercial and non-commercial use as long as
- * the following conditions are aheared to.
+ * the following conditions are adhered to.
  * Copyright remains the authors' and as such any Copyright notices in
  * the code are not to be removed.
  * Redistribution and use in source and binary forms, with or without
@@ -91,7 +91,9 @@
 #include <stdlib.h>
 #include <time.h>
 #include "./A51.h"
-
+// We must have a gConfig now to include BitVector.
+#include "Configuration.h"
+ConfigurationTable gConfig;
 
 /* Test the code by comparing it against
  * a known-good test vector. */

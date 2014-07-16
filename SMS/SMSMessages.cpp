@@ -1,22 +1,25 @@
 /*
 * Copyright 2008, 2009, 2010, 2014 Free Software Foundation, Inc.
+* Copyright 2014 Range Networks, Inc.
 *
 
     This program is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
+* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
 */
+#define LOG_GROUP LogGroup::SMS
 
 #include <stdint.h>
 #include <stdio.h>
 #include <cstdio>
 
 #include "SMSMessages.h"
+#include "Timeval.h"
 #include <Logger.h>
 
 using namespace std;
@@ -84,8 +87,10 @@ RPData *SMS::hex2rpdata(const char *hexstring)
 {
 	RPData *rp_data = NULL;
 
+	//LOG(DEBUG) << "SMS RPDU string len: " << strlen(hexstring);
 	BitVector2 RPDUbits(strlen(hexstring)*4);
-	if (!RPDUbits.unhex(hexstring)) {
+	if ((strlen(hexstring) == 0) || !RPDUbits.unhex(hexstring)) {
+		LOG(DEBUG) << "SMS RPDU string is empty";
 		return NULL;
 	}
 	LOG(DEBUG) << "SMS RPDU bits: " << RPDUbits;
@@ -491,10 +496,12 @@ void TLValidityPeriod::write(TLFrame& dest, size_t& wp) const
 
 void TLValidityPeriod::text(ostream& os) const
 {
-	char str[27];
+	//char str[27];
 	time_t seconds = mExpiration.sec();
-	ctime_r(&seconds,str);
-	str[24]='\0';
+	std::string str;
+	Timeval::isoTime(seconds, str, true);
+	//ctime_r(&seconds,str);
+	//str[24]='\0';
 	os << "expiration=(" << str << ")";
 }
 

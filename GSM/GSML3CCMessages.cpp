@@ -6,7 +6,7 @@
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -16,6 +16,8 @@
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
+
+#define LOG_GROUP LogGroup::GSM		// Can set Log.Level.GSM for debugging
 
 
 
@@ -346,6 +348,7 @@ void L3Setup::writeBody( L3Frame &dest, size_t &wp ) const
 	if (mHaveCallingPartyBCDNumber) mCallingPartyBCDNumber.writeTLV(0x5C,dest, wp);
 	if (mHaveCalledPartyBCDNumber) mCalledPartyBCDNumber.writeTLV(0x5E,dest, wp);
 	if (mSupportedCodecs.mPresent) mSupportedCodecs.writeTLV(0x40, dest, wp);
+	if (mHaveSignal) mSignal.writeTV(0x34,dest,wp);
 	ccCommonWrite(dest,wp);
 }
 
@@ -386,7 +389,9 @@ void L3Setup::parseBody( const L3Frame &src, size_t &rp )
 			skipLV(src,rp);
 			continue;
 		case 0x34:	// Signal (MTC only)
-			rp++;	// It is TV, two bytes total.
+			mHaveSignal = true;
+			mSignal.parseV(src,rp);
+			// old: rp++;	// It is TV, two bytes total.
 			continue;
 		case 0x5c:	// Calling part BCD number.
 			// You may encounter this error if the code is accidentally converting between L3Frame and L3Message.
@@ -449,6 +454,7 @@ size_t L3Setup::l2BodyLength() const
 	if(mBearerCapability.mPresent) len += mBearerCapability.lengthTLV();
 	if(mHaveCalledPartyBCDNumber) len += mCalledPartyBCDNumber.lengthTLV();
 	if(mHaveCallingPartyBCDNumber) len += mCallingPartyBCDNumber.lengthTLV();
+	if (mHaveSignal) len += mSignal.lengthTV();
 	len += ccCommonLength();
 	return len;
 }
@@ -465,6 +471,7 @@ void L3Setup::text(ostream& os) const
 		os <<" BearerCapability=("<<mBearerCapability<<")";
 	if (mSupportedCodecs.mPresent) 
 		os <<" SupportedCodecList=("<<mSupportedCodecs<<")";
+	if (mHaveSignal) { os << " "; mSignal.text(os); }
 	os << " CodecSet="<<getCodecSet();
 	ccCommonText(os);
 }

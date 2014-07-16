@@ -1,8 +1,9 @@
 /**@file Common-use GSM declarations, most from the GSM 04.xx and 05.xx series. */
 /*
 * Copyright 2008, 2009, 2010 Free Software Foundation, Inc.
+* Copyright 2014 Range Networks, Inc.
 *
-* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
+* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -115,15 +116,7 @@ extern const TDMAMapping gSCHMapping;		///< GSM 05.02 Clause 7 Table 3 Line 2 B0
 extern const TDMAMapping gBCCHMapping;		///< GSM 05.02 Clause 7 Table 3 Line 3
 /// GSM 05.02 Clause 7 Table 3 Line 7 B0-B50, excluding C-V SDCCH parts (SDCCH/4 and SCCH/C4)
 extern const TDMAMapping gRACHC5Mapping;
-extern const TDMAMapping gCCCH_0Mapping;	///< GSM 05.02 Clause 7 Table 3 Line 5 B0
-extern const TDMAMapping gCCCH_1Mapping;	///< GSM 05.02 Clause 7 Table 3 Line 5 B1
-extern const TDMAMapping gCCCH_2Mapping;	///< GSM 05.02 Clause 7 Table 3 Line 5 B2
-extern const TDMAMapping gCCCH_3Mapping;	///< GSM 05.02 Clause 7 Table 3 Line 5 B3
-extern const TDMAMapping gCCCH_4Mapping;	///< GSM 05.02 Clause 7 Table 3 Line 5 B4
-extern const TDMAMapping gCCCH_5Mapping;	///< GSM 05.02 Clause 7 Table 3 Line 5 B5
-extern const TDMAMapping gCCCH_6Mapping;	///< GSM 05.02 Clause 7 Table 3 Line 5 B6
-extern const TDMAMapping gCCCH_7Mapping;	///< GSM 05.02 Clause 7 Table 3 Line 5 B7
-extern const TDMAMapping gCCCH_8Mapping;	///< GSM 05.02 Clause 7 Table 3 Line 5 B8
+extern const TDMAMapping gCCCH_C5Mapping;
 //@}
 /**@name SDCCH */
 //@{

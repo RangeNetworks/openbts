@@ -3,7 +3,7 @@
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -13,6 +13,7 @@
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
+// Written by Pat Thompson
 
 #define LOG_GROUP LogGroup::Control		// Can set Log.Level.Control for debugging
 
@@ -29,7 +30,7 @@ void L3LogicalChannel::L3LogicalChannelReset()
 	LOG(DEBUG) << this;
 	ScopedLock lock(gMMLock,__FILE__,__LINE__);	// FIXMENOW Added 10-23-2013
 	// We could reset mNextChan too, but it is unused unless needed so dont bother.
-	chanFreeContext();	// If we do cancel any dialogs, it is in error.
+	chanFreeContext(TermCause::Local(L3Cause::No_Transaction_Expected));	// If we do cancel any dialogs, it is in error.
 	LOG(DEBUG);
 	if (mNextChan && mNextChan->mChState == chReassignTarget) {
 		// This rare case may occur for channel loss or if the MS sends, for example, an IMSI Detach
@@ -39,7 +40,7 @@ void L3LogicalChannel::L3LogicalChannelReset()
 		// This state indicates the other channel is idle, but it is dangerous to free
 		// it from here because it could receive a primitive and become active at any time.
 		// If that happens it will get a new MMContext and try to fire up, not sure what happens then.
-		mNextChan->chanFreeContext();
+		mNextChan->chanFreeContext(TermCause::Local(L3Cause::No_Transaction_Expected));
 		mNextChan = NULL;
 	}
 	LOG(DEBUG);
@@ -59,10 +60,11 @@ void L3LogicalChannel::L3LogicalChannelInit()
 
 L3LogicalChannel::~L3LogicalChannel()
 {
-	chanFreeContext();
+	chanFreeContext(TermCause::Local(L3Cause::No_Transaction_Expected));
 }
 
-const char *L3LogicalChannel::descriptiveString() const {
+// This virtual method should never be called; it is over-ridden by the sub-class for all channel types that matter.
+const char * L3LogicalChannel::descriptiveString() const {
 	return "undefined";
 }
 
@@ -79,7 +81,7 @@ const L2LogicalChannel * L3LogicalChannel::getL2Channel() const {
 }
 
 L3LogicalChannel *L3LogicalChannel::getSACCHL3() {
-	return dynamic_cast<L3LogicalChannel*>(this->getL2Channel()->SACCH());
+	return dynamic_cast<L3LogicalChannel*>(this->getL2Channel()->getSACCH());
 }
 
 void L3LogicalChannel::l3sendm(const GSM::L3Message& msg, const GSM::Primitive& prim/*=GSM::DATA*/, SAPI_t SAPI/*=0*/)
@@ -89,13 +91,16 @@ void L3LogicalChannel::l3sendm(const GSM::L3Message& msg, const GSM::Primitive& 
 }
 
 // These days this is used only for the handover command, which was sent as a pre-formed L3-message from BTS2 to BTS1.
+// Note that SAP is encoded in the L3Frame.
 void L3LogicalChannel::l3sendf(const GSM::L3Frame& frame)
 {
-	LOG(INFO) <<this <<LOGVARP(frame);
-	if (IS_LOG_LEVEL(DEBUG)) {
-		const L3Message *msg = parseL3(frame);
-		WATCH(this <<" sendf "<<*msg);
-		if (msg) { LOG(DEBUG) << msg; }
+	// 3-14-2014 pat: Changed the LOG levels, formerly we sent the frame to INFO and the message to DEBUG, but the frame is raw, so I reversed it.
+	LOG(DEBUG) <<this <<LOGVARP(frame);
+	if (IS_LOG_LEVEL(INFO)) {
+		if (const L3Message *msg = parseL3(frame)) {
+			WATCHINFO(this <<" sendf "<<*msg);
+			delete msg;
+		}
 	}
 	l2sendf(frame);
 }
@@ -104,7 +109,7 @@ void L3LogicalChannel::l3sendf(const GSM::L3Frame& frame)
 // We only call this from the thread service loop, so it is the last thing we ever do in the thread.
 void L3LogicalChannel::l3sendp(const GSM::Primitive& prim, SAPI_t SAPI)
 {
-	LOG(INFO) <<this <<LOGVAR(prim)<<LOGVAR(SAPI);
+	WATCHINFO("l3sendp"<<LOGVAR(prim)<<LOGVAR(SAPI)<<" "<<this);	// 'this' is the descriptive string of the channel.
 	//if (prim == RELEASE || prim == HARDRELEASE) {
 		//chanSetState(chReleased);	// Inform the service loop it should exit.
 	//}
@@ -116,8 +121,9 @@ L3Frame* L3LogicalChannel::waitForEstablishOrHandover()
 {
 	while (true) {
 		L3Frame *req = l2recv();
+		LOG(DEBUG) <<LOGVAR(req);
 		if (req==NULL) continue;
-		if (req->primitive()==ESTABLISH) return req;
+		if (req->primitive()==L3_ESTABLISH_INDICATION) return req;
 		if (req->primitive()==HANDOVER_ACCESS) return req;
 		LOG(INFO) << "L3LogicalChannel: Ignored primitive:"<<req->primitive();
 		delete req;
@@ -127,20 +133,32 @@ L3Frame* L3LogicalChannel::waitForEstablishOrHandover()
 
 MMContext *L3LogicalChannel::chanGetContext(bool create)
 {
-	LOG(DEBUG);
+	//LOG(DEBUG);
 	ScopedLock lock(gMMLock,__FILE__,__LINE__);
-	LOG(DEBUG);
+	//LOG(DEBUG);
 	if (mChContext == NULL) {
 		if (create) { mChContext = new MMContext(this); }
 	}
 	return mChContext;
 }
 
+void L3LogicalChannel::chanSetHandoverPenalty(NeighborPenalty &penalty)
+{
+	chanGetContext(false)->chanSetHandoverPenalty(penalty);
+}
+
 // WARNING: This is called from the CLI thread.
 string L3LogicalChannel::chanGetImsi(bool verbose) const
 {
 	ScopedLock lock(gMMLock,__FILE__,__LINE__);
-	return mChContext ? mChContext->mmGetImsi(verbose) : string(verbose ? "no-MMContext" : "");
+	return mChContext ? mChContext->mmGetImsi(verbose) : string(verbose ? "no-MMChannel" : "");
+}
+
+// WARNING: This is called from the CLI thread.
+time_t L3LogicalChannel::chanGetDuration() const
+{
+	ScopedLock lock(gMMLock,__FILE__,__LINE__);
+	return mChContext ? mChContext->mmcDuration() : 0;
 }
 
 //void L3LogicalChannel::chanSetContext(MMContext* wContext)
@@ -152,7 +170,7 @@ string L3LogicalChannel::chanGetImsi(bool verbose) const
 
 // The sipcode would be used if a SipDialog on this channel is still active, which indicates a channel loss failure
 // or server error.
-void L3LogicalChannel::chanFreeContext()
+void L3LogicalChannel::chanFreeContext(TermCause cause)
 {
 	LOG(DEBUG);
 	ScopedLock lock(gMMLock,__FILE__,__LINE__);
@@ -161,7 +179,7 @@ void L3LogicalChannel::chanFreeContext()
 	mChContext = NULL;
 	if (save) {
 		LOG(DEBUG) <<this;
-		gMMLayer.mmFreeContext(save);
+		gMMLayer.mmFreeContext(save,cause);
 	}
 	LOG(DEBUG);
 }
@@ -175,6 +193,10 @@ bool L3LogicalChannel::reassignAllocNextTCH()		// For a channel reassignment pro
 		LOG(DEBUG) << LOGVAR2("curchan",this)<<LOGVAR2("nextchan","null,congestion");
 		return false;
 	}
+	// Copy the phy params from old to new channel, then fire it up.
+	tch->setPhy(*getL2Channel());
+	tch->lcstart();
+
 	LOG(DEBUG) << LOGVAR2("curchan",this)<<LOGVAR2("nextchan",tch);
 	// When we receive confirmation from the MS, mNextChannel will become mChannel.
 	mNextChan = dynamic_cast<L3LogicalChannel*>(tch);
@@ -201,21 +223,21 @@ void L3LogicalChannel::reassignStart()
 		LOG(ERR) <<"At start of channel reassignment target channel is not idle:"
 			<<LOGVAR2("next-chan",mNextChan) <<LOGVAR2("prev-chan",this);
 	}
-	mNextChan->chanFreeContext();	// This is supposed to be a no-op.
+	mNextChan->chanFreeContext(TermCause::Local(L3Cause::No_Transaction_Expected));	// This is supposed to be a no-op.
 	mNextChan->mChContext = mChContext->tsDup();	// Must set directly.  Does not change the channel back pointer.
-	// We set this state on nextChan so that if 
+	// We set this state on nextChan in case of channel loss - see L3LogicalChannelReset
 	mNextChan->chanSetState(L3LogicalChannel::chReassignTarget);
 
 	GSM::L2LogicalChannel *tch = mNextChan->getL2Channel();
 	GSM::L2LogicalChannel *sdcch = this->getL2Channel();
 	// Note we do not want to do a HARDRELEASE if this fails, because that bypasses the very timer we are supposed to be using.
 	LOG(INFO) << "sending AssignmentCommand for " << tch << " on " << this;
-	tch->open();	// This sets T3101 as a side effect.
+	tch->lcopen();	// This sets T3101 as a side effect.
 	tch->setPhy(*sdcch);
 }
 
 // This occurs on the channel being assigned from.
-// We need to release this channel and nextChannel.
+// We need to release the nextChannel.  Caller takes care of this chan.
 // Release of nextChan also occurs if a channel drops out of the main service loop and the nextChan state is still ReassignTarget
 void L3LogicalChannel::reassignFailure()
 {
@@ -228,7 +250,7 @@ void L3LogicalChannel::reassignFailure()
 		// If we never received the ESTABLISH primitive on nextChan, then the service loop is not runnning,
 		// so it will never detect the change of state on nextChan, so we must free the channel here.
 		// The service loops check dcch->chanRunning(), so they will not do anything that might try to use the Context we are freeing..
-		mNextChan->chanFreeContext();
+		mNextChan->chanFreeContext(TermCause::Local(L3Cause::Channel_Assignment_Failure));
 		mNextChan = NULL;
 	} else {
 		LOG(ERR) << "reassignment failure but no nextChan? "<<this;
@@ -251,20 +273,21 @@ void L3LogicalChannel::reassignFailure()
 // Beware that the two channels are serviced by different threads.
 void L3LogicalChannel::reassignComplete()
 {
+	{
 	ScopedLock lock(gMMLock,__FILE__,__LINE__);
 	//timerStop(TChReassignment);		// Handled by assignTCHFProcedure, which is notified after us.
 
 	if (!mChContext) {
 		// Logic error.
 		LOG(ERR) << "received channel reassignment complete on dead channel:"<<this;
-		l3sendm(GSM::L3ChannelRelease(L3RRCause::NormalEvent));
+		l3sendm(GSM::L3ChannelRelease(L3RRCause::Normal_Event));
 		chanSetState(chRequestRelease);
 		return;
 	}
 	if (!mNextChan) {
 		// Logic error.
 		LOG(ERR) << "received channel reassignment complete with no nextchan allocated"<<this;
-		l3sendm(GSM::L3ChannelRelease(L3RRCause::NormalEvent));
+		l3sendm(GSM::L3ChannelRelease(L3RRCause::Normal_Event));
 		chanSetState(chRequestRelease);
 		return;
 	}
@@ -279,6 +302,8 @@ void L3LogicalChannel::reassignComplete()
 	mChContext->mmSetChannel(mNextChan);
 	LOG(INFO) <<"successful channel reassignment" <<LOGVAR2("from-channel",this) <<LOGVAR2("to-channel",mNextChan);
 	mNextChan = NULL;
+	} // release lock
+
 	// FIXME: There is a race for the new channel to get its ESTABLISH before this old one gets this hardrelease.
 	sleep(1);
 	chanSetState(chRequestHardRelease);	// Done with this channel.
@@ -300,14 +325,15 @@ void L3LogicalChannel::chanLost()
 #endif
 
 // Set the flag, which will perform the channel release from the channel serviceloop.
-void L3LogicalChannel::chanRelease(Primitive prim)
+void L3LogicalChannel::chanRelease(Primitive prim,TermCause cause)
 {
 	OBJLOG(DEBUG) << prim;
+	chanFreeContext(cause);
 	switch (prim) {
-		case HARDRELEASE:
+		case L3_HARDRELEASE_REQUEST:
 			chanSetState(L3LogicalChannel::chRequestHardRelease);
 			return;
-		case RELEASE:
+		case L3_RELEASE_REQUEST:
 			chanSetState(L3LogicalChannel::chRequestRelease);
 			return;
 		default:
@@ -318,11 +344,12 @@ void L3LogicalChannel::chanRelease(Primitive prim)
 // This completely releases the channel and all transactions on it.
 // FIXME no it doesnt, and L2 can hang when we send the primitive, so these transactions and dialogs
 // are not cleaned up until the next time the channel is used.  Very bad.
-void L3LogicalChannel::chanClose(L3RRCause cause,Primitive prim)
+// pat 7-2014 Update: Above bug probably fixed by GSMLogicalChannel rewrite.
+void L3LogicalChannel::chanClose(RRCause rrcause,Primitive prim,TermCause upstreamCause)
 {
 	// Note: timer expiry may indicate unresponsive MS so this may block for 30 seconds.
-	l3sendm(L3ChannelRelease(cause));
-	chanRelease(prim);
+	l3sendm(L3ChannelRelease(rrcause));
+	chanRelease(prim,upstreamCause);
 }
 
 
@@ -338,10 +365,10 @@ RefCntPointer<TranEntry> L3LogicalChannel::chanGetVoiceTran()
 	return set->tsGetVoiceTran();
 }
 
-void L3LogicalChannel::chanEnqueueFrame(L3Frame *frame)
-{
-	ml3UplinkQ.write(frame);
-}
+//void L3LogicalChannel::chanEnqueueFrame(L3Frame *frame)
+//{
+//	ml3UplinkQ.write(frame);
+//}
 
 // When L3 wants to drop a channel, it must set a flag in the L3LogicalChannel, which will be queried here.
 // Return false to drop the channel.

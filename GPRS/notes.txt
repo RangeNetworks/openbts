@@ -1,3 +1,72 @@
+
+SIP Interface entry point: SIP.Local.IP : SIP.Local.Port
+SIP.Proxy.Speech is the asterisk 
+SIPInterface::drive()
+SIP goes between a user-agent and a server.
+SIP MOC:
+	INVITE ->
+	   <- Status: 100 Trying
+	   <- Status: 180 Ringing
+	   <- Status: 200 OK
+	ACK ->
+	<- BYE
+	Status: 200 OK ->
+
+SIP MTC:
+	<- INVITE
+		(page the MS)
+		MTCSendTrying trying -> 
+
+This is the INVITE sent to asterisk:
+	BTS->asterisk:
+					Via: SIP/2.0/UDP 127.0.0.1:5062;branch=z9hG4bKobts28492195eb36b5dc03^M
+					From: IMSI310260520943554 <sip:IMSI310260520943554@127.0.0.1>;tag=zilubvciueqbadda^M
+					To:  <sip:2222223@127.0.0.1>^M
+					Call-ID: 265130645@127.0.0.1^M
+					CSeq: 355 INVITE^M
+					Contact: <sip:IMSI310260520943554@127.0.0.1:5062>;expires=3600^M
+					Content-Type: application/sdp^M
+					User-Agent: OpenBTS 3.0TRUNK Build Date Oct 16 2012^M
+					Max-Forwards: 5^M
+					P-PHY-Info: OpenBTS; TA=1 TE=0.449219 UpRSSI=-39.000000 TxPwr=33 DnRSSIdBm=-87^M
+					P-Access-Network-Info: 3GPP-GERAN; cgi-3gpp=0010103ec000a^M
+					P-Preferred-Identity: <sip:IMSI310260520943554@127.0.0.1:5062>^M
+					Content-Length:   135^M
+					^M
+					v=0^M
+					o=IMSI310260520943554 0 0 IN IP4 127.0.0.1^M
+					s=Talk Time^M
+					t=0 0^M
+					m=audio 16518 RTP/AVP 3^M
+					c=IN IP4 127.0.0.1^M
+					a=rtpmap:3 GSM/8000^M
+
+	asterisk sends
+		INVITE (for call)
+		MESSAGE (for SMS?)
+
+CODECS:
+	Codec Selection is in 24.008 5.2.11.  Uses Bearer Capability (old IE for GSM) and Supported Codec List IE:
+		For GSM: If no Supported Codec List or Bearer Capability, select GSM_FR.
+		For UMTS: If any GSM codecs are listed use UMTS_AMR_2, which seems to be AMR with uplink codec selection limited
+		to 1 every 40ms so it can interoperate with GSM.  UMTS_AMR_2 is 'backward compatible' with UMTS_AMR. 25.413.
+		The NAS Synchroniszation IE specifies the selected codec type.
+
+	AMR = Adaptive Mult-Rate
+
+	GSM_FR GSM Full Rate 13.0kb/s 
+	GSM_HR GSM Half Rate 5.60kb/s
+	GSM_EFR GSM Enhanced Full Rate 12.2Kb/s (same as AMR)
+	FR_AMR  GSM Full rate amr
+		preferred configs defined in 28.062 table 7.11.3.1.3-2.
+		Config-NB-1 includes codecs: 12.2, 7.4, 5.9, 4.75 for FR_AMR. 
+		HR_AMR same codecs but excluding 12.2.
+		AMR 7.4 identical to TDMS_EFR codec.
+		"This Configuration is especially recommended because it leads in all cases
+		to TFO/TrFO compatible connections with optimal voice quality."
+		QUESTION: How does 7.4 fit in the channel?
+
+
 7-13, uplink.persist=3000, 1 channel: speed 11.7 latency 1.8 
 	uplink.persist=3000 3-down/2-up: speed 46.2 latency 1.3
 	uplink.persist=3000 4-down/1-up: speed 41.5 latency 1.4

@@ -5,7 +5,7 @@
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -23,40 +23,30 @@
 #include <semaphore.h>
 
 
-#include <ortp/ortp.h>
-#undef WARNING		// The nimrods defined this to "warning"
-#undef CR			// This too
-
 
 #include <Sockets.h>
-#include <Globals.h>
-#include <GSMTransfer.h>
-#include <ControlTransfer.h>
+#include <ByteVector.h>
+#include <CodecSet.h>
 #include <Timeval.h>
+#include <ControlTransfer.h>
 #include "SIPUtility.h"
 #include "SIPMessage.h"
 
-extern int gCountRtpSessions;
-extern int gCountRtpSockets;
 extern int gCountSipDialogs;
+
+namespace Control { class L3LogicalChannel; }
 
 namespace SIP {
 class SipDialog;
+typedef RefCntPointer<SipDialog> SipDialogRef;
 using namespace Control;
 using namespace std;
 
-extern bool gPeerIsBuggySmqueue;
 extern bool gPeerTestedForSmqueue;
 
-extern void writePrivateHeaders(SipMessage *msg, const L3LogicalChannel *chan);
-
 // These could be global.
-inline string localIP() { // Replaces mSIPIP.
-	return gConfig.getStr("SIP.Local.IP");
-}
-inline string localIPAndPort() { // Replaces mSIPIP and mSIPPort.
-	return format("%s:%u", localIP(), (unsigned) gConfig.getNum("SIP.Local.Port"));
-}
+extern string localIP(); // Replaces mSIPIP.
+extern string localIPAndPort(); // Replaces mSIPIP and mSIPPort.
 
 // These are the overall dialog states.
 enum SipState  {
@@ -90,24 +80,28 @@ enum SipState  {
 std::ostream& operator<<(std::ostream& os, SipState s);
 extern const char* SipStateString(SipState s);
 
-enum DialogType { SIPDTUndefined, SIPDTRegister, SIPDTUnregister, SIPDTMOC, SIPDTMTC, SIPDTMOSMS, SIPDTMTSMS, SIPDTMOUssd };
+enum DialogType {
+	SIPDTUndefined,
+	SIPDTRegister,
+	SIPDTUnregister,
+	SIPDTMOC, // Mobile Originate Call
+	SIPDTMTC, // Mobile Terminate Call
+	SIPDTMOSMS,
+	SIPDTMTSMS,
+	SIPDTMOUssd
+};
 
 class DialogMessage;
 class SipTransaction;
 
 // This is a simple attachment point for a TranEntry.
-//typedef InterthreadQueue<DialogMessage> DialogMessageFIFO;
-//typedef list<SipTransaction*> SipTransactionList;
 class SipEngine {
 
 	public:
 	Control::TranEntryId mTranId;		// So we can find the TransactionEntry that owns this SIPEngine.
 
-	//DialogMessageFIFO mDownlinkFifo;	// Messages from the SIP layer to Control Layer3.  Layer3 will read them from here.
-	//DialogMessage *dialogRead();
 	void dialogQueueMessage(DialogMessage *dmsg);
 
-	//SipTransactionList mTransactionList;
 	void setTranId(Control::TranEntryId wTranId) { mTranId = wTranId; }
 
 	// Dont delete these empty constructor/destructors. They are needed because InterthreadQueue calls
@@ -123,12 +117,14 @@ class SipBaseProtected
 	// You must not change mState without going through setSipState to make sure the state age is updated.
 	SipState mState;			///< current SIP call state
 	Timeval mStateAge;
-	virtual DialogType getDialogType() const = 0;
+	virtual DialogType vgetDialogType() const = 0;
 
 	public:
 	/** Return the current SIP call state. */
+	// (pat) This is the dialog state, if we are a dialog.
 	SipState getSipState() const { return mState; }
-	/** Set the state.  Must be called by for all internal and external users. */
+	// (pat) Set the dialog state.  The purpose of this protected class is to enforce that the dialog type is set
+	// only with this method by all internal and external users.
 	void setSipState(SipState wState) { mState=wState; mStateAge.now(); }
 
 	/** Return TRUE if it looks like the SIP session is stuck indicating some internal error. */
@@ -154,6 +150,7 @@ class SipBaseProtected
 			case HandoverOutbound:
 				return false;
 		}
+		return false;	/*NOTREACHED*/
 	}
 
 	SipBaseProtected() : mState(SSNullState) { mStateAge.now(); }
@@ -174,11 +171,15 @@ class DialogStateVars {
 	SipPreposition mRemoteHeader; // Used in To: and sometimes in request-URI.  Updated from Contact: header.
 	string mRouteSet;	// Complicated.  See RFC-3261 12.2.1.1  Immutable once set.
 	std::string mCallId;	// (pat) dialog-id for inbound sip messages but also used for some outbound messages.
-	IPAddressSpec mProxy;	// The remote URL.  It starts out as the proxy address, but is set from the Contact for established dialogs.
+	// (pat 5-2104) The proxy address is set from config options depending on the type of message.
+	// We currently dont support multiple upside peers.  We dont return the message using the via for example.
+	IPAddressSpec mProxy;	// The remote URL.
 	public:
 	unsigned mLocalCSeq;	// The local CSeq for in-dialog requests.  We dont bother tracking the remote CSeq.
 							// 14.1: The Cseq for re-INVITE follows same rules for in-dialog requests, namely,
 							// CSeq num must be incremented by one.
+	string dsPAssociatedUri;
+	string dsPAssertedIdentity;
 
 	DialogStateVars();
 	string dsLocalTag() { return mLocalHeader.mTag; }
@@ -238,93 +239,18 @@ class DialogStateVars {
 	const IPAddressSpec *dsPeer() const { return &mProxy; }
 	string localIP() const { return SIP::localIP(); }
 	string localIPAndPort() const { return SIP::localIPAndPort(); }
-	void updateProxy(const char *sqlOption) {
-		string proxy = gConfig.getStr(sqlOption);
-		if (! proxy.empty() && ! mProxy.ipSet(proxy,sqlOption)) {
-			LOG(ALERT) << "cannot resolve IP address for"<<LOGVAR(proxy)<<" specified by"<<LOGVAR(sqlOption);
-		}
-	}
-};
-
-class SipRtp {
-	Mutex mRtpLock;
-	public:
-	/**@name RTP state and parameters. */
-	//@{
-	unsigned mRTPPort;
-	//short mRTPRemPort;
-	//string mRTPRemIP;
-	Control::CodecSet mCodec;
-	RtpSession * mSession;		///< RTP media session
-	unsigned int mTxTime;		///< RTP transmission timestamp in 8 kHz samples
-	unsigned int mRxTime;		///< RTP receive timestamp in 8 kHz samples
-	uint64_t mRxRealTime;		// In msecs.
-	uint64_t mTxRealTime;		// In msecs.
-	//@}
-
-	/**@name RFC-2833 DTMF state. */
-	//@{
-	// (pat) Dont change mDTMF to char.  The unbelievably stupid <<mDTMS will write the 0 directly on the string prematurely terminating it.
-	unsigned mDTMF;					///< current DTMF digit, \0 if none
-	unsigned mDTMFDuration;		///< duration of DTMF event so far
-	unsigned mDTMFStartTime;	///< start time of the DTMF key event
-	unsigned mDTMFEnding;		///< Counts number of rtp end events sent; we are supposed to send three.
-	//@}
-
-	/** Return RTP session */
-	RtpSession * RTPSession() const { return mSession; }
-
-	/** Return the RTP Port being used. */
-	unsigned RTPPort() const { return mRTPPort; }
-
-	bool txDtmf();
-
-	/** Set up to start sending RFC2833 DTMF event frames in the RTP stream. */
-	bool startDTMF(char key);
-
-	/** Send a DTMF end frame and turn off the DTMF events. */
-	void stopDTMF();
-
-	/** Send a vocoder frame over RTP. */
-	void txFrame(GSM::AudioFrame* frame, unsigned numFlushed);
-
-	/**
-		Receive a vocoder frame over RTP.
-		@param The vocoder frame
-		@return audio data or NULL on error or no data.
-	*/
-	GSM::AudioFrame * rxFrame();
-	void initRTP1(const char *d_ip_addr, unsigned d_port, unsigned dialogId);
-
-	virtual string sbText() const = 0;
-	virtual SipState getSipState() const = 0;
-
-	void rtpInit();
-	SipRtp() { rtpInit(); }
-	void rtpStop();
-	// The virtual keyword is not currently needed since we dont use pointers to SipRtp as a base class.
-	virtual ~SipRtp() { rtpStop(); }
-	void rtpText(std::ostringstream&os) const;
+	void updateProxy(const char *sqlOption);
 };
 
 
-// MO, uses SIP Client transaction:
-//   us -> INVITE -> them
-//   us <- 1xx whatever <- them
-//   us <- 200 OK <- them
-//   us -> ACK -> them
-// We dont use server transactions for requests within an INVITE (RFC3261 section 17.2.2 Figure 8)
-// - the only thing the server transaction has to do is resend the reply if a new request arrives,
-// so that is just handled by the dialog.
-// For the INVITE server transaction (figure 7), the transaction layer is required to resend the 2xx
-// MT, uses SIP Server transaction:
-//   us <- INVITE <- them	  duplicate INVITE handled by SIP2Interface, not SipServerTransaction
-//   us -> 1xx whatever -> them
-//   us -> 200 OK -> them
-//   us <- ACK <- them
+// SipBase is intended to have no dependencies on the rest of OpenBTS so that it can be used as the base class for
+// the message parser classes, allowing them to be used stand-alone.
+// SipDialog is the class with many dependencies elsewhere, including, for example, gSipInterface and SipRtp.
+// SipBase includes much of the state for a SIP dialog, but SipBase can also be used to parse non-dialog SIP messages,
+// in which case all the dialog state stuff is just ignored.
 DEFINE_MEMORY_LEAK_DETECTOR_CLASS(SipBase,MemCheckSipBase)
 class SipBase : public MemCheckSipBase,
-	public RefCntBase, public SipEngine, public DialogStateVars, public SipRtp, public SipBaseProtected
+	public RefCntBase, public SipEngine, public DialogStateVars, public SipBaseProtected
 {
 	friend class SipInterface;
 protected:
@@ -336,9 +262,7 @@ public:
 	SipMessage *getInvite() const { return mInvite; }
 
 	/**@name SIP UDP parameters */
-	//@{
-	SipState getSipState() const { return SipBaseProtected::getSipState(); }	// stupid language.
-
+	//SipState getSipState() const { return SipBaseProtected::getSipState(); }	// stupid language.
 
 	string localSipUri() {
 		return format("sip:%s@%s", sipLocalUsername(), localIPAndPort());
@@ -355,7 +279,6 @@ public:
 	string proxyIP() const { return mProxy.mipIP; }
 	string transportName() { return string("UDP"); }	// TODO
 	bool isReliableTransport() { return transportName() == "TCP"; }	// TODO
-	//@}
 
 	//bool mInstigator;		///< true if this side initiated the call
 	DialogType mDialogType;
@@ -371,14 +294,22 @@ public:
 	SipMessage *mLastResponse; // used only for the 200 OK to INVITE to retrive the sdp stuff.
 	// Return the response code, only for MO invites.
 	int getLastResponseCode() { return mLastResponse ? mLastResponse->smGetCode() : 0; }
+	int getLastResponseCode(string &reason) {	// Return is the reason phrase from an error response.
+		if (mLastResponse) { reason = mLastResponse->smGetReason(); return mLastResponse->smGetCode(); }
+		else return 0;
+	}
+	string getLastResponseReasonHeader() {	// Return is the reason phrase from an error response.
+		return mLastResponse ? mLastResponse->msmReasonHeader : string("");
+	}
+	//string getLastResponseReason() { return mLastResponse ? mLastResponse->smGetReason() : string(""); }
 	//@}
 
 	// These go in the Transaction:
 	std::string mInviteViaBranch;	// (pat) This is part of the individual Transaction.
 
 	// Make an initial request: INVITE MESSAGE REGISTER
-	SipMessage *makeRequest(string method,string requri, string whoami, SipPreposition* toContact, SipPreposition* fromContact, string branch);
 	// Make a standard initial request with info from the DialogState.
+	SipMessage *makeRequest(string method,string requri, string whoami, SipPreposition* toContact, SipPreposition* fromContact, string branch);
 	SipMessage *makeInitialRequest(string method);	// with default URIs
 public:
 	Bool_z mIsHandover;	// TRUE if this dialog was established by an inbound handover.
@@ -404,36 +335,8 @@ public:
 	bool dgIsInvite() const;	// As opposed to a MESSAGE.
 
 	// Return if we are the server, ie, return true if communication was started by peer, not us.
-	DialogType getDialogType() const { return mDialogType; }
+	DialogType vgetDialogType() const { return mDialogType; }
 	bool dgIsServer() const { return mDialogType == SIPDTMTC || mDialogType == SIPDTMTSMS; }
-
-	/**@name Messages for SIP registration. */
-	//@{
-	/**
-		Send sip register and look at return msg.
-		Can throw SIPTimeout().
-		@return True on success.
-	*/
-	SipMessage *makeRegisterMsg(DialogType wMethod, const L3LogicalChannel* chan, string RAND, const FullMobileId &msid, const char *SRES = NULL);	
-
-	/**
-		Send sip unregister and look at return msg.
-		Can throw SIPTimeout().
-		@return True on success.
-	*/
-	//bool unregister() { return (Register(SIPDTUnregister)); };
-
-	//@}
-
-	// unused string makeSDP(string rtpSessionId, string rtpVersionId);
-	string makeSDPOffer();
-	string makeSDPAnswer();
-
-
-	/**@name Messages for MOD procedure. */
-	//@{
-	SipState MODSendCANCEL();
-	//@}
 
 	/** Save a copy of an INVITE or MESSAGE message in the engine. */
 	void saveInviteOrMessage(const SipMessage *INVITE, bool mine);
@@ -444,138 +347,46 @@ public:
 	/** Determine if this invite matches the saved one */
 	bool sameInviteOrMessage(SipMessage * msg);
 
-	bool sameDialog(SipDialog *other);
+	bool sameDialog(SipBase *other);
 	bool matchMessage(SipMessage *msg);
 	SipDialog *dgGetDialog();
 
 	public:
-	void sbText(std::ostringstream&os, bool verbose=false) const;
+	void sbText(std::ostringstream&os) const;
 	string sbText() const;
+	virtual int vGetRtpPort() const { return 0; }
+	Control::CodecSet vGetCodecs() const { return CodecSet(); }
 
-	/**
-		Initialize the RTP session.
-		@param msg A SIP INVITE or 200 OK wth RTP parameters
-	*/
-	public:
-	void initRTP();
-	void MOCInitRTP();
-	void MTCInitRTP();
-
-	/**
-		Generate a standard set of private headers on initiating messages.
-	*/
 	string dsHandoverMessage(string peer) const;
-	//bool dsDecapsulate(string msgstr);
-};
 
-
-// Typical OpenBTS message stream for MOC to MTC on same BTS:
-// MOC invite->
-// MOC	<-100
-// MTC <-invite
-// MTC	100->
-// MTC	180->
-// MOC <-180
-// MTC 200->
-// MTC <-ACK
-// MOC	<-200
-// CC Connect
-
-class SipInviteServerTransactionLayerBase: public SipTimers, public virtual SipBase
-{
-	public:
-	virtual void dialogPushState(SipState newState, int code, char letter=0) = 0;
-	// This is used by inbound BYE or CANCEL.  We dont care which because both kill off the dialog.
-	SipTimer mTimerJ;
-	void setTimerJ() { if (!dsPeer()->ipIsReliableTransport()) { mTimerJ.setOnce(64 * T1); } }
-	void SipMTBye(SipMessage *sipmsg);
-	void SipMTCancel(SipMessage *sipmsg);
-};
-
-// The SipStates used here and their correspondence to RFC3261 server transaction states are:
-// Our SipState      | RFC3261 INVITE server       | RFC3261 non-INVITE server
-// Starting          | N/A                         | Trying
-// Proceeding        | Proceeding                  | Proceeding
-// Connecting        | TU sent OK, TL goes to state Terminated, but we go to Completed | N/A
-// Active            | Confirmed                   | Completed
-// SSFail, various cancel/bye states
-class SipMTInviteServerTransactionLayer : public virtual SipInviteServerTransactionLayerBase
-{
-	SipTimer mTimerG;	// Resend response for unreliable transport.
-
-	// TimerHJ is how long we wait for a response from the peer before declaring failure.
-	// For non-INVITE it is TimerJ, and for INVITE it is timerH.
-	// For INVITE it is the wait for additional requests to be answered with the previous response.
-	// In RFC3261 the 200 OK reply is passed to the TU which needs a similar delay; but we are going to use the same
-	// state machine to send the 200 OK response, which makes it look more similar to the non-INVITE server transaction (figure 8.)
-	// After an ACK is received, TimerI is how long we will soak up additional ACKs, but who cares?  We will soak
-	// them up as long as the dialog is extant.
-	SipTimer mTimerH;
-
-	// There is no SIP specified timer for the 2xx response to an INVITE.
-	// Eventually the MS will stop waiting and we will be canceled from that side.
-
-	SipMessage mtLastResponse;
-
-	void stopTimers() { mTimerG.stop(); mTimerH.stop(); /*mTimerI.stop();*/ }
-	void setTimerG() { if (!dsPeer()->ipIsReliableTransport()) { mTimerG.setOnce(T1); } }
-	void setTimerH() { if (!dsPeer()->ipIsReliableTransport()) { mTimerH.setOnce(64 * T1); } }
-
-	protected:
-	void mtWriteLowSide(SipMessage *sipmsg) {	// Outgoing message.
-		mtLastResponse = *sipmsg;
-		sipWrite(sipmsg);
+	// Add this to code where reason needs to be set
+	// Example: SipBase::addCallTerminationReasonDlg(CallTerminationCause(CallTerminationCause::eTermSIP/eQ850, 100, "This is an error"));
+	void addCallTerminationReasonDlg(CallTerminationCause::termGroup group, int cause, string desc) {
+		LOG(INFO) << "SIP term info addCallTerminationReasonDlg cause: " << cause;
+		SIPDlgCallTermList.add(group, cause, desc);
 	}
 
-	public:
-
-	void MTCSendTrying();
-	void MTCSendRinging();
-	void MTCSendOK(CodecSet wCodec, const L3LogicalChannel *chan);
-
-	// Doesnt seem like messages need the private headers.
-	void MTSMSReply(int code, const char *explanation); // , const L3LogicalChannel *chan)
-	void MTSMSSendTrying();
-
-	// This can only be used for early errors before we get the ACK.
-	void MTCEarlyError(int code, const char*reason);	// The message must be 300-699.
-
-	// This is called for the second and subsequent received INVITEs as well as the ACK.
-	// We send the current response, whatever it is.
-	void MTWriteHighSide(SipMessage *sipmsg);
-
-	// Return TRUE to remove the dialog.
-	bool mtPeriodicService();
-	string mttlText() const;	// MT Transaction Layer Text
+	SipTermList& getTermList() { return SIPDlgCallTermList; }
+private:
+	SipTermList SIPDlgCallTermList;  // List of call termination reasons
 };
 
+struct SipCallbacks {
+	// ttAddMessage
+	typedef void (*ttAddMessage_functype)(TranEntryId tranid,DialogMessage *dmsg);
+	static ttAddMessage_functype ttAddMessage_callback;
+	static void ttAddMessage(TranEntryId tranid,SIP::DialogMessage *dmsg);
+	static void setcallback_ttAddMessage(ttAddMessage_functype callback) {
+		ttAddMessage_callback = callback;
+	}
 
-class SipMOInviteClientTransactionLayer : public virtual SipInviteServerTransactionLayerBase
-{
-	SipTimer mTimerAE;	// Time to resend initial INVITE for non-reliable transport.
-	SipTimer mTimerBF;	// Timeout during INVITE phase.
-	virtual void handleInviteResponse(int status, bool sendAck) = 0;
-	void stopTimers() { mTimerAE.stop(); mTimerBF.stop(); mTimerK.stop(); mTimerD.stop(); }
-
-	protected:
-	// Timers K and D are for non-invite client transactions, MO BYE and MO CANCEL.
-	SipTimer mTimerK;	// Timeout destroys dialog.
-	SipTimer mTimerD;	// Timeout destroys dialog.
-	void MOCSendINVITE(const L3LogicalChannel *chan = NULL);
-	void MOUssdSendINVITE(string ussd, const L3LogicalChannel *chan = NULL);
-	void handleSMSResponse(SipMessage *sipmsg);
-	void MOWriteHighSide(SipMessage *sipmsg);	// Incoming message from outside, called from SIPInterface.
-	void moWriteLowSide(SipMessage *sipmsg);	// Outgoing message from us, called only by SIPBase descendents.
-
-	public:
-	void MOCSendACK();
-	void MOSMSSendMESSAGE(const string &messageText, const string &contentType);
-
-	// This is a temporary routine to work around bugs in smqueue.
-	// Resend the message with changes (made by the caller) to see if it works any better.
-	bool MOSMSRetry();
-	bool moPeriodicService(); // Return TRUE to remove the dialog.
-	string motlText() const;	// MO Transaction Layer Text
+	// writePrivateHeaders
+	typedef void (*writePrivateHeaders_functype)(SipMessage *msg, const L3LogicalChannel *l3chan);
+	static writePrivateHeaders_functype writePrivateHeaders_callback;
+	static void writePrivateHeaders(SipMessage *msg, const L3LogicalChannel *l3chan);
+	static void setcallback_writePrivateHeaders(writePrivateHeaders_functype callback) {
+		writePrivateHeaders_callback = callback;
+	}
 };
 
 

@@ -1,9 +1,9 @@
 /*
-* Copyright 2013 Range Networks, Inc.
+* Copyright 2013, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -20,16 +20,15 @@
 #include <string.h>
 #include <Logger.h>
 #include <stdlib.h>
-#include <ControlTransfer.h>
+#include <CodecSet.h>
+#include <GSML3CCElements.h>
 #include "SIPParse.h"
 #include "SIPMessage.h"
 #include "SIPBase.h"
-#include "SIPDialog.h"
 
 
 namespace SIP {
 using namespace std;
-using namespace Control;
 
 struct SipParseError : public std::exception {
 	SipParseError() { LOG(DEBUG) << "SipParseError"; }
@@ -37,6 +36,20 @@ struct SipParseError : public std::exception {
 		return "SipParseError";
 	}
 };
+
+
+string makeUriWithTag(string username, string ip, string tag)
+{
+	return format("<sip:%s@%s>;tag=%s",username,ip,tag);
+}
+string makeUri(string username, string ip, unsigned port)
+{
+	if (port) {
+		return format("sip:%s@%s:%u",username,ip,port);
+	} else {
+		return format("sip:%s@%s",username,ip);
+	}
+}
 
 
 // endpos is the index of one char past the end of the string, eg, of the trailing nul. 
@@ -85,6 +98,21 @@ void commaListPushFront(string *cl, string val)
 	} else {
 		*cl = val + "," + *cl;
 	}
+}
+
+string commaListPopFront(string *cl)	// Modify cl and return the result.
+{
+	string result;
+	if (cl->empty()) { return result; }	// This is probably an error on the part of the caller.
+	size_t cn = cl->find_first_of(',');
+	if (cn == string::npos) {
+		result = *cl;
+		*cl = string("");
+	} else {
+		result = cl->substr(0,cn);
+		*cl = trimboth(cl->substr(cn+1)," ,");	// The trimboth is paranoid overkill.
+	}
+	return trimboth(result," ,");	// Make extra sure there is no errant garbage around the result.
 }
 
 string commaListFront(string cl)
@@ -136,6 +164,14 @@ char SipChar::charClassData[256];
 
 
 // This can not distinguish between a missing param and one with an empty value.
+SipParamList::iterator SipParamList::paramFindIt(const char *name)
+{
+	for (SipParamList::iterator it = this->begin(); it != this->end(); it++) {
+		if (strceql(it->mName.c_str(),name)) { return it; }
+	}
+	return this->end();
+}
+
 string SipParamList::paramFind(const char*name)
 {
 	for (SipParamList::iterator it = this->begin(); it != this->end(); it++) {
@@ -596,12 +632,16 @@ class SipParseMessage : SipParseLine {
 				commaListPushBack(&sipmsg->msmRecordRoutes,pp);
 			} else if (strceql(name,"route")) {
 				commaListPushBack(&sipmsg->msmRoutes,pp);
+			} else if (strceql(name,"max-forwards")) {
+				sipmsg->msmMaxForwards = trimboth(string(pp));	// We already trimmed left, but its ok to do it again.
 			// No need to treat this specially here, even though authenticate info does not follow normal SIP parsing rules.
 			//} else if (strceql(name,"www-authenticate")) {
 			//	// authenticate info does not follow normal SIP parsing rules.
 			//	sipmsg->msmAuthenticateValue = string(pp);
 			} else if (strceql(name,"content-type")) {
 				sipmsg->msmContentType = string(pp);
+			} else if (strceql(name,"reason")) {
+				sipmsg->msmReasonHeader = string(pp);
 			} else {
 				SipParam param(name,string(pp));
 				sipmsg->msmHeaders.push_back(param);
@@ -638,7 +678,7 @@ SipMessage *sipParseBuffer(const char *buffer)
 	return result;
 }
 
-void codecsToSdp(CodecSet codecs, string *codeclist, string *attrs)
+void codecsToSdp(Control::CodecSet codecs, string *codeclist, string *attrs)
 {
 	attrs->clear();
 	attrs->reserve(80);
@@ -651,7 +691,7 @@ void codecsToSdp(CodecSet codecs, string *codeclist, string *attrs)
 		codeclist->append("0");
 	}
 	***/
-	if (codecs.isSet(GSM_FR) || codecs.isSet(GSM_HR) || codecs.isEmpty()) {
+	if (codecs.isSet(Control::GSM_FR) || codecs.isSet(Control::GSM_HR) || codecs.isEmpty()) {
 		attrs->append("a=rtpmap:3 GSM/8000\r\n");
 		if (!codeclist->empty()) { codeclist->append(" "); }
 		codeclist->append("3");
@@ -659,7 +699,7 @@ void codecsToSdp(CodecSet codecs, string *codeclist, string *attrs)
 	// TODO: Does the half-rate codec need a special RTP format is conversion performed lower down?
 	// RFC5993 7.1 says it is "a=rtpmap:<dynamic-port-number. GSM-HR-08/8000"
 	/**
-	if (codecs.isSet(AMR_FR) || codecs.isSet(AMR_HR)) {
+	if (codecs.isSet(Control::AMR_FR) || codecs.isSet(Control::AMR_HR)) {
 		// Dynamically allocated SDP starts at 96.
 		attrs->append("a=rtpmap:96 AMR/8000\r\n");
 		if (!codeclist->empty()) { codeclist->append(" "); }
@@ -706,9 +746,9 @@ void SdpInfo::sdpParse(const char *buffer)
 void SdpInfo::sdpInitOffer(const SipBase *dialog)
 {
 	sdpUsername = dialog->sipLocalUsername();
-	sdpRtpPort = dialog->mRTPPort;
+	sdpRtpPort = dialog->vGetRtpPort();
 	sdpHost = dialog->localIP();
-	codecsToSdp(dialog->mCodec,&sdpCodecList,&sdpAttrs);
+	codecsToSdp(dialog->vGetCodecs(),&sdpCodecList,&sdpAttrs);
 	static const string zero("0");
 	sdpSessionId = sdpVersionId = zero;
 }
@@ -745,5 +785,75 @@ string SdpInfo::sdpValue()
 	result.append(sdpAttrs);
 	return result;
 }
+
+
+// See L3Cause in L3Enums.h
+string CallTerminationCause::getQ850CallTermText(int l3Cause) {
+	switch ((GSM::L3Cause::CCCause) l3Cause) {
+		case GSM::L3Cause::Unknown_L3_Cause:  return "Unknown Cause 0";
+		case GSM::L3Cause::Unassigned_Number:  return "Unallocated Number"; // 1
+		case GSM::L3Cause::No_Route_To_Destination:  return "No Route to Destination";
+		case GSM::L3Cause::Channel_Unacceptable:  return "Channel Unacceptable";
+		case GSM::L3Cause::Operator_Determined_Barring:  return "Preemption";
+		case GSM::L3Cause::Normal_Call_Clearing:  return "Normal Call Clearing"; // 16
+		case GSM::L3Cause::User_Busy:  return "User Busy"; // 17
+		case GSM::L3Cause::No_User_Responding:  return "No User Responding"; // 18
+		case GSM::L3Cause::User_Alerting_No_Answer:  return "No Answer from User (User alerted)";
+		case GSM::L3Cause::Call_Rejected:  return "Call Rejected"; // 21
+		case GSM::L3Cause::Number_Changed:  return "Number Changed";
+		case GSM::L3Cause::Preemption:  return "Exchange Routing Error";
+		case GSM::L3Cause::Non_Selected_User_Clearing:  return "Non-selected User Clearing";
+		case GSM::L3Cause::Destination_Out_Of_Order:  return "Destination Out of Order";
+		case GSM::L3Cause::Invalid_Number_Format:  return "Invalid Number Format (Address incomplete)";
+		case GSM::L3Cause::Facility_Rejected:  return "Facility Rejected";
+		case GSM::L3Cause::Response_To_STATUS_ENQUIRY:  return "Response to STATUS ENQUIRY";
+		case GSM::L3Cause::Normal_Unspecified:  return "Normal, Unspecified";
+		case GSM::L3Cause::No_Channel_Available:  return "No Circuit/Channel Available";
+		case GSM::L3Cause::Network_Out_Of_Order:  return "Network Out of Order";
+		case GSM::L3Cause::Temporary_Failure:  return "Temporary Failure";
+		case GSM::L3Cause::Switching_Equipment_Congestion:  return "Switching Equipment Congestion";
+		case GSM::L3Cause::Access_Information_Discarded:  return "Access Information Discarded";
+		case GSM::L3Cause::Requested_Channel_Not_Available:  return "Requested Circuit/Channel N/A";
+		case GSM::L3Cause::Resources_Unavailable:  return "Resource Unavailable, Unspecified";
+		case GSM::L3Cause::Quality_Of_Service_Unavailable:  return "Quality of Service Not Available";
+		case GSM::L3Cause::Requested_Facility_Not_Subscribed:  return "Requested Facility Not Subscribed";
+		case GSM::L3Cause::Incoming_Calls_Barred_Within_CUG:  return "Outgoing Calls Barred Within CUG";
+		case GSM::L3Cause::Bearer_Capability_Not_Authorized:  return "Incoming Calls Barred Within CUG";
+		case GSM::L3Cause::Bearer_Capability_Not_Presently_Available:  return "Bearer Capability Not Available";
+		case GSM::L3Cause::Service_Or_Option_Not_Available:  return "Service or Option N/A, unspecified";
+		case GSM::L3Cause::Bearer_Service_Not_Implemented:  return "Bearer Capability Not Implemented";
+		case GSM::L3Cause::ACM_GE_Max:  return "ACM greater or equal to ACM max";
+		case GSM::L3Cause::Requested_Facility_Not_Implemented:  return "Requested Facility Not Implemented";
+		case GSM::L3Cause::Only_Restricted_Digital_Information_Bearer_Capability_Is_Available:  return "Only Restricted Digital Bearer Cap supported";
+		case GSM::L3Cause::Service_Or_Option_Not_Implemented:  return "Service or Option Not Implemented, Unspecified";
+		case GSM::L3Cause::Invalid_Transaction_Identifier_Value:  return "Invalid Call Reference Value";
+		case GSM::L3Cause::User_Not_Member_Of_CUG:  return "User Not Member of CUG";
+		case GSM::L3Cause::Incompatible_Destination:  return "Incompatible Destination";
+		case GSM::L3Cause::Invalid_Transit_Network_Selection:  return "Invalid Transit Network Selection";
+		case GSM::L3Cause::Semantically_Incorrect_Message:  return "Invalid Message, Unspecified";
+		case GSM::L3Cause::Invalid_Mandatory_Information:  return "Mandatory Information Element is Missing";
+		case GSM::L3Cause::Message_Type_Not_Implemented:  return "Message Type Non-existent / Not Implemented";
+		case GSM::L3Cause::Messagetype_Not_Compatible_With_Protocol_State:  return "Message Incompatible With Call State or Message Type";
+		case GSM::L3Cause::IE_Not_Implemented:  return "IE/Parameter Non-existent or Not Implemented";
+		case GSM::L3Cause::Conditional_IE_Error:  return "Invalid Information Element Contents";
+		case GSM::L3Cause::Message_Not_Compatible_With_Protocol_State:  return "Message Not Compatible With Call State";
+		case GSM::L3Cause::Recovery_On_Timer_Expiry:  return "Recovery on Timer Expiry";
+		case GSM::L3Cause::Protocol_Error_Unspecified:  return "Message With Unrecognized Parameter, Discarded";
+		case GSM::L3Cause::Interworking_Unspecified:  return "Interworking, Unspecified";
+		default:  return "";
+	} // switch
+
+	return "";
+} // getQ850CallTermText
+
+
+string CallTerminationCause::getSIPCallTermText(int iSIPError) {
+	// Fill in text as needed
+	if  (iSIPError != 0)
+		return "SIP ERROR";
+	else
+		return "";
+}
+
 
 };	// namespace SIP

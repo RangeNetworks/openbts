@@ -1,10 +1,9 @@
 /*
-* Copyright 2011 Range Networks, Inc.
-* All Rights Reserved.
+* Copyright 2011, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -64,7 +63,7 @@ class RLCBSN_t { // Type of radio block sequence numbers.  -1 means invalid.
 	public:
 	// Number of Radio Blocks in a hyperframe: there are 12 blocks every 52 frames.
 	// Hyperframe = 2048UL * 26UL * 51UL;
-	static const unsigned BSNPeriodicity = 2048UL * 26UL * 51UL * 12UL / 52UL;
+	static const unsigned BSNPeriodicity = 2048UL * 26UL * 51UL * 12UL / 52UL;	// 626688 frames
 
 	// Note: C++ default operator=() is ok.
 	RLCBSN_t() { mValue = -1; }

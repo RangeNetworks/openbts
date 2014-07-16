@@ -6,7 +6,7 @@
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -22,9 +22,10 @@
 #define GSML3RRELEMENTS_H
 
 #include <vector>
+#include "L3Enums.h"
 #include "GSML3Message.h"
 #include "GSML3GPRSElements.h"
-#include <Globals.h>
+#include <OpenBTSConfig.h>
 
 
 namespace GSM {
@@ -37,6 +38,10 @@ class L3CellOptionsBCCH : public L3ProtocolElement {
 
 	unsigned mPWRC;					///< 1 -> downlink power control may be used
 	unsigned mDTX;					///< discontinuous transmission state
+	// (pat) From GSM 5.08 5.2: RADIO_LINK_TIMEOUT is a counter used by the MS to decide when the radio link
+	// quality is poor enough to cancel the call.  In short, it is a count of how many SACCH messages are lost.
+	// From GSM 5.08 section 9 table 1 we learn the value is in SACCH blocks (which are 480ms each) in the range 4-64,
+	// ie 15 steps of 4 SACCH blocks each, which translated is about 2 second granularity.
 	unsigned mRADIO_LINK_TIMEOUT;	///< timeout to declare dead phy link
 
 	public:
@@ -69,7 +74,7 @@ class L3CellOptionsSACCH : public L3ProtocolElement {
 
 	unsigned mPWRC;					///< 1 -> downlink power control may be used
 	unsigned mDTX;					///< discontinuous transmission state
-	unsigned mRADIO_LINK_TIMEOUT;	///< timeout to declare dead phy link
+	unsigned mRADIO_LINK_TIMEOUT;	///< timeout to declare dead phy link  See comments at L3CellOptionsBCCH
 
 	public:
 
@@ -136,36 +141,25 @@ class L3CellSelectionParameters : public L3ProtocolElement {
 /** Control Channel Description, GSM 04.08 10.5.2.11 */
 class L3ControlChannelDescription : public L3ProtocolElement {
 
-	private:
-
-	// (pat) 5-27-2012: I put in 'real' paging channels and used them for GPRS,
-	// but someone still needs to modify the GSM stack to use them and test them there.
-	// Then we could change the parameters below to provide more paging channels.
-	// See class CCCHCombinedChannel.
-
-	unsigned mATT;				///< 1 -> IMSI attach/detach
-	unsigned mBS_AG_BLKS_RES;	///< access grant channel reservation
-	unsigned mCCCH_CONF;			///< channel combination for CCCH
-	unsigned mBS_PA_MFRMS;		///< paging channel configuration
-				// Note: This var is 0..7 representing BS_PA_MFRMS values 2..9.
-	unsigned mT3212;				///< periodic updating timeout
-
 	public:
 
-	/** Sets reasonable defaults for a single-ARFCN system. */
-	L3ControlChannelDescription():L3ProtocolElement()
-	{
-		// Values dictated by the current implementation are hard-coded.
-		mBS_AG_BLKS_RES=2;			// reserve 2 CCCHs for access grant
-		mBS_PA_MFRMS=0;				// minimum PCH spacing
-		// Configurable values.
-		mATT=(unsigned)gConfig.getBool("Control.LUR.AttachDetach");
-		mCCCH_CONF=gConfig.getNum("GSM.CCCH.CCCH-CONF");
-		mT3212=gConfig.getNum("GSM.Timer.T3212")/6;
-	}
+	unsigned mATT;				///< 1 -> IMSI attach/detach
+	// BS_AG_BLKS_RES is the number of CCCH NOT used for paging, so the MS does not have to bother listening to them for paging.
+	unsigned mBS_AG_BLKS_RES;	///< access grant channel reservation.
+	// Values for CCCH_CONF defined in 4.08 10.5.2.11.  1 -> C-V beacon, 2->C-IV beacon.
+	unsigned mCCCH_CONF;			///< channel combination for CCCH.
+	// BS_PA_MFRMS represents the number of consecutive 51-multiframes used to spread pages.
+	// In 5.02 6.5.2 it is assumed to be in the range 2..9,
+	// but in 4.08 10.5.2.11 the same exact variable name (BS_PA_MFRMS) has the range 0..7.
+	// We are going to use the values 2..9 here, and translate it to 0..7 when writing it to the Control Channel Description IE.
+	unsigned mBS_PA_MFRMS;		///< BS_PA_MFRMS in the range 2..9.
+	unsigned mT3212;				///< periodic updating timeout
 
-	// BS_PA_MFRMS is the number of 51-multiframes used for paging in the range 2..9.
-	unsigned getBS_PA_MFRMS();
+	/** Sets reasonable defaults for a single-ARFCN system. */
+	L3ControlChannelDescription();
+
+	bool isCCCHCombined() { return mCCCH_CONF == 1; }
+	void validate();
 
 	size_t lengthV() const { return 3; }
 	void writeV(L3Frame& dest, size_t &wp) const;
@@ -174,6 +168,8 @@ class L3ControlChannelDescription : public L3ProtocolElement {
 	void text(std::ostream&) const;
 
 };
+
+extern L3ControlChannelDescription *gControlChannelDescription;
 
 
 
@@ -313,13 +309,21 @@ class L3NCCPermitted : public L3ProtocolElement {
 // T3126 is how long the MS listens to CCCH after a RACH, and is dependent on parameters broadcast in L3RACHControlParameters.
 // 4.08/24.008 says value is T+2S but no longer than 5secs, where T and S are defined in 44.018 3.3.1.2:
 // T is the "Tx Integer" broadcast on BCCH (we default to 14), S is defined by table 3.3.1.1.2.1:
-// 	TX-integer non-combined-CCCH combined-CCH/SDCCH
-// 		3,8,14,50	55		41
-// 		4,9,16		76 		52
-// 		5,10,20		109 	58
-// 		6,11,25		163 	86
-// 		7,12,32		217 	115
-// See further documentation at the config value GSM.CCCH.AGCH.QMax.
+// See RACHSpreadSlots and RACHWaitSParam
+
+// (pat) Location Updating is triggered by MM layer, which then requests an RR connection, ie, RACH procedure.
+// The RR layer retries M (max retrans) times, which we set to 1, then waits T3126 (max 5 seconds) and if no reply,
+// either Immediate Assignment or Immediate Assignment Reject, signals a failure to the MM layer.
+// The Immediate Assignment Reject can specify 4 MS and a delay up to 255 seconds.
+// Random Access failure behavior is in GSM 4.08 4.4.4.9 paragraph c.
+// MS starts T3213 (4sec) for this cell, and retries Loc Update.
+// But first, if there are any other suitable cells tries cell reselection first with a 5 second prohibition
+// timer to retry this cell.
+// MS tries random access procedure twice, then if the update status is UPDATED and stored LAI matches:
+//		if attempt counter < 4: keep status updated and retry after T3211 (15sec.)
+//		otherwise: set update status to NOT UPDATED and enter MM IDLE sub-state ATTEMPTING TO UPDATE,
+//		and retry after T3211 (15Sec) if attempt counter < 4, else T3212 (broadcast on BCCH, in minutes,
+//		and as of 2-2014 is set to 0!
 
 
 /** RACH Control Parameters GSM 04.08 10.5.2.29 */
@@ -366,6 +370,10 @@ class L3RACHControlParameters : public L3ProtocolElement {
 
 
 /** PageMode, GSM 04.08 10.5.2.26 */
+// (pat) The page mode is included in Immediate Assignment and Paging messages.
+// If the message is sent on a paging channel, it applies to ALL MS using that paging channel, not just the addressed MS.
+// GSM 4.08 3.3.2.1.1: The page mode type "Paging Reorganization" causes the MS to listen to all CCCH and BCCH messages
+// until it sees a new Page Mode.
 class L3PageMode : public L3ProtocolElement
 {
 
@@ -565,37 +573,14 @@ public:
 /** GSM 04.08 10.5.2.31 */
 // 44.018 10.5.2.31
 // (pat) The default RR cause 0 indicates "Normal Event"
-class L3RRCause : public L3ProtocolElement
+class L3RRCauseElement : public L3ProtocolElement
 {
-	public:
-	enum RRCause {
-		NormalEvent = 0,
-		Unspecified = 1,
-		ChannelUnacceptable = 2,
-		TimerExpired = 3,
-		NoActivityOnTheRadio = 4,
-		PreemptiveRelease = 5,
-		UTRANConfigurationUnknown = 6,
-		HandoverImpossible = 8,	// (Timing out of range)
-		ChannelModeUnacceptable = 9,
-		FrequencyNotImplemented = 0xa,
-		LeavingGroupCallArea = 0xb,
-		LowerLayerFailure = 0xc,
-		CallAlreadyCleared = 0x41,
-		SemanticallyIncorrectMessage = 0x5f,
-		InvalidMandatoryInformation = 0x60,
-		MessageTypeInvalid = 0x61,		// Not implemented or non-existent
-		MessageTypeNotCompapatibleWithProtocolState = 0x62,
-		ConditionalIEError = 0x64,
-		NoCellAvailable = 0x65,
-		ProtocolErrorUnspecified = 0x6f
-	};
 	private: RRCause mCauseValue;
 
 	public:
 
 	/** Constructor cause defaults to "normal event". */
-	L3RRCause(RRCause wValue=NormalEvent)
+	L3RRCauseElement(RRCause wValue=L3RRCause::Normal_Event)
 		:L3ProtocolElement()
 	{ mCauseValue=wValue; }
 
@@ -608,7 +593,6 @@ class L3RRCause : public L3ProtocolElement
 	void text(std::ostream&) const;
 
 };
-typedef L3RRCause::RRCause RRCause;
 
 
 
@@ -720,11 +704,9 @@ std::ostream& operator<<(std::ostream&, L3ChannelMode::Mode);
 /** GSM 04.08 10.5.2.43 */
 class L3WaitIndication : public L3ProtocolElement {
 
-	private:
+	public:
 
 	unsigned mValue;		///< T3122 or T3142 value in seconds
-
-	public:
 
 	L3WaitIndication(unsigned seconds)
 		:L3ProtocolElement(),
@@ -832,13 +814,21 @@ class L3APDUData : public L3ProtocolElement {
 
 
 /** GSM 04.08 10.5.2.20 */
+// (pat) Also see 5.08
 class L3MeasurementResults : public L3ProtocolElement {
 
 	private:
 
 	bool mBA_USED;
 	bool mDTX_USED;
-	bool mMEAS_VALID;		///< 0 for valid, 1 for non-valid
+	bool mMEAS_VALID;		///< 0 for valid, 1 for non-valid  NOTE!!
+	// (pat) 5.08 8.1.4 defines RXLEV values.  MS measures RMS signal level in the range -110dB to -48dB.
+	// RXLEV 0 = < -110 dBm + SCALE
+	// RXLEV 1 = < -109 dBm + SCALE
+	// ...
+	// RXLEV 63 = > -48 dBm + SCALE
+	// The SCALE is used for Enhanced Measurement Report and is inconsequential for normal report.
+	// The MS always reports the 6 best cells from among the candidates in the BA list sent by the BTS.
 	unsigned mRXLEV_FULL_SERVING_CELL;
 	unsigned mRXLEV_SUB_SERVING_CELL;
 	unsigned mRXQUAL_FULL_SERVING_CELL;
@@ -853,7 +843,7 @@ class L3MeasurementResults : public L3ProtocolElement {
 
 	L3MeasurementResults()
 		:L3ProtocolElement(),
-		mMEAS_VALID(false),
+		mMEAS_VALID(true),			// true means invalid.
 		mRXLEV_FULL_SERVING_CELL(0),
 		mRXLEV_SUB_SERVING_CELL(0),
 		mRXQUAL_FULL_SERVING_CELL(0),
@@ -873,14 +863,17 @@ class L3MeasurementResults : public L3ProtocolElement {
 
 	bool BA_USED() const { return mBA_USED; }
 	bool DTX_USED() const { return mDTX_USED; }
-	bool MEAS_VALID() const { return mMEAS_VALID; }
-	unsigned RXLEV_FULL_SERVING_CELL() const { return mRXLEV_FULL_SERVING_CELL; }
-	unsigned RXLEV_SUB_SERVING_CELL() const { return mRXLEV_SUB_SERVING_CELL; }
+	// The value MEAS_VALID == 0 means the serving cell measurements were valid; it is intuitively backwards.
+	//bool MEAS_VALID() const { return mMEAS_VALID; }	// Get rid of this intuitively backwards method.
+	bool isServingCellValid() const { return mMEAS_VALID == 0; }
+	// (pat) The _RAW versions return the raw data from the IE, which must be scaled to convert to dB.
+	unsigned RXLEV_FULL_SERVING_CELL_RAW() const { return mRXLEV_FULL_SERVING_CELL; }
+	unsigned RXLEV_SUB_SERVING_CELL_RAW() const { return mRXLEV_SUB_SERVING_CELL; }
 	unsigned RXQUAL_FULL_SERVING_CELL() const { return mRXQUAL_FULL_SERVING_CELL; }
 	unsigned RXQUAL_SUB_SERVING_CELL() const { return mRXQUAL_SUB_SERVING_CELL; }
 
 	unsigned NO_NCELL() const { return mNO_NCELL; }
-	unsigned RXLEV_NCELL(unsigned i) const { assert(i<mNO_NCELL); return mRXLEV_NCELL[i]; }
+	unsigned RXLEV_NCELL_RAW(unsigned i) const { assert(i<mNO_NCELL); return mRXLEV_NCELL[i]; }
 	unsigned RXLEV_NCELLs(unsigned *) const;
 	unsigned BCCH_FREQ_NCELL(unsigned i) const { assert(i<mNO_NCELL); return mBCCH_FREQ_NCELL[i]; }
 	unsigned BCCH_FREQ_NCELLs(unsigned *) const;
@@ -1166,7 +1159,7 @@ class L3SI13RestOctets : public L3RestOctets {
 	L3SI13RestOctets()
 		:L3RestOctets(),
 		mRAC(gConfig.getNum("GPRS.RAC")),	// (pat) aka Routing Area Code.
-		mSPGC_CCCH_SUP(false),
+		mSPGC_CCCH_SUP(false),	// SPLIT_PG_CYCLE is NOT supported on CCCH.
 		// See GSM04.08 table 10.5.76: Value 6 means any priority packet access allowed.
 		mPRIORITY_ACCESS_THR(gConfig.getNum("GPRS.PRIORITY-ACCESS-THR")),
 		// (pat) GSM05.08 sec 10.1.4: This controls whether the MS
@@ -1202,6 +1195,7 @@ class L3SI13RestOctets : public L3RestOctets {
 
 };
 
+unsigned countBeaconTimeslots(int BS_CC_CHANS);
 
 } // GSM
 

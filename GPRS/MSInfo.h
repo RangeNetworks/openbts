@@ -1,10 +1,9 @@
 /*
-* Copyright 2011 Range Networks, Inc.
-* All Rights Reserved.
+* Copyright 2011, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -29,8 +28,8 @@
 
 #define CASENAME(x) case x: return #x;
 
+namespace GSM { struct RadData; }
 namespace GPRS {
-struct RadData;
 
 typedef RList<PDCHL1Downlink*> PDCHL1DownlinkList_t;
 typedef RList<PDCHL1Uplink*> PDCHL1UplinkList_t;
@@ -140,7 +139,7 @@ struct SignalQuality {
 	Statistic<int> msILevel;
 	Statistic<int> msRXQual;
 	Statistic<int> msSigVar;
-	void setRadData(RadData &rd);
+	void setRadData(GSM::RadData &rd);
 	void setRadData(float wRSSI,float wTimingError);
 	void dumpSignalQuality(std::ostream &os) const;
 };
@@ -218,12 +217,16 @@ struct MSStat {
 	GprsTimer msTalkUpTime;		// When the MS last talked to us.
 	GprsTimer msTalkDownTime;	// When we last talked to the MS.
 
+	// pat 3-2014:  Use msDownlinkAttempts to detect that a high-side initiated downlink failed.
+	UInt_z msDownlinkAttempts;
+
 	// Called at every uplink/downlink communication from MS.
 	// These are not strictly statistics because they are also used to kill a non-responsive MS.
 	// These timers differ from the persistent mode timers in that those
 	// count only data, and these count anything.
-	void talkedUp(bool doubleCount=false) { msTalkUpTime.setNow(); if (!doubleCount) {msTrafficMetric++;} }
-	void talkedDown() { msTalkDownTime.setNow(); msTrafficMetric++; }
+	// SVGDBG this means we are got something from the phone
+	void talkedUp(bool doubleCount=false) { msDownlinkAttempts=0; msTalkUpTime.setNow(); if (!doubleCount) {msTrafficMetric++;} }
+	void talkedDown() { msDownlinkAttempts=0; msTalkDownTime.setNow(); msTrafficMetric++; }
 
 	// Dump all except traffic metric.
 	void msStatDump(const char *indent,std::ostream &os);
@@ -495,7 +498,7 @@ class MSInfo : public SGSN::MSUEAdapter, public SignalQuality, public MSStat
 	RLCBSN_t msLastUsfGrant;
 
 	// Called when a USF is granted for this MS.
-	// If penalize, if the MS does not answer we kill of the tbf.
+	// If penalize, if the MS does not answer we kill off the tbf.
 	void msCountUSFGrant(bool penalize);
 
 	// Incoming downlink data queue.

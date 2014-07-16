@@ -5,7 +5,7 @@
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -16,19 +16,21 @@
 
 */
 
+#define LOG_GROUP LogGroup::GSM		// Can set Log.Level.GSM for debugging
+
 #define TESTTCHL1FEC
 
 
 #include "GSML1FEC.h"
 #include "GSMCommon.h"
-#include "GSMTransfer.cpp"
-#include "GSMSAPMux.h"
+#include "GSMTransfer.h"
+//#include "GSMSAPMux.h"
 #include "GSMConfig.h"
 #include "GSMTDMA.h"
 #include "GSMTAPDump.h"
+#include "GSMLogicalChannel.h"
 #include <ControlCommon.h>
-#include <RadioResource.h>
-#include <Globals.h>
+#include <OpenBTSConfig.h>
 #include <TRXManager.h>
 #include <Logger.h>
 #include <TMSITable.h>
@@ -42,6 +44,11 @@
 
 namespace GSM {
 using namespace std;
+using namespace SIP;	// For AudioFrame
+
+#undef OBJLOG
+#define OBJLOG(level) LOG(level) <<descriptiveString()<<" "
+#define BLATHER DEBUG	// (pat 4-2014) These were formerly INFO but there is one message for each frame, which is too much.
 
 
 
@@ -54,10 +61,9 @@ const float cInitialPower = 33;
 
 // The actual phone settings change every 4 bursts, so average over at least 4.
 static const unsigned cAveragePeriodTiming = 8; // How many we measurement reports over which we average timing, minus 1.
-// (pat) RSSI is used 
-static const unsigned cAveragePeriodRSSI = 8; // How many we measurement reports over which we average RSSI, minus 1.
-static const unsigned cAveragePeriodSNR = 208; // How many we frames we average SNR, minus 1.
-static const unsigned cFERMemory = 208; // How many we frames we average FER, minus 1.
+//static const unsigned cAveragePeriodRSSI = 8; // How many measurement reports over which we average RSSI, minus 1.
+//static const unsigned cAveragePeriodSNR = 8; // How many frames over which we average SNR, minus 1.
+static const unsigned cFERMemory = 208; // How many we frames we average FER, minus 1.  For reporting.
 
 /*
 
@@ -203,10 +209,10 @@ L1Encoder::L1Encoder(unsigned wCN, unsigned wTN, const TDMAMapping& wMapping, L1
 	mCN(wCN),mTN(wTN),
 	mTSC(gBTS.BCC()),			// Note that TSC (Training Sequence Code) is hardcoded to the BCC.
 	mParent(wParent),
-	mTotalBursts(0),
+	mTotalFrames(0),
 	mPrevWriteTime(gBTS.time().FN(),wTN),
 	mNextWriteTime(gBTS.time().FN(),wTN),
-	mRunning(false),mActive(false),
+	mRunning(false),
 	mEncrypted(ENCRYPT_NO),
 	mEncryptionAlgorithm(0)
 {
@@ -221,18 +227,23 @@ L1Encoder::L1Encoder(unsigned wCN, unsigned wTN, const TDMAMapping& wMapping, L1
 	// Build the descriptive string.
 	ostringstream ss;
 	ss << wMapping.typeAndOffset();
-	//sprintf(mDescriptiveString,"C%dT%d %s", wCN, wTN, ss.str().c_str());
 	mDescriptiveString = format("C%dT%d %s", wCN, wTN, ss.str().c_str());
+}
+
+ostream& operator<<(std::ostream& os, const L1Encoder *encp)
+{
+	os <<"L1Encoder "<<(encp ? encp->descriptiveString() : "NULL");
+	return os;
 }
 
 
 void L1Encoder::rollForward()
 {
-	// Calculate the TDMA paramters for the next transmission.
+	// Calculate the TDMA parameters for the next transmission.
 	// This implements GSM 05.02 Clause 7 for the transmit side.
 	mPrevWriteTime = mNextWriteTime;
-	mTotalBursts++;
-	mNextWriteTime.rollForward(mMapping.frameMapping(mTotalBursts),mMapping.repeatLength());
+	mTotalFrames++;
+	mNextWriteTime.rollForward(mMapping.frameMapping(mTotalFrames),mMapping.repeatLength());
 }
 
 
@@ -244,42 +255,51 @@ TypeAndOffset L1Encoder::typeAndOffset() const
 }
 
 
-void L1Encoder::open()
+void L1Encoder::encInit()
 {
-	OBJLOG(INFO) << "L1Encoder";
+	OBJLOG(BLATHER) << "L1Encoder";
 	handoverPending(false);
-	ScopedLock lock(mLock);
-	if (!mRunning) start();
-	mTotalBursts=0;
-	mActive = true;
-	resync();
-	mPrevWriteTime = gBTS.time();
-	// Turning off encryption when the channel closes would be a nightmare
+	ScopedLock lock(mEncLock,__FILE__,__LINE__);
+	mTotalFrames=0;
+	resync(true);	// (pat 4-2014) Force mNextWriteTime to be recalculated at channel initiation.
+	mPrevWriteTime = gBTS.time();	// (pat) Prevents the first write after opening the channel from blocking in waitToSend called from transmit.
+	// (doug) Turning off encryption when the channel closes would be a nightmare
 	// (catching all the ways, and performing the handshake under less than
 	// ideal conditions), so we leave encryption on to the bitter end,
 	// then clear the encryption flag here, when the channel gets reused.
 	mEncrypted = ENCRYPT_NO;
 	mEncryptionAlgorithm = 0;
+	// (pat) On very first initialization, start sending the dummy bursts;
+	// this allows us to get rid of the dopey 'starting' of all the channels when the BTS is turned on.
+	if (mCN == 0 && !mEncEverActive) { sendDummyFill(); }
+}
+
+void L1Encoder::encStart()
+{
+	if (!mRunning) { mRunning = true; serviceStart(); }
+	mEncActive = true;
+	mEncEverActive = true;
 }
 
 
+// (pat) sendDummyFill does not block, but it advances the mNextWriteTime.
 void L1Encoder::close()
 {
-	// Don't return until the channel is fully closed.
-	OBJLOG(INFO) << "L1Encoder";
-	ScopedLock lock(mLock);
-	mActive = false;
-	sendIdleFill();
+	OBJLOG(BLATHER) << "L1Encoder";
+	ScopedLock lock(mEncLock,__FILE__,__LINE__);
+	if (mEncActive) { sendDummyFill(); }
+	mEncActive = false;
 }
 
 
-bool L1Encoder::active() const
+bool L1Encoder::encActive() const
 {
-	ScopedLock lock(mLock);
-	bool retVal = mActive;
 	const L1Decoder *sib = sibling();
-	if (sib) retVal = mActive && (!sib->recyclable());
-	return retVal;
+	if (sib) {
+		return mEncActive && (sib->decActive());
+	} else {
+		return mEncActive;
+	}
 }
 
 
@@ -297,18 +317,19 @@ const L1Decoder* L1Encoder::sibling() const
 }
 
 
-void L1Encoder::resync()
+void L1Encoder::resync(bool force)
 {
 	// If the encoder's clock is far from the current BTS clock,
 	// get it caught up to something reasonable.
 	Time now = gBTS.time();
 	int32_t delta = mNextWriteTime-now;
 	OBJLOG(DEBUG) << "L1Encoder next=" << mNextWriteTime << " now=" << now << " delta=" << delta;
-	if ((delta<0) || (delta>(51*26))) {
+	if (force || (delta<0) || (delta>(51*26))) {
 		mNextWriteTime = now;
 		mNextWriteTime.TN(mTN);
-		mNextWriteTime.rollForward(mMapping.frameMapping(mTotalBursts),mMapping.repeatLength());
-		OBJLOG(DEBUG) <<"L1Encoder RESYNC "<<mDescriptiveString<< " next=" << mNextWriteTime << " now=" << now;
+		mTotalFrames = 0;	// (pat 4-2014) Make sure we start at beginning of mapping.
+		mNextWriteTime.rollForward(mMapping.frameMapping(mTotalFrames),mMapping.repeatLength());
+		OBJLOG(DEBUG) <<"L1Encoder RESYNC "<< " next=" << mNextWriteTime << " now=" << now;
 	}
 }
 
@@ -316,23 +337,36 @@ void L1Encoder::resync()
 void L1Encoder::waitToSend() const
 {
 	// Block until the BTS clock catches up to the
-	// mostly recently transmitted burst.
+	// most recently transmitted burst.
 	gBTS.clock().wait(mPrevWriteTime);
 }
 
 
-void L1Encoder::sendIdleFill()
+void L1Encoder::sendDummyFill()
 {
 	// Send the L1 idle filling pattern, if any.
 	// For C0, that's the dummy burst.
 	// For Cn, don't do anything.
+	OBJLOG(DEBUG) <<"L1Encoder";
 	resync();
-	if (mCN!=0) return;
-	for (unsigned i=0; i<mMapping.numFrames(); i++) {
-		mFillerBurst.time(mNextWriteTime);
-		mDownstream->writeHighSideTx(mFillerBurst,"idle");
-		rollForward();
+	// (pat) FIXME: On other ARFCNs we need to disable the transceiver auto-filling.  See wiki ticket 1141.
+	// (pat) In the meantime, we must send the dummy burst to inform the MS that this channel is disabled;
+	// this is required specifically for SACCH.
+	// To preserve the old behavior, we will leave other arfcns non-transmitting until the first time they are used,
+	// but ever after we have to send the filler pattern.
+	if (mCN==0 || mEncEverActive) {
+		for (unsigned i=0; i<mMapping.numFrames(); i++) {
+			mFillerBurst.time(mNextWriteTime);
+			mDownstream->writeHighSideTx(mFillerBurst,"dummy");
+			rollForward();
+		}
+		mFillerSendTime = gBTS.clock().systime2(mNextWriteTime);	// (pat) The time when the last burst of the filler will be delivered.
 	}
+}
+
+bool L1Encoder::l1IsIdle() const
+{
+	return ! mEncActive && mFillerSendTime.passed();
 }
 
 unsigned L1Encoder::ARFCN() const
@@ -402,52 +436,62 @@ void DecoderStats::decoderStatsInit()
 	mStatBadFrames = 0;
 }
 
-void L1Decoder::open()
+ostream& operator<<(std::ostream& os, const L1Decoder *decp)
+{
+	os <<"L1Decoder "<<(decp ? decp->descriptiveString() : "NULL");
+	return os;
+}
+
+string L1Decoder::displayTimers() const
+{
+	ostringstream ss;
+	// No point in showing T3103 for handover - its too fast.
+	//ss <<LOGVARM(mT3101) <<LOGVARM(mT3109) <<LOGVARM(mT3111);
+	ss <<LOGVARM(mBadFrameTracker);
+	return ss.str();
+}
+
+void L1Decoder::decInit()
 {
 	handoverPending(false,0);
-	ScopedLock lock(mLock);
-	if (!mRunning) start();
+	ScopedLock lock(mDecLock,__FILE__,__LINE__);
+	//if (!mRunning) decStart();
+	//mRunning = true;
 	mDecoderStats.decoderStatsInit();
 	//mFER=0.0F;
-	mT3111.reset();
-	mT3109.reset();
-	mT3101.set();
-	mActive = true;
+	mBadFrameTracker = 0;
+	//mT3111.reset();
+	//mT3109.reset(gConfig.GSM.Timer.T3109);
+	//mT3101.reset();
 	// Turning off encryption when the channel closes would be a nightmare
 	// (catching all the ways, and performing the handshake under less than
 	// ideal conditions), so we leave encryption on to the bitter end,
 	// then clear the encryption flag here, when the channel gets reused.
 	mEncrypted = ENCRYPT_NO;
 	mEncryptionAlgorithm = 0;
+	//mActive = true;
 }
 
-
-void L1Decoder::close(bool hardRelease)
+void L1Decoder::decStart()
 {
-	ScopedLock lock(mLock);
-	mT3101.reset();
-	mT3109.reset();
-	// For a hard release, force T3111 to an expired state.
-	// (At least one of these timers has to be expired for the channel to recycle.)
-	if (hardRelease) mT3111.expire();
-	else mT3111.set();
-	mActive = false;
+	//mT3111.reset();
+	// Pat changed initial open state on T3109 from inactive via reset to active via set,
+	// so that it is easier to test in GSMLogicalChannel.
+	//mT3109.set(); 		//old: mT3109.reset();
+	//mT3101.set();
+	mDecActive = true;
 }
 
-bool L1Decoder::active() const
+
+void L1Decoder::close()
 {
-	ScopedLock lock(mLock);
-	// (pat 8-2013) Wouldnt it be an error if the channel was recyclable while active?
-	return mActive && !recyclable();
+	mDecActive = false;
 }
 
-
-bool L1Decoder::recyclable() const
+bool L1Decoder::decActive() const
 {
-	ScopedLock lock(mLock);
-	return mT3101.expired() || mT3109.expired() || mT3111.expired();
+	return mDecActive;
 }
-
 
 L1Encoder* L1Decoder::sibling()
 {
@@ -465,27 +509,32 @@ const L1Encoder* L1Decoder::sibling() const
 
 void DecoderStats::countSNR(const RxBurst &burst)
 {
-	// Timing error is a float in symbol intervals.
-	int count = min(mSNRCount,cAveragePeriodSNR);
-	mAveSNR = (burst.getNormalSNR()  + count * mAveSNR) / (count+1);
-	mSNRCount++;
+	// setting to 0 disables:
+	mLastSNR = burst.getNormalSNR();
+	if (int SNRAveragePeriod = gConfig.getNum("GSM.Radio.SNRAveragePeriod")) {
+		int count = min((int)mSNRCount,SNRAveragePeriod);
+		mAveSNR = (mLastSNR  + count * mAveSNR) / (count+1);
+		mSNRCount++;
+	}
 }
 
 
-void L1Decoder::countStolenFrame(unsigned nframes)	// Number of frames to count.
+void L1Decoder::countStolenFrame(unsigned nframes)
 {
 	// (pat 1-16-2014) Stolen frames should not affect FER reporting.
 	mDecoderStats.mStatTotalFrames += nframes;
 	mDecoderStats.mStatStolenFrames += nframes;
 }
 
-void L1Decoder::countGoodFrame(unsigned nframes)	// Number of frames to count.
+void L1Decoder::countGoodFrame(unsigned nframes)	// Number of bursts to count.
 {
+	// Subtract 2 for each good frame, but dont go below zero.
+	mBadFrameTracker = mBadFrameTracker <= 1 ? 0 : mBadFrameTracker-2;
 	static const float a = 1.0F / ((float)cFERMemory);
 	static const float b = 1.0F - a;
 	mDecoderStats.mAveFER *= b;
 	mDecoderStats.mStatTotalFrames += nframes;
-	OBJLOG(INFO) <<descriptiveString() <<"L1Decoder FER=" << mDecoderStats.mAveFER;
+	OBJLOG(BLATHER) <<"L1Decoder FER=" << mDecoderStats.mAveFER;
 }
 
 void L1Decoder::countBER(unsigned bec, unsigned frameSize)
@@ -493,18 +542,26 @@ void L1Decoder::countBER(unsigned bec, unsigned frameSize)
 	static const float a = 1.0F / ((float)cFERMemory);
 	static const float b = 1.0F - a;
 	float thisBER = (float) bec / frameSize;
+	mDecoderStats.mLastBER = thisBER;
 	mDecoderStats.mAveBER = b*mDecoderStats.mAveBER + a * thisBER;
 }
 
 
-void L1Decoder::countBadFrame(unsigned nframes)	// Number of frames to count.
+void L1Decoder::countBadFrame(unsigned nframes)	// Number of bursts to count.
 {
+	mBadFrameTracker++;
 	static const float a = 1.0F / ((float)cFERMemory);
 	static const float b = 1.0F - a;
 	mDecoderStats.mAveFER = b*mDecoderStats.mAveFER + a;
 	mDecoderStats.mStatTotalFrames += nframes;
 	mDecoderStats.mStatBadFrames += nframes;
-	OBJLOG(INFO) <<"L1Decoder FER=" << mDecoderStats.mAveFER;
+	OBJLOG(BLATHER) <<"L1Decoder FER=" << mDecoderStats.mAveFER;
+}
+
+void SACCHL1Decoder::countBadFrame(unsigned nframes)
+{
+	RSSIBumpDown(gConfig.getNum("Control.SACCHTimeout.BumpDown"));
+	L1Decoder::countBadFrame(nframes);
 }
 
 
@@ -512,10 +569,10 @@ void L1Encoder::handoverPending(bool flag)
 {
 	if (flag) {
 		bool ok = mDownstream->setHandover(mTN);
-		if (!ok) LOG(ALERT) << "handover setup failed";
+		if (!ok) OBJLOG(ALERT) << "handover setup failed";
 	} else {
 		bool ok = mDownstream->clearHandover(mTN);
-		if (!ok) LOG(ALERT) << "handover clear failed";
+		if (!ok) OBJLOG(ALERT) << "handover clear failed";
 	}
 }
 
@@ -538,66 +595,40 @@ void L1FEC::downstream(ARFCNManager* radio)
 	if (mDecoder) radio->installDecoder(mDecoder);
 }
 
-
-void L1FEC::open()
+void L1FEC::l1start()
 {
-	if (mEncoder) mEncoder->open();
-	if (mDecoder) mDecoder->open();
+	LOG(DEBUG);
+	if (mDecoder) mDecoder->decStart();
+	if (mEncoder) mEncoder->encStart();
 }
 
-void L1FEC::close()
+
+void L1FEC::l1init()
 {
-	if (mEncoder) mEncoder->close();
+	LOG(DEBUG);
+	if (mDecoder) mDecoder->decInit();
+	if (mEncoder) mEncoder->encInit();
+}
+
+void L1FEC::l1close()
+{
+	LOG(DEBUG) <<descriptiveString();
+	if (mEncoder) mEncoder->close();	// Does the sendDummyFill.
 	if (mDecoder) mDecoder->close();
 }
 
-//bool L1FEC::reallyActive() const
-//{
-//	// I dont think mDecoder can be NULL because this is called only from CLI on channels with a decoder, but test anyway.
-//	return mDecoder ? mDecoder->reallyActive() : false;
-//}
 
-bool L1FEC::active() const
+// Active means it is currently sending and receiving.
+// recyclable is used to tell when the channel is reusable.
+bool L1FEC::l1active() const
 {
-	// Encode-only channels are always active.
+	// non-sacch encode-only channels are always active.
 	// Otherwise, the decoder is the better indicator.
-	if (mDecoder) return mDecoder->active();
-	else return (mEncoder!=NULL);
-}
-
-
-
-
-void RACHL1Decoder::serviceLoop()
-{
-	// The service loop pulls RACH bursts from a FIFO
-	// and sends them to the decoder.
-	// This loop is in its own thread because
-	// the allocator can potentially block and we don't 
-	// want the whole receive thread to block.
-
-	while (true) {
-		RxBurst *rx = mQ.read();
-		// Yes, if we wait long enough that read will timeout.
-		if (rx==NULL) continue;
-		writeLowSideRx(*rx);
-		delete rx;
+	if (mDecoder) {
+		return mDecoder->decActive();
+	} else {
+		return (mEncoder!=NULL);	// (pat) The send-only channels are always active.
 	}
-}
-
-
-void *RACHL1DecoderServiceLoopAdapter(RACHL1Decoder* obj)
-{
-	obj->serviceLoop();
-	return NULL;
-}
-
-
-void RACHL1Decoder::start()
-{
-	// Start the processing thread.
-	L1Decoder::start();
-	mServiceThread.start((void*(*)(void*))RACHL1DecoderServiceLoopAdapter,this);
 }
 
 
@@ -646,9 +677,10 @@ void RACHL1Decoder::writeLowSideRx(const RxBurst& burst)
 	countBER(mVCoder.getBEC(),36);
 	mD.LSB8MSB();
 	unsigned RA = mD.peekField(0,8);
-	OBJLOG(INFO) <<"RACHL1Decoder received RA=" << RA << " at time " << burst.time()
-		<< " with RSSI=" << burst.RSSI() << " timingError=" << burst.timingError();
-	gBTS.channelRequest(new Control::ChannelRequestRecord(RA,burst.time(),burst.RSSI(),burst.timingError()));
+	OBJLOG(INFO) <<"RACHL1Decoder received RA=" << RA << " at time " << burst.time() \
+		<< " with RSSI=" << burst.RSSI() << " timingError=" << burst.timingError() <<LOGVAR(TN());
+	//gBTS.channelRequest(new ChannelRequestRecord(RA,burst.time(),burst.RSSI(),burst.timingError()));
+	AccessGrantResponder(RA,burst.time(),burst.RSSI(),burst.timingError(),TN());
 }
 
 
@@ -697,7 +729,7 @@ void XCCHL1Decoder::writeLowSideRx(const RxBurst& inBurst)
 {
 	OBJLOG(DEBUG) <<"XCCHL1Decoder " << inBurst;
 	// If the channel is closed, ignore the burst.
-	if (!active()) {
+	if (!decActive()) {
 		OBJLOG(DEBUG) <<"XCCHL1Decoder not active, ignoring input";
 		return;
 	} 
@@ -865,10 +897,10 @@ bool SharedL1Decoder::decode()
 
 	// Convolutional decoding c[] to u[].
 	// GSM 05.03 4.1.3
-	OBJLOG(DEBUG) <<"XCCHL1Decoder << mC";
+	OBJLOG(DEBUG) <<"XCCHL1Decoder "<< mC;
 	//mC.decode(mVCoder,mU);
 	mVCoder.decode(mC,mU);
-	OBJLOG(DEBUG) <<"XCCHL1Decoder << mU";
+	OBJLOG(DEBUG) <<"XCCHL1Decoder "<< mU;
 
 	// The GSM L1 u-frame has a 40-bit parity field.
 	// False detections are EXTREMELY rare.
@@ -881,7 +913,7 @@ bool SharedL1Decoder::decode()
 	OBJLOG(DEBUG) <<"XCCHL1Decoder syndrome=" << hex << syndrome << dec;
 	// Simulate high FER for testing?
 	if (random()%100 < gConfig.getNum("Test.GSM.SimulatedFER.Uplink")) {
-		LOG(NOTICE) << "simulating dropped uplink frame at " << mReadTime;
+		OBJLOG(NOTICE) << "XCCHL1Decoder simulating dropped uplink frame at " << mReadTime;
 		return false;
 	}
 	return (syndrome==0);
@@ -893,17 +925,20 @@ void XCCHL1Decoder::handleGoodFrame()
 {
 	OBJLOG(DEBUG) <<"XCCHL1Decoder u[]=" << mU;
 
+	/*** Moved to L2LogicalChannel.
 	{
-		ScopedLock lock(mLock);
+		ScopedLock lock(mDecLock,__FILE__,__LINE__);
 		// Keep T3109 from timing out.
-		mT3109.set();
+		//mT3109.set();
 		// If this is the first good frame of a new transaction,
 		// stop T3101 and tell L2 we're alive down here.
 		if (mT3101.active()) {
 			mT3101.reset();
+			// This does not block; goes to a InterthreadQueue L2LAPdm::mL1In
 			if (mUpstream!=NULL) mUpstream->writeLowSide(L2Frame(ESTABLISH));
 		}
 	}
+	***/
 
 	// Get the d[] bits, the actual payload in the radio channel.
 	// Undo GSM's LSB-first octet encoding.
@@ -914,7 +949,7 @@ void XCCHL1Decoder::handleGoodFrame()
 		if (random()%100 < gConfig.getNum("Test.GSM.UplinkFuzzingRate")) {
 			size_t i = random() % mD.size();
 			mD[i] = 1 - mD[i];
-			LOG(NOTICE) << "fuzzing input frame, flipped bit " << i;
+			OBJLOG(NOTICE) << "XCCHL1Decoder fuzzing input frame, flipped bit " << i;
 		}
 		// Send all bits to GSMTAP
 		if (gConfig.getBool("Control.GSMTAP.GSM")) {
@@ -924,7 +959,7 @@ void XCCHL1Decoder::handleGoodFrame()
 		// Build an L2 frame and pass it up.
 		const BitVector2 L2Part(mD.tail(headerOffset()));
 		OBJLOG(DEBUG) <<"XCCHL1Decoder L2=" << L2Part;
-		mUpstream->writeLowSide(L2Frame(L2Part,DATA));
+		mUpstream->writeLowSide(L2Frame(L2Part/*,DATA*/));
 	} else {
 		OBJLOG(ERR) << "XCCHL1Decoder with no uplink connected.";
 	}
@@ -933,21 +968,22 @@ void XCCHL1Decoder::handleGoodFrame()
 // Get the physical parameters of the burst.
 void MSPhysReportInfo::processPhysInfo(const RxBurst &inBurst)
 {
-	// RSSI is dB wrt full scale.  (pat) No it is not - RSSI is dB wrt the noise floor.
-	unsigned count = min(mRSSICount,cAveragePeriodRSSI);
+	// RSSI is dB wrt full scale.
+	unsigned count = min((int)mReportCount,(int)gConfig.getNum("GSM.Radio.RSSIAveragePeriod"));
 	mRSSI = (inBurst.RSSI()  + count * mRSSI) / (count+1);
 
 	// Timing error is a float in symbol intervals.
-	count = min(mRSSICount,cAveragePeriodTiming);
+	// (pat) It is the timing error of the received bursts which means it is relative to the Timing Advance currently in use.
+	count = min(mReportCount,cAveragePeriodTiming);
 	mTimingError = (inBurst.timingError()  + count * mTimingError) / (count+1);
 
 	// Timestamp
 	mTimestamp = gBTS.clock().systime(inBurst.time());
 
-	OBJLOG(INFO) << "SACCHL1Decoder " << " RSSI=" <<mRSSI << " burst.RSSI="<<inBurst.RSSI()
-		<< " timestamp=" << mTimestamp
-			<< " timingError=" << inBurst.timingError() << LOGVARM(mRSSICount);
-	mRSSICount++;
+	OBJLOG(INFO) << "SACCHL1Decoder " << " RSSI=" <<mRSSI << " burst.RSSI="<<inBurst.RSSI() \
+		<< " timestamp=" << mTimestamp \
+			<< " timingError=" << inBurst.timingError() << LOGVARM(mReportCount);
+	mReportCount++;
 }
 
 
@@ -957,6 +993,7 @@ bool SACCHL1Decoder::processBurst(const RxBurst& inBurst)
 	// We could do that as a double-check against putting garbage into
 	// the interleaver or accepting bad parameters.
 
+	// TODO: We shouldnt save the phys info if the burst is bad.
 	processPhysInfo(inBurst);
 	return XCCHL1Decoder::processBurst(inBurst);
 }
@@ -965,11 +1002,11 @@ bool SACCHL1Decoder::processBurst(const RxBurst& inBurst)
 void SACCHL1Decoder::handleGoodFrame()
 {
 	// GSM 04.04 7
-	OBJLOG(DEBUG) << "SACCHL1Decoder phy header " << mU.head(16);
+	OBJLOG(DEBUG) << "SACCHL1Decoder "<<" phy header " << mU.head(16);
 	mActualMSPower = decodePower(mU.peekField(3,5));
 	int TAField = mU.peekField(9,7);
 	if (TAField<64) mActualMSTiming = TAField;
-	OBJLOG(INFO) << "SACCHL1Decoder actuals pow=" << mActualMSPower << " TA=" << mActualMSTiming;
+	OBJLOG(BLATHER) << "actuals pow=" << mActualMSPower << " TA=" << mActualMSTiming;
 	XCCHL1Decoder::handleGoodFrame();
 }
 
@@ -979,9 +1016,9 @@ void SACCHL1Decoder::handleGoodFrame()
 void SharedL1Encoder::encodeFrame41(const BitVector2 &src, int offset, bool copy)
 {
 	if (copy) src.copyToSegment(mU,offset);
-	OBJLOG(DEBUG) << "XCCHL1Encoder before d[]=" << mD;
+	OBJLOG(DEBUG) << "before d[]=" << mD;
 	mD.LSB8MSB();
-	OBJLOG(DEBUG) << "XCCHL1Encoder after d[]=" << mD;
+	OBJLOG(DEBUG) << "after d[]=" << mD;
 	encode41();
 	interleave41();
 }
@@ -1043,49 +1080,17 @@ SharedL1Encoder::SharedL1Encoder():
 
 void XCCHL1Encoder::writeHighSide(const L2Frame& frame)
 {
-	switch (frame.primitive()) {
-		case DATA:
-			// Encode and send data.
-			if (!active()) { LOG(INFO) << "XCCHL1Encoder::writeHighSide sending on non-active channel " <<descriptiveString(); }
-			resync();
-			sendFrame(frame);
-			break;
-		case ESTABLISH:
-			// Open both sides of the link.
-			// The phone is waiting to see the idle pattern.
-			open();
-			if (sibling()) sibling()->open();
-			return;
-		case RELEASE:
-			// (pat) How do we get here?  The RELEASE is handled by L2LAPDm.
-			// Normally, we get here after a DISC-DM handshake in L2.
-			// Close both sides of the link, knowing that the phone will do the same.
-			close();
-			if (sibling()) sibling()->close();
-			break;
-		case HARDRELEASE:
-			// This means that a higher layer released the link,
-			// with certainty that is has been cleared of activity, for example, handover.
-			close();
-			if (sibling()) sibling()->close(true);
-			break;
-		case ERROR:
-			// If we got here, it means the link failed in L2 after several ack timeouts.
-			// Close the tx side and just let the receiver L1 time out on its own.
-			// Otherwise, we risk recycling the channel while the phone's still active.
-			close();
-			break;
-		default:
-			LOG(ERR) << "unhandled primitive " << frame.primitive() << " in L2->L1";
-			assert(0);
-	}
+	//assert(frame.primitive() == DATA);
+	if (!encActive()) { OBJLOG(INFO) << "XCCHL1Encoder::writeHighSide sending on non-active channel "; }
+	resync();
+	sendFrame(frame);
 }
 
 
 
 void XCCHL1Encoder::sendFrame(const L2Frame& frame)
 {
-	OBJLOG(DEBUG) << "XCCHL1Encoder " << frame;
+	OBJLOG(DEBUG) << frame;
 	// Make sure there's something down there to take the bursts.
 	if (mDownstream==NULL) {
 		LOG(WARNING) << "XCCHL1Encoder with no downstream";
@@ -1120,12 +1125,12 @@ void SharedL1Encoder::encode41()
 	// GSM 05.03 4.1.2
 	// Generate the parity bits.
 	mBlockCoder.writeParityWord(mD,mP);
-	OBJLOG(DEBUG) << "XCCHL1Encoder u[]=" << mU;
+	OBJLOG(DEBUG) << "u[]=" << mU;
 	// GSM 05.03 4.1.3
 	// Apply the convolutional encoder.
 	//mU.encode(mVCoder,mC);
 	mVCoder.encode(mU,mC);
-	OBJLOG(DEBUG) << "XCCHL1Encoder c[]=" << mC;
+	OBJLOG(DEBUG) << "c[]=" << mC;
 }
 
 
@@ -1211,7 +1216,6 @@ void L1Encoder::transmit(BitVector2 *mI, BitVector2 *mE, const int *qbits)
 			mI[B].segment(0,57).copyToSegment(mBurst,3);
 			mI[B].segment(57,57).copyToSegment(mBurst,88);
 		}
-		// Copy in the "encrypted" bits, GSM 05.03 4.1.5, 05.02 5.2.3.
 		mBurst.Hl(qbits[qi++]);
 		mBurst.Hu(qbits[qi++]);
 		// Send it to the radio.
@@ -1223,9 +1227,9 @@ void L1Encoder::transmit(BitVector2 *mI, BitVector2 *mE, const int *qbits)
 
 
 
-void GeneratorL1Encoder::start()
+void GeneratorL1Encoder::serviceStart()
 {
-	L1Encoder::start();
+	//L1Encoder::encStart();
 	mSendThread.start((void*(*)(void*))GeneratorL1EncoderServiceLoopAdapter,(void*)this);
 }
 
@@ -1240,7 +1244,7 @@ void *GeneratorL1EncoderServiceLoopAdapter(GeneratorL1Encoder* gen)
 
 void GeneratorL1Encoder::serviceLoop()
 {
-	while (mRunning) {
+	while (mRunning && !gBTS.btsShutdown()) {
 		resync();
 		waitToSend();
 		generate();
@@ -1250,8 +1254,8 @@ void GeneratorL1Encoder::serviceLoop()
 
 
 
-SCHL1Encoder::SCHL1Encoder(L1FEC* wParent)
-	:GeneratorL1Encoder(0,0,gSCHMapping,wParent),
+SCHL1Encoder::SCHL1Encoder(L1FEC* wParent, unsigned wTN)
+	:GeneratorL1Encoder(0,wTN,gSCHMapping,wParent),
 	mBlockCoder(0x0575,10,25),
 	mU(25+10+4), mE(78),
 	mD(mU.head(25)),mP(mU.segment(25,10)),
@@ -1298,8 +1302,8 @@ void SCHL1Encoder::generate()
 
 
 
-FCCHL1Encoder::FCCHL1Encoder(L1FEC *wParent)
-	:GeneratorL1Encoder(0,0,gFCCHMapping,wParent)
+FCCHL1Encoder::FCCHL1Encoder(L1FEC *wParent, unsigned wTN)
+	:GeneratorL1Encoder(0,wTN,gFCCHMapping,wParent)
 {
 	mBurst.zero();
 	mFillerBurst.zero();
@@ -1322,9 +1326,9 @@ void FCCHL1Encoder::generate()
 
 
 
-void NDCCHL1Encoder::start()
+void NDCCHL1Encoder::serviceStart()
 {
-	L1Encoder::start();
+	//L1Encoder::encStart();
 	mSendThread.start((void*(*)(void*))NDCCHL1EncoderServiceLoopAdapter,(void*)this);
 }
 
@@ -1339,7 +1343,7 @@ void *NDCCHL1EncoderServiceLoopAdapter(NDCCHL1Encoder* gen)
 
 void NDCCHL1Encoder::serviceLoop()
 {
-	while (mRunning) {
+	while (mRunning && !gBTS.btsShutdown()) {
 		generate();
 	}
 }
@@ -1360,7 +1364,8 @@ void BCCHL1Encoder::generate()
 		case 1: writeHighSide(gBTS.SI2Frame()); return;
 		case 2: writeHighSide(gBTS.SI3Frame()); return;
 		case 3: writeHighSide(gBTS.SI4Frame()); return;
-		case 4: writeHighSide(GPRS::GPRSConfig::IsEnabled() ? gBTS.SI13Frame() : gBTS.SI3Frame());
+		//case 4: writeHighSide(GPRS::GPRSConfig::IsEnabled() ? gBTS.SI13Frame() : gBTS.SI3Frame());
+		case 4: writeHighSide(gBTS.SI13() ? gBTS.SI13Frame() : gBTS.SI3Frame());
 			return;
 		case 5: writeHighSide(gBTS.SI2Frame()); return;
 		case 6: writeHighSide(gBTS.SI3Frame()); return;
@@ -1445,12 +1450,13 @@ void TCHFACCHL1Decoder::writeLowSideRx(const RxBurst& inBurst)
 		}
 		return;	// done
 	}
-	OBJLOG(DEBUG) << "TCHFACCHL1Decoder " << inBurst <<LOGVAR(mHandoverPending) <<LOGVAR(mT3101.remaining());
+	OBJLOG(DEBUG) << "TCHFACCHL1Decoder " << inBurst <<LOGVAR(mHandoverPending);	// <<LOGVAR(mT3101.remaining());
 	// If the channel is closed, ignore the burst.
-	if (!active()) {
+	if (!decActive()) {
 		OBJLOG(DEBUG) << "TCHFACCHL1Decoder not active, ignoring input";
 		return;
 	}
+	ScopedLock lock(mDecLock,__FILE__,__LINE__);	// this better be redundant.
 	if (mHandoverPending && ! mT3103.expired()) {
 		// If this channel is waiting for an inbound handover,
 		// try to decode a handover access burst.
@@ -1458,20 +1464,20 @@ void TCHFACCHL1Decoder::writeLowSideRx(const RxBurst& inBurst)
 		// Based on the RACHL1Decoder.
 
 		//LOG(DEBUG) << "handover access " << inBurst;
-		LOG(NOTICE) << "handover access " << inBurst;
+		OBJLOG(NOTICE) << "handover access " << inBurst;
 
 		// Decode the burst.
 		const SoftVector e(inBurst.segment(49,36));
 		//e.decode(mVCoder,mHU);
 		mVCoder.decode(e,mHU);
-		LOG(DEBUG) << "handover access U=" << mHU;
+		OBJLOG(DEBUG) << "handover access U=" << mHU;
 		// Check the tail bits -- should all the zero.
 		if (mHU.peekField(14,4)) return;
 		// Check the parity.
 		unsigned sentParity = ~mHU.peekField(8,6);
 		unsigned checkParity = mHD.parity(mHParity);
 		unsigned encodedBSIC = (sentParity ^ checkParity) & 0x03f;
-		LOG(DEBUG) << "handover access sentParity " << sentParity
+		OBJLOG(DEBUG) << "handover access sentParity " << sentParity
 			<< " checkParity " << checkParity
 			<< " endcodedBSIC " << encodedBSIC;
 		if (encodedBSIC != gBTS.BSIC()) return;
@@ -1485,13 +1491,14 @@ void TCHFACCHL1Decoder::writeLowSideRx(const RxBurst& inBurst)
 		// mUpstream->writeLowSide(HANDOVER_ACCESS);
 
 		if (ref == mHandoverRef) { 
-			LOG(NOTICE) << "queuing HANDOVER_ACCESS ref=" << ref;
+			OBJLOG(NOTICE) << "queuing HANDOVER_ACCESS ref=" << ref;
 			mT3103.reset();
 			double when = gBTS.clock().systime(inBurst.time());
 			mHandoverRecord = HandoverRecord(inBurst.RSSI(),inBurst.timingError(),when);
-			mUpstream->writeLowSide(L2Frame(HANDOVER_ACCESS));
+			mUpstream->writeLowSide(L2Message(HANDOVER_ACCESS));
+			// (pat) FIXME: We need to set the PHY params from the handover burst so that SACCH will be transmitting the correct TA.
 		} else {
-			LOG(ERR) << "no inbound handover with reference " << ref;
+			OBJLOG(ERR) << "no inbound handover with reference " << ref;
 		}
 
 		return;
@@ -1608,18 +1615,21 @@ bool TCHFACCHL1Decoder::processBurst( const RxBurst& inBurst)
 	// into the audio frame because there are only 3 parity bits on the audio frame so the chance of
 	// misinterpreting it is significant.  To try to reduce that probability I am adding a totally
 	// arbitrary check on the number of stealing bits that were set; I made this number up from thin air.
-	bool traffic = decodeTCH(okFACCH || stolenbits > 4,&mC);
+	bool traffic = decodeTCH(okFACCH || stolenbits > 5,&mC);
 	// Now keep statistics...
 	if (okFACCH) {
-		countStolenFrame(4);
+		countStolenFrame(1);	// was 4, why?  We are counting frames, which occur every 4 bursts (even though they are spread over 8 bursts.)
 		countBER(mVCoder.getBEC(),378);
 	} else if (traffic) {
 		OBJLOG(DEBUG) <<"TCHFACCHL1Decoder good TCH frame";
-		countGoodFrame(4);
+		countGoodFrame(1);	// was 4, why?
 		countBER(mVCoder.getBEC(),378);
 		// Don't let the channel timeout.
-		ScopedLock lock(mLock);
-		mT3109.set();
+		//ScopedLock lock(mDecLock,__FILE__,__LINE__);
+		// (pat 4-2014) There are only 3 parity bits on the speech frame so the false-positive detection probability is high,
+		// resulting in setting T3109 and preventing the channel from being recycled.  Not sure what to do, because
+		// there may not be any FACCH frames to set T3109.
+		//mT3109.set();
 	}
 	else countBadFrame(4);
 
@@ -1825,7 +1835,7 @@ bool TCHFRL1Decoder::decodeTCH_GSM(bool stolen,const SoftVector *wC)
 
 	// Simulate high FER for testing?
 	if (random()%100 < gConfig.getNum("Test.GSM.SimulatedFER.Uplink")) {
-		LOG(DEBUG) << "simulating dropped uplink vocoder frame at " << mReadTime;
+		OBJLOG(DEBUG) << "simulating dropped uplink vocoder frame at " << mReadTime;
 		stolen = true;
 	}
 
@@ -1872,7 +1882,7 @@ bool TCHFRL1Decoder::decodeTCH_GSM(bool stolen,const SoftVector *wC)
 		//OBJLOG(DEBUG) <<"TCHFACCHL1Decoder mclass1_c[]=" << mClass1_c.begin()<< "="<<mClass1_c;
 		OBJLOG(DEBUG) <<"TCHFACCHL1Decoder u[]=" << mTCHU;
 		OBJLOG(DEBUG) <<"TCHFACCHL1Decoder d[]=" << mTCHD;
-		OBJLOG(DEBUG) <<"TCHFACCHL1Decoder sentParity=" << sentParity
+		OBJLOG(DEBUG) <<"TCHFACCHL1Decoder sentParity=" << sentParity \
 			<< " calcParity=" << calcParity; // << " tail=" << tail;
 		good = (sentParity==calcParity); //  && (tail==0);
 		if (good) {
@@ -1996,7 +2006,7 @@ bool TCHFRL1Decoder::decodeTCH_AFS(bool stolen, const SoftVector *wC)
 		//OBJLOG(DEBUG) <<"TCHFACCHL1Decoder uc[]=" << mTCHUC;
 		OBJLOG(DEBUG) <<"TCHFACCHL1Decoder u[]=" << mTCHU;
 		OBJLOG(DEBUG) <<"TCHFACCHL1Decoder d[]=" << mTCHD;
-		OBJLOG(DEBUG) <<"TCHFACCHL1Decoder sentParity=" << sentParity
+		OBJLOG(DEBUG) <<"TCHFACCHL1Decoder sentParity=" << sentParity \
 			<< " calcParity=" << calcParity;
 
 		good = sentParity == calcParity;
@@ -2050,7 +2060,7 @@ bool TCHFRL1Decoder::decodeTCH(bool stolen, const SoftVector *wC)	// result goes
 {
 	// Simulate high FER for testing?
 	if (random()%100 < gConfig.getNum("Test.GSM.SimulatedFER.Uplink")) {
-		LOG(DEBUG) << "simulating dropped uplink vocoder frame at " << mReadTime;
+		OBJLOG(DEBUG) << "simulating dropped uplink vocoder frame at " << mReadTime;
 		stolen = true;
 	}
 
@@ -2061,7 +2071,7 @@ bool TCHFRL1Decoder::decodeTCH(bool stolen, const SoftVector *wC)	// result goes
 
 void TCHFACCHL1EncoderRoutine( TCHFACCHL1Encoder * encoder )
 {
-	while (1) {
+	while (!gBTS.btsShutdown()) {
 		encoder->dispatch();
 	}
 }
@@ -2124,9 +2134,9 @@ TCHFACCHL1Encoder::TCHFACCHL1Encoder(
 }
 
 
-void TCHFACCHL1Encoder::start()
+void TCHFACCHL1Encoder::serviceStart()
 {
-	L1Encoder::start();
+	//L1Encoder::encStart();
 	OBJLOG(DEBUG) <<"TCHFACCHL1Encoder";
 	mEncoderThread.start((void*(*)(void*))TCHFACCHL1EncoderRoutine,(void*)this);
 }
@@ -2134,11 +2144,11 @@ void TCHFACCHL1Encoder::start()
 
 
 
-void TCHFACCHL1Encoder::open()
+void TCHFACCHL1Encoder::encInit()
 {
 	// There was more stuff here at one time to justify overriding the default.
 	// But it's gone now.
-	XCCHL1Encoder::open();
+	XCCHL1Encoder::encInit();
 	mPreviousFACCH = true;
 }
 
@@ -2238,7 +2248,7 @@ void TCHFACCHL1Encoder::sendFrame( const L2Frame& frame )
 	OBJLOG(DEBUG) << "TCHFACCHL1Encoder " << frame;
 	// Simulate high FER for testing.
 	if (random()%100 < gConfig.getNum("Test.GSM.SimulatedFER.Downlink")) {
-		LOG(NOTICE) << "simulating dropped downlink frame at " << mNextWriteTime;
+		OBJLOG(NOTICE) << "simulating dropped downlink frame at " << mNextWriteTime;
 		return;
 	}
 	mL2Q.write(new L2Frame(frame));
@@ -2258,7 +2268,7 @@ void TCHFACCHL1Encoder::dispatch()
 	// If the channel is not active, wait for a multiframe and return.
 	// Most channels do not need this, becuase they are entirely data-driven
 	// from above.  TCH/FACCH, however, must feed the interleaver on time.
-	if (!active()) {
+	if (!encActive()) {
 		mNextWriteTime += 26;
 		gBTS.clock().wait(mNextWriteTime);
 		return;
@@ -2381,7 +2391,7 @@ void TCHFACCHL1Encoder::dispatch()
 		rollForward();
 	}	
 
-	// Updaet the offset for the next transmission.
+	// Update the offset for the next transmission.
 	if (mOffset==0) mOffset=4;
 	else mOffset=0;
 
@@ -2402,13 +2412,6 @@ void TCHFACCHL1Encoder::interleave31(int blockOffset)
 }
 
 
-bool L1Decoder::uplinkLost() const
-{
-	ScopedLock lock(mLock);
-	return mT3109.expired();
-}
-
-
 
 void SACCHL1FEC::setPhy(const SACCHL1FEC& other)
 {
@@ -2416,39 +2419,64 @@ void SACCHL1FEC::setPhy(const SACCHL1FEC& other)
 	mSACCHEncoder->setPhy(*other.mSACCHEncoder);
 }
 
-void SACCHL1FEC::setPhy(float RSSI, float timingError, double wTimestamp)
+void SACCHL1FEC::l1InitPhy(float RSSI, float timingError, double wTimestamp)
 {
-	mSACCHDecoder->setPhy(RSSI,timingError,wTimestamp);
-	mSACCHEncoder->setPhy(RSSI,timingError);
+	mSACCHDecoder->initPhy(RSSI,timingError,wTimestamp);
+	mSACCHEncoder->initPhy(RSSI,timingError);
 }
 
-
-void MSPhysReportInfo::sacchInit()
+void MSPhysReportInfo::sacchInit1()
 {
 	mActualMSTiming = 0.0F;
 	// (pat) 6-2013: Bug fix: RSSI must be inited each time SACCH is opened, and to RSSITarget, not to 0.
-	float RSSITarget = gConfig.getNum("GSM.Radio.RSSITarget");
-	mRSSI= RSSITarget;
-	mActualMSPower = RSSITarget;
-	mRSSICount = 0;
+	mRSSI = gConfig.getNum("GSM.Radio.RSSITarget");
+	// The RACH was sent at full power, but full power probably depends on the MS power class.  We just use a constant.
+	mActualMSPower = cInitialPower;
+	mReportCount = 0;
 	mTimingError = 0;
 	mTimestamp = 0;
 }
 
+//void MSPhysReportInfo::sacchInit2(float wRSSI, float wTimingError, double wTimestamp)
+//{
+//	// Used to initialize L1 phy parameters.
+//	// This is similar to the code for the closed loop tracking,
+//	// except that there's no damping.
+//	sacchInit1();	// first make sure everything is inited.
+//	// Do NOT set mReportCount - we use that to tell when the first measurement report arrives.
+//	// FIXME: We may want to set the initial power based on the RACH power instead of just using a constant cInitialPower.
+//	mTimestamp=wTimestamp;
+//	mTimingError = wTimingError;
+//	mRSSI = wRSSI;
+//	OBJLOG(BLATHER) << "SACCHL1Encoder init" <<LOGVARM(wRSSI) <<LOGVARM(wTimingError) <<LOGVARM(wTimestamp);
+//}
 
-void SACCHL1Decoder::open()
+
+void SACCHL1Decoder::decInit()
 {
 	OBJLOG(DEBUG) << "SACCHL1Decoder";
-	XCCHL1Decoder::open();		// (pat) This appears to map to L1Decoder::open()
 	// Set initial defaults for power and timing advance.
 	// We know the handset sent the RACH burst at max power and 0 timing advance.
-	sacchInit();
+	// (pat) But what is the max power?  Does it depend on the MS class?
 	// Measured values should be set after opening with setPhy.
+	sacchInit1();
+	XCCHL1Decoder::decInit();		// (pat) maps to L1Decoder::decInit()
 }
 
+//void SACCHL1Decoder::open2(float wRSSI, float wTimingError, double wTimestamp)
+//{
+//	OBJLOG(DEBUG) << "SACCHL1Decoder";
+//	// Set initial defaults for power and timing advance.
+//	// We know the handset sent the RACH burst at max power and 0 timing advance.
+//	// (pat) But what is the max power?  Does it depend on the MS class?
+//	// Measured values should be set after opening with setPhy.
+//	sacchInit2(wRSSI,wTimingError,wTimestamp);
+//	XCCHL1Decoder::open();		// (pat) This appears to map to L1Decoder::open()
+//}
 
 
-void MSPhysReportInfo::setPhy(float wRSSI, float wTimingError, double wTimestamp)
+
+void MSPhysReportInfo::initPhy(float wRSSI, float wTimingError, double wTimestamp)
 {
 	// Used to initialize L1 phy parameters.
 	mRSSI=wRSSI;
@@ -2464,43 +2492,65 @@ void MSPhysReportInfo::setPhy(const SACCHL1Decoder& other)
 	mActualMSPower = other.mActualMSPower;
 	mActualMSTiming = other.mActualMSTiming;
 	mRSSI=other.mRSSI;
-	mRSSICount = other.mRSSICount;
+	mReportCount = other.mReportCount;
 	mTimingError=other.mTimingError;
 	mTimestamp=other.mTimestamp;
-	OBJLOG(INFO) << "SACCHL1Decoder actuals RSSI=" << mRSSI << " timingError=" << mTimingError
-		<< " timestamp=" << mTimestamp
+	OBJLOG(INFO) << "SACCHL1Decoder actuals RSSI=" << mRSSI << " timingError=" << mTimingError \
+		<< " timestamp=" << mTimestamp \
 		<< " MSPower=" << mActualMSPower << " MSTiming=" << mActualMSTiming;
 }
 
 
-
-void SACCHL1Encoder::setPhy(float wRSSI, float wTimingError)
+static float boundMSPower(float orderedMSPower)
 {
-	// Used to initialize L1 phy parameters.
-	// This is similar to the code for the closed loop tracking,
-	// except that there's no damping.
-	SACCHL1Decoder &sib = *SACCHSibling();
-	// RSSI
-	float RSSI = sib.RSSI();
-	float RSSITarget = gConfig.getNum("GSM.Radio.RSSITarget");
-	float deltaP = RSSI - RSSITarget;
-	float actualPower = sib.actualMSPower();
-	mOrderedMSPower = actualPower - deltaP;
 	float maxPower = gConfig.getNum("GSM.MS.Power.Max");
 	float minPower = gConfig.getNum("GSM.MS.Power.Min");
-	if (mOrderedMSPower>maxPower) mOrderedMSPower=maxPower;
-	else if (mOrderedMSPower<minPower) mOrderedMSPower=minPower;
-	OBJLOG(INFO) <<"SACCHL1Encoder RSSI=" << RSSI << " target=" << RSSITarget
-		<< " deltaP=" << deltaP << " actual=" << actualPower << " order=" << mOrderedMSPower;
-	// Timing Advance
-	float timingError = sib.timingError();
-	float actualTiming = sib.actualMSTiming();
-	mOrderedMSTiming = actualTiming + timingError;
+	if (orderedMSPower>maxPower) orderedMSPower=maxPower;
+	else if (orderedMSPower<minPower) orderedMSPower=minPower;
+	return orderedMSPower;
+}
+
+void SACCHL1Encoder::setMSPower(float orderedPower)
+{
+	mOrderedMSPower = boundMSPower(orderedPower);
+}
+
+void SACCHL1Encoder::setMSTiming(float orderedTiming)
+{
 	float maxTiming = gConfig.getNum("GSM.MS.TA.Max");
 	if (mOrderedMSTiming<0.0F) mOrderedMSTiming=0.0F;
 	else if (mOrderedMSTiming>maxTiming) mOrderedMSTiming=maxTiming;
-	OBJLOG(INFO) << "SACCHL1Encoder timingError=" << timingError  <<
-		" actual=" << actualTiming << " ordered=" << mOrderedMSTiming;
+}
+
+
+void SACCHL1Encoder::initPhy(float wRSSI, float wTimingError)
+{
+	// Used to initialize L1 phy parameters.
+	// This is similar to the code for the closed loop tracking, except that there's no damping.
+	//SACCHL1Decoder &sib = *SACCHSibling();
+	// RSSI
+	// (pat 4-2014) This is used only on channel initialization.  The RSSI comes from the RACH burst which is
+	// always delivered at full power.  So we want to ignore the actual MS power, which is not known yet.
+	// Arbitrarily goose the initial power up a little (10) by adjusting RSSITarget, just to make sure we get an ok initialization,
+	// in case the RSSI measured power was inaccurate, or there is noise in the channel.
+	//float RSSI = sib.getRSSI();
+	float RSSITarget = gConfig.getNum("GSM.Radio.RSSITarget") + 10;
+	float deltaP = wRSSI - RSSITarget;
+	//float actualPower = sib.actualMSPower();	// This is just set to cInitialPower.
+	//setMSPower(actualPower - deltaP);
+	setMSPower(cInitialPower - deltaP);
+	//OBJLOG(INFO) <<"SACCHL1Encoder RSSI=" << wRSSI << " target=" << RSSITarget
+	//	<< " deltaP=" << deltaP << " actual=" << actualPower << " order=" << mOrderedMSPower;
+	// Timing Advance
+	// (pat) This is called at channel init so we have not received any measurement reports from the MS yet,
+	// so the actualMSTiming must be the initialized value, that is, 0, unless some stray measurement report
+	// comes in on the channel, in which case we should ignore it.
+	// float timingError = sib.timingError();
+	// float actualTiming = sib.actualMSTiming();
+	// mOrderedMSTiming = actualTiming + timingError;
+	setMSTiming(wTimingError);
+	//OBJLOG(INFO) << "SACCHL1Encoder init timingError=" << sib.timingError()  << " actual=" << sib.actualMSTiming() << " ordered=" << mOrderedMSTiming;
+	OBJLOG(INFO) << "SACCHL1Encoder init" <<LOGVARM(wTimingError) <<LOGVARM(wRSSI) <<LOGVAR(deltaP) <<LOGVARM(mOrderedMSPower);
 }
 
 const char* SACCHL1Encoder::descriptiveString() const
@@ -2519,7 +2569,7 @@ void SACCHL1Encoder::setPhy(const SACCHL1Encoder& other)
 	// from those of a preexisting established channel.
 	mOrderedMSPower = other.mOrderedMSPower;
 	mOrderedMSTiming = other.mOrderedMSTiming;
-	OBJLOG(INFO) << "SACCHL1Encoder orders MSPower=" << mOrderedMSPower << " MSTiming=" << mOrderedMSTiming;
+	OBJLOG(BLATHER) << "SACCHL1Encoder orders MSPower=" << mOrderedMSPower << " MSTiming=" << mOrderedMSTiming;
 }
 
 
@@ -2531,12 +2581,12 @@ SACCHL1Encoder::SACCHL1Encoder(unsigned wCN, unsigned wTN, const TDMAMapping& wM
 { }
 
 
-void SACCHL1Encoder::open()
+void SACCHL1Encoder::encInit()
 {
-	OBJLOG(INFO) <<"SACCHL1Encoder";
-	XCCHL1Encoder::open();
-	mOrderedMSPower = cInitialPower;
+	OBJLOG(BLATHER) <<"SACCHL1Encoder";
+	setMSPower(cInitialPower);
 	mOrderedMSTiming = 0;
+	XCCHL1Encoder::encInit();		// (pat 4-2014) goes to L1Encoder::encInit
 }
 
 
@@ -2555,26 +2605,47 @@ SACCHL1Decoder* SACCHL1Encoder::SACCHSibling()
 
 void SACCHL1Encoder::sendFrame(const L2Frame& frame)
 {
-	OBJLOG(INFO) << "SACCHL1Encoder " << frame;
+	OBJLOG(BLATHER) << "SACCHL1Encoder " << frame;
 
 	// Physical header, GSM 04.04 6, 7.1
 	// Power and timing control, GSM 05.08 4, GSM 05.10 5, 6.
 
 	SACCHL1Decoder &sib = *SACCHSibling();
-//	if (sib.phyNew()) {
+
+	if (sib.isValid()) {
 		// Power.  GSM 05.08 4.
 		// Power expressed in dBm, RSSI in dB wrt max.
-		float RSSI = sib.RSSI();
+		float RSSI = sib.getRSSI();
 		float RSSITarget = gConfig.getNum("GSM.Radio.RSSITarget");
+		// (pat) RSSI and RSSITarget are both negative, so deltaP is positive if power is too high.
 		float deltaP = RSSI - RSSITarget;
+		// SNRTarget == 0 disables:
+		if (float SNRTarget = gConfig.getNum("GSM.Radio.SNRTarget")) {
+			float SNR = sib.getAveSNR();
+			if (deltaP > 0 && SNR < SNRTarget) {	// If RSSITarget is met but SNR looks bad...
+				// How do we decide what the target power should be from SNR?  And I dont want to call log().
+				// We only change upward based on SNR - we rely on RSSITarget to keep the power down.
+				deltaP = SNR - SNRTarget;	// So how about something simple like this?  eg: SNR == 10 is ok, SNR==6 would be bad, so add 4dB?  
+			}
+		}
 		float actualPower = sib.actualMSPower();
+		int configPowerDamping = gConfig.getNum("GSM.MS.Power.Damping");
+		// Use the power damping algorithm.
 		float targetMSPower = actualPower - deltaP;
-		float powerDamping = gConfig.getNum("GSM.MS.Power.Damping")*0.01F;
-		mOrderedMSPower = powerDamping*mOrderedMSPower + (1.0F-powerDamping)*targetMSPower;
-		float maxPower = gConfig.getNum("GSM.MS.Power.Max");
-		float minPower = gConfig.getNum("GSM.MS.Power.Min");
-		if (mOrderedMSPower>maxPower) mOrderedMSPower=maxPower;
-		else if (mOrderedMSPower<minPower) mOrderedMSPower=minPower;
+		float powerDamping = configPowerDamping*0.01F;
+		if (configPowerDamping < 90 && deltaP < 4) {
+			// (pat 2-2014) Adjust the power in the upward direction faster than in the downward direction
+			// if we are in danger of losing the signal.
+			// This is intended to lessen signal degradation from, eg, just turning your head.
+			// But this may not be worth the effort.  If the signal has dropped much lower than this
+			// we will already have lost communication with the MS so we will never get here,
+			// instead RSSIBumpDown will be used, although that could indirectly induce this greater jump here.
+			powerDamping /= 2;	// This should probably be log response.
+		}
+		// (pat) Now, how fast does RSSI as seen in OpenBTS respond to changes ordered in the MS by mOrderedPower?
+		// Do we need the damping factor to take that into account, or should we instead wait a bit after ordering
+		// a power change before ordering another?  I guess we rely on the powerDamping factor to handle it.
+		setMSPower(powerDamping*mOrderedMSPower + (1.0F-powerDamping)*targetMSPower);
 		OBJLOG(DEBUG) <<"SACCHL1Encoder RSSI=" << RSSI << " target=" << RSSITarget
 			<< " deltaP=" << deltaP << " actual=" << actualPower << " order=" << mOrderedMSPower;
 		// Timing.  GSM 05.10 5, 6.
@@ -2583,15 +2654,12 @@ void SACCHL1Encoder::sendFrame(const L2Frame& frame)
 		float actualTiming = sib.actualMSTiming();
 		float targetMSTiming = actualTiming + timingError;
 		float TADamping = gConfig.getNum("GSM.MS.TA.Damping")*0.01F;
-		mOrderedMSTiming = TADamping*mOrderedMSTiming + (1.0F-TADamping)*targetMSTiming;
-		float maxTiming = gConfig.getNum("GSM.MS.TA.Max");
-		if (mOrderedMSTiming<0.0F) mOrderedMSTiming=0.0F;
-		else if (mOrderedMSTiming>maxTiming) mOrderedMSTiming=maxTiming;
+		setMSTiming(TADamping*mOrderedMSTiming + (1.0F-TADamping)*targetMSTiming);
 		OBJLOG(DEBUG) << "SACCHL1Encoder timingError=" << timingError
 			<< " actualTA=" << actualTiming << " orderedTA=" << mOrderedMSTiming
 			<< " targetTA=" << targetMSTiming;
-//	}
 
+	}
 	// Write physical header into mU and then call base class.
 
 	// SACCH physical header, GSM 04.04 6.1, 7.1.
@@ -2630,7 +2698,7 @@ void TestTCHL1FEC()
 	TCHFACCHL1Encoder encoder(0, 0, hack, 0);
 	TCHFACCHL1Decoder decoder(0, 0, hack, 0);
 	for (unsigned modei = 0; modei <= TCH_FS; modei++) {
-		int modeii = modei == 0 ? TCH_FS : modei-1;		// test full rate GSM first.
+		int modeii = modei == 0 ? (int)TCH_FS : modei-1;		// test full rate GSM first.
 		AMRMode mode = (AMRMode)modeii;
 		unsigned inSize = gAMRKd[mode];
 		bool ok = true;
@@ -2647,7 +2715,7 @@ void TestTCHL1FEC()
 			AudioFrame *aFrame = new AudioFrameRtp(mode);
 			aFrame->append(r);
 			encoder.encodeTCH(aFrame);		// Leaves the result in mC
-			LOG(INFO) <<LOGVAR(encoder.mC);
+			LOG(BLATHER) <<LOGVAR(encoder.mC);
 			SoftVector softC = encoder.mC;	// Convert mC to a SoftVector.
 			ok1 = decoder.decodeTCH(false,&softC);	// Decoder leaves result in the mSpeechQ.
 			if (!ok1) {
@@ -2655,7 +2723,7 @@ void TestTCHL1FEC()
 				ok = false;
 			}
 			AudioFrame * aframe = decoder.recvTCH();		// Pulls it out of mSpeechQ.
-			LOG(INFO)<<LOGVAR(*aframe);
+			LOG(BLATHER)<<LOGVAR(*aframe);
 
 			pay1 = r;
 			// Unmap the RTP frame:

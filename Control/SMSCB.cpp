@@ -1,10 +1,11 @@
 /**@file SMSCB Control (L3), GSM 03.41. */
 /*
 * Copyright 2010 Kestrel Signal Processing, Inc.
+* Copyright 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -14,6 +15,7 @@
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
+
 #define LOG_GROUP LogGroup::Control
 
 #include "ControlCommon.h"

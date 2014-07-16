@@ -5,10 +5,11 @@
 /*
 * Copyright 2008, 2010 Free Software Foundation, Inc.
 * Copyright 2010 Kestrel Signal Processing, Inc.
+* Copyright 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -18,6 +19,8 @@
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
+
+#define LOG_GROUP LogGroup::GSM		// Can set Log.Level.GSM for debugging
 
 
 
@@ -126,6 +129,16 @@ bool L3MobileIdentity::operator==(const L3MobileIdentity& other) const
 	if (other.mType!=mType) return false;
 	if (mType==TMSIType) return (mTMSI==other.mTMSI);
 	return (strcmp(mDigits,other.mDigits)==0);
+}
+
+bool L3MobileIdentity::fmidMatch(const Control::FullMobileId *mobileId) const
+{
+	switch (this->type()) {
+	case GSM::IMSIType: return 0 == strcmp(mobileId->mImsi.c_str(),this->digits());
+	case GSM::IMEIType: return 0 == strcmp(mobileId->mImei.c_str(),this->digits());
+	case GSM::TMSIType: return mobileId->mTmsi.valid() && mobileId->mTmsi.value() == this->TMSI();
+	default: return false;	// something wrong, but certainly no match
+	}
 }
 
 bool L3MobileIdentity::operator<(const L3MobileIdentity& other) const

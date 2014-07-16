@@ -1,11 +1,11 @@
 /**@file Declarations for PhysicalStatus and related classes. */
 /*
 * Copyright 2010 Kestrel Signal Processing, Inc.
-* Copyright 2011 Range Networks, Inc.
+* Copyright 2011, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -33,7 +33,7 @@ struct sqlite3;
 namespace GSM {
 
 class L3MeasurementResults;
-class L2LogicalChannel;
+class SACCHLogicalChannel;
 
 /**
 	A table for tracking the state of channels.
@@ -62,7 +62,7 @@ public:
 		@param measResults The measurement report.
 		@return The result of the SQLite query: true for the query being executed successfully, false otherwise.
 	*/
-	bool setPhysical(const L2LogicalChannel* chan, const L3MeasurementResults& measResults);
+	bool setPhysical(const SACCHLogicalChannel* chan, const L3MeasurementResults& measResults);
 
 	/**
 		Dump the physical status table to the output stream.
@@ -77,7 +77,7 @@ public:
 		@param chan The channel to create an entry for.
 		@return The result of the SQLite query: true for the query being executed successfully, false otherwise.
 	*/
-	bool createEntry(const L2LogicalChannel* chan);
+	bool createEntry(const SACCHLogicalChannel* chan);
 
 
 };

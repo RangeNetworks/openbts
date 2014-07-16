@@ -1,8 +1,9 @@
-/* Copyright 2013 Range Networks, Inc.
+/* 
+* Copyright 2013, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -11,6 +12,9 @@
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 */
+
+// Written by Pat Thompson
+
 #define LOG_GROUP LogGroup::Control
 
 #include <string>
@@ -23,6 +27,7 @@
 #include <GSML3SSMessages.h>
 #include <GSMLogicalChannel.h>
 #include <SIPDialog.h>
+#include <Globals.h>
 
 
 // Generic SS messages are transferred by the Facility IE, whose content is described by 24.080 4.61
@@ -247,7 +252,7 @@ class SupServCodes
 		addSSCode(0x2b,"62");		// cfnrc CF Not Reachable
 		addSSCode(0x20,"002");		// all CallForwardingSS
 		addSSCode(0x28,"004");		// all conditional CF
-		addSSCode(0x41,"43");		// WAIT 22.083  Call wairing?
+		addSSCode(0x41,"43");		// WAIT 22.083  Call waiting?
 		// I think HOLD and MultiParty are handled by L3 messages at the MS level, and these MAP-SS-Codes are used only at the MSC level.
 		//addSSCode(0x42,??); // HOLD see section 4.5.5.  Ha ha, there is no such section in either 22.030 or 22.083.  It is in 2.30.
 		//addSSCode(0x51, ??); // MPTTY see 4.5.5 22.084
@@ -637,7 +642,7 @@ void startMOSSD(const L3CMServiceRequest*cmsrq,MMContext *mmchan)
 	string proxyUssd = gConfig.getStr("SIP.Proxy.USSD");
 	if (proxyUssd.size() == 0) {
 		// Disabled.  Reject USSD immediately.
-		mmchan->l3sendm(L3CMServiceReject(L3RejectCause(L3RejectCause::ServiceOptionNotSupported)));
+		mmchan->l3sendm(L3CMServiceReject(L3RejectCause::Service_Option_Not_Supported));
 		return;
 	}
 
@@ -660,9 +665,9 @@ MachineStatus MOSSDMachine::machineRunState(int state, const GSM::L3Message *l3m
 		}
 		case stateSSIdentResult: {
 			if (! mIdentifyResult) {
-				//const L3CMServiceReject reject = L3CMServiceReject(L3RejectCause::InvalidMandatoryInformation);
-				channel()->l3sendm(L3CMServiceReject(L3RejectCause::InvalidMandatoryInformation));
-				return MachineStatusQuitTran;
+				//const L3CMServiceReject reject = L3CMServiceReject(L3RejectCause::Invalid_Mandatory_Information);
+				channel()->l3sendm(L3CMServiceReject(L3RejectCause::Invalid_Mandatory_Information));
+				return MachineStatus::QuitTran(TermCause::Local(L3RejectCause::Invalid_Mandatory_Information));
 			}
 
 			PROCLOG(DEBUG) << "sending CMServiceAccept";
@@ -693,18 +698,18 @@ MachineStatus MOSSDMachine::machineRunState(int state, const GSM::L3Message *l3m
 		case L3CASE_SS(L3SupServMessage::ReleaseComplete): {
 			const L3SupServFacilityMessage *relp = dynamic_cast<typeof(relp)>(l3msg);
 			WATCH("SS ReleaseComplete" << relp);
-			return MachineStatusQuitTran;
+			return MachineStatus::QuitTran(TermCause::Local(L3Cause::USSD_Success));
 		}
 
 		case L3CASE_SIP(dialogBye): {
 			if (sipmsg == NULL) {
 				LOG(ERR) << "USSD client error: missing BYE message";
-				return MachineStatusQuitTran;
+				return MachineStatus::QuitTran(TermCause::Local(L3Cause::USSD_Error));
 			}
 			const DialogUssdMessage *umsg = dynamic_cast<typeof(umsg)>(sipmsg);
 			if (umsg == NULL) {
 				LOG(ERR) << "USSD client error: could not convert DialogMessage to DialogUssdMessage "<<sipmsg;
-				return MachineStatusQuitTran;
+				return MachineStatus::QuitTran(TermCause::Local(L3Cause::USSD_Error));
 			}
 			string result = umsg->dmMsgPayload;
 			// Send it to the MS.
@@ -714,7 +719,7 @@ MachineStatus MOSSDMachine::machineRunState(int state, const GSM::L3Message *l3m
 			L3SupServReleaseCompleteMessage ssrelease(getL3TI());
 			channel()->l3sendm(ssrelease);
 			//sendUssdMsg(result, true);
-			return MachineStatusQuitTran;
+			return MachineStatus::QuitTran(TermCause::Local(L3Cause::USSD_Success));
 		}
 
 		default:

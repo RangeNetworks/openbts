@@ -1,8 +1,9 @@
-/* Copyright 2013, 2014 Range Networks, Inc.
+/* 
+* Copyright 2013, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -11,6 +12,8 @@
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 */
+
+// Written by Pat Thompson
 
 #define LOG_GROUP LogGroup::Control		// Can set Log.Level.Control for debugging
 
@@ -78,6 +81,7 @@ void MMContext::startSMSTran(TranEntry *tran)
 }
 
 // (pat) WARNING: If this routine returns true it has performed the gMMLock.unlock() corresponding to a lock() in the caller.
+// Setting the lock in one function and releasing it in another sucks and should be fixed.
 bool MMUser::mmuServiceMTQueues()	// arg redundant with mmuContext->channel.
 {
 	devassert(gMMLock.lockcnt());		// Caller locked it.
@@ -96,7 +100,11 @@ bool MMUser::mmuServiceMTQueues()	// arg redundant with mmuContext->channel.
 
 			// Did the SIP session give up while we were waiting?
 			// That will be handled in the MTCMachine.
-			initMTC(tran);
+			switch (tran->servicetype()) {
+			default:
+				initMTC(tran);
+				break;
+			}
 			gMMLock.unlock();
 			tran->lockAndStart();
 			return true;
@@ -142,6 +150,8 @@ bool MMContext::mmInMobilityManagement()
 // Return true if anything happened.
 bool MMContext::mmCheckNewActivity()
 {
+	// Dont lock gMMLock up here - we may send a message later and we cant do that holding the lock.
+
 	// If there is a mobility management procedure in progress then we wont start anything else until it is finished.
 	// We shouldnt need to lock gMMLock yet because the MMContext cannot be deleted while in the thread that called us,
 	// and mmcServiceRequests is a thread safe queue.
@@ -155,20 +165,26 @@ bool MMContext::mmCheckNewActivity()
 		// We are refererencing the MMUser so we cannot let that change and the only
 		// completely safe way to do that is to lock the entire MMLayer.
 		// The unlock() corresponding to this lock() may be in mmuServiceMTQueues.
-		gMMLock.lock(__FILE__,__LINE__);
+		gMMLock.lock(__FILE__,__LINE__); // Do not replace this one with a scoped lock!
 		if (mmcMMU) {
-			if (mmcMMU->mmuServiceMTQueues()) { return true; }
+			if (mmcMMU->mmuServiceMTQueues()) { return true; }	// If it returns true it unlocked the lock, gack.
 		}
 		gMMLock.unlock();
 	}
 	// If there are no transactions, kill the channel.
+	// We wait 5 seconds to allow a transaction to start; otherwise there is a race because
+	// the channel service thread that calls this method is started by an ESTABLISH sent by layer 1,
+	// which is sent before the message that initiates the transaction is sent.
+	// The 5 seconds is kind of made up.  It doesnt have to be very long because at channel initiation
+	// the signal should be good.
 	// TODO: A new SIP transaction could creep in here between the time
 	// we check isEmpty and when the channel actually closes.
 	// What to do about that?
 	// When we detach the MMUser, if it has anything on it, just leave it there,
 	// and paging will restart.
-	if (mmIsEmpty()) {
-		mmcChan->chanClose(L3RRCause::NormalEvent,RELEASE);
+	if (mmIsEmpty() && mmcDuration() > 5) {
+		LOG(DEBUG) <<"closing"<<this;
+		mmcChan->chanClose(L3RRCause::Normal_Event,L3_RELEASE_REQUEST,TermCause::Local(L3Cause::No_Transaction_Expected));
 		return true;	// This is new activity - the calling loop should skip back to the top
 	}
 	return false;
@@ -190,8 +206,40 @@ MMUser::MMUser(string& wImsi)
 //	LOG(DEBUG) << "MMUser ALLOC "<<(void*)this;
 //}
 
+
+//GSM::CMServiceTypeCode MMUser::mmuGetInitialServiceType()
+//{
+//	devassert(gMMLock.lockcnt());		// Caller locked it.
+//	if (mmuMTCq.size()) {
+//		TranEntry *front = this->mmuMTCq.front();
+//		return front->servicetype();
+//	}
+//	devassert(mmuMTSMSq.size());
+//	// The purpose of this is to choose the channel type, so it doesnt really matter what the servicetype is as long as it is one that can use SDCCH.
+//	return L3CMServiceType::ShortMessage;
+//}
+
+GSM::ChannelType MMUser::mmuGetInitialChanType() const
+{
+	devassert(gMMLock.lockcnt());		// Caller locked it.
+	if (mmuMTCq.size()) {
+		TranEntry *front = this->mmuMTCq.front();
+		switch (front->servicetype()) {
+		case L3CMServiceType::MobileOriginatedCall:
+			devassert(0);
+		case L3CMServiceType::MobileTerminatedCall:
+		case L3CMServiceType::EmergencyCall:
+			return gConfig.getBool("Control.VEA") ?  GSM::TCHFType : GSM::SDCCHType;
+		default:	// There shouldnt be anything else in the MTCq.
+			return GSM::SDCCHType;
+		}
+	}
+	devassert(mmuMTSMSq.size());
+	return GSM::SDCCHType;
+}
+
 // Caller enters with the whole MMLayer locked so no one will try to add new contexts while we are doing this.
-void MMUser::mmuFree(MMUserMap::iterator *piter, CancelCause cause)	// Some callers deleted it from the MMUsers more efficiently than looking it up again.
+void MMUser::mmuFree(MMUserMap::iterator *piter, TermCause cause)	// Some callers deleted it from the MMUsers more efficiently than looking it up again.
 {
 	devassert(mmuContext == NULL);	// Caller already unlinked or verified that it was unattached.
 	devassert(gMMLock.lockcnt());		// Caller locked it.
@@ -266,7 +314,6 @@ bool MMContext::mmCheckTimers()
 //	// TODO: We need to lock the other channels thread.
 //
 //	// Move all the transactions to the new channel:
-//#if UNUSED
 //	MMContext *prevSet = mPrevChan->getContext();
 //	for (unsigned i = 0; i < TE_num; i++) {
 //		devassert(mmcTE[i] == NULL);
@@ -638,14 +685,9 @@ void MMUser::mmuAddMT(TranEntry *tran)
 {
 	ScopedLock lock(gMMLock,__FILE__,__LINE__);	// Way overkill.
 	//ScopedLock lock(mmuLock,__FILE__,__LINE__);
-	mmuPageTimer.future(gConfig.getNum("GSM.Timer.T3113"));
+	mmuPageTimer.future(gConfig.GSM.Timer.T3113);
 	switch (tran->servicetype()) {
-	case L3CMServiceType::TestCall:
-	case L3CMServiceType::FuzzCallTch:
 	case L3CMServiceType::MobileTerminatedCall:
-		mmuMTCq.push_back(tran);
-		break;
-	case L3CMServiceType::FuzzCallSdcch:
 	case L3CMServiceType::MobileTerminatedShortMessage:
 		mmuMTSMSq.push_back(tran);
 		break;
@@ -683,16 +725,16 @@ std::ostream& operator<<(std::ostream& os, const MMUser*mmu) { if (mmu) mmu->mmu
 
 void MMContext::MMContextInit()
 {
-	// The BLU phone seems to have a bug that a new MTC beginning too soon after a previous MTC with the same TI
+	// (pat) The BLU phone seems to have a bug that a new MTC beginning too soon after a previous MTC with the same TI
 	// seems to hang the phone, even though we definitely went through the CC release procedure whose specific
 	// purpose is to release the TI for recycling.  Making the initial TI random seems to help.
 	mNextTI = rand() & 0x7;		// Not supposed to matter what we pick here.
 	mmcMMU = NULL;
 	mmcChan = NULL;
 	mmcChannelUseCnt = 1;
-	mmcFuzzPort = NULL;
 	//mVoiceTrans = NULL;
 	memset(mmcTE,0,sizeof(mmcTE));
+	mmcOpenTime = time(NULL);
 	LOG(DEBUG)<<"MMContext ALLOC "<<(void*)this;
 }
 
@@ -719,7 +761,7 @@ string MMContext::mmGetImsi(bool verbose)
 
 void MMContext::l3sendm(const GSM::L3Message& msg, const GSM::Primitive& prim/*=GSM::DATA*/, SAPI_t SAPI/*=0*/)
 {
-	WATCHINFO("sendm "<<this <<LOGVAR(prim)<<LOGVAR(SAPI)<<msg);
+	WATCHINFO("sendm "<<this <<LOGVAR(prim)<<LOGVAR(SAPI)<<" "<<msg);
 	mmcChan->l2sendm(msg,prim,SAPI);
 }
 
@@ -730,6 +772,7 @@ void MMContext::mmcText(std::ostream&os) const
 	os << " MMContext(";
 	os <<mmcChan;
 	os <<LOGVAR(mmcChannelUseCnt);
+	os <<LOGVAR2("duration",mmcDuration());
 	if (mmcMMU) { os <<LOGVAR(mmcMMU); }
 	if (mmcTE[TE_MM] != NULL) { os <<LOGVAR2("MM",*mmcTE[TE_MM]); }
 	if (mmcTE[TE_CS1] != NULL) { os <<LOGVAR2("CS",*mmcTE[TE_CS1]); }
@@ -772,16 +815,17 @@ RefCntPointer<TranEntry> MMContext::mmGetTran(unsigned ati) const
 void MMContext::mmConnectTran(ActiveTranIndex ati, TranEntry *tran)
 {
 	devassert(gMMLock.lockcnt());		// Caller locked it.
-	// When a primary transaction is deleted we may promote the secondary transaction, so make sure we delete them all:
+	// When a primary transaction is deleted we may promote the secondary transaction, so keep trying to make sure we delete them all:
 	for (unsigned tries = 0; tries < 3; tries++) {
 		if (mmcTE[ati] != NULL) {
 			LOG(ERR) << "Transaction over-writing existing transaction"
 					<<LOGVAR2("old_transaction",*mmcTE[ati])<<LOGVAR2("new_transaction",tran);
-			mmcTE[ati]->teCancel();
+			// (pat) This is a bug somewhere.
+			mmcTE[ati]->teCancel(TermCause::Local(L3Cause::L3_Internal_Error));
 		}
 	}
-	mmcTE[ati] = tran;
-	tran->teSetContext(this);
+	mmcTE[ati] = tran;			// Takes charge of tran; increments the refcnt
+	tran->teSetContext(this);	// And set the back pointer.
 
 }
 
@@ -795,14 +839,11 @@ void MMContext::mmConnectTran(TranEntry *tran)
 		case L3CMServiceType::MobileOriginatedCall:
 		case L3CMServiceType::EmergencyCall:
 		case L3CMServiceType::HandoverCall:
-		case L3CMServiceType::TestCall:
-		case L3CMServiceType::FuzzCallTch:
 			txi = TE_CS1;
 			break;
 		case L3CMServiceType::ShortMessage:							// specifically, MO-SMS
 			txi = mmcTE[TE_MOSMS1]!=NULL ? TE_MOSMS2 : TE_MOSMS1;
 			break;
-		case L3CMServiceType::FuzzCallSdcch:
 		case L3CMServiceType::MobileTerminatedShortMessage:
 			txi = TE_MTSMS;
 			break;
@@ -845,6 +886,7 @@ void MMContext::mmDisconnectTran(TranEntry *tran)
 	LOG(ERR) << "Attempt to remove transaction "<<tran->tranID()<<" not found in MMContext";
 }
 
+
 // Does nothing if already unlinked.
 void MMContext::mmcUnlink()
 {
@@ -860,11 +902,51 @@ void MMContext::mmcUnlink()
 	}
 }
 
+
+// Move transactions from oldmmc to this, which is the current MMC serving the handset.
+// We do this when we have positive knowledge that the oldmmc channel has been abandoned by the handset.
+// This happens when the MS was on one MMC and has been moved or showed up on another MMC.
+void MMContext::mmcMoveTransactions(MMContext *oldmmc)
+{
+	for (unsigned ati = TE_first; ati < TE_num; ati++) {
+		if (! oldmmc->mmcTE[ati].isNULL()) {
+			if (mmcTE[ati].isNULL()) {
+				// Disconnect the old tran but be careful not to delete it.
+				// To be sure we have to keep a pointer to it through this operation.
+				RefCntPointer<TranEntry> oldtran = oldmmc->mmcTE[ati];
+				oldmmc->mmcTE[ati] = NULL;
+				oldtran->teSetContext(NULL);	// Not necessary, but be tidy.
+				mmConnectTran((ActiveTranIndex)ati, oldtran.self());
+			} else {
+				// (pat) Disaster.  There is a corresponding transaction already running on the new MMC,
+				// for example, old voice transaction and new voice transaction.
+				// I don't think this is possible for double paging responses (see comments at mmcLink and NewPagingResponseHandler)
+				// because we call mmcLink immediately when the second page is received, so the new MMC is empty.
+				// I'm not sure about other cases; the logic is too complicated.
+				// We will keep the new (more recent) transaction and the old transaction on the
+				// old MMC will be dropped when that channel is closed.
+				LOG(ERR) << "Handset has changed channels and has transactions running on the both channels.  "
+					<<LOGVAR2("old channel",oldmmc->tsChannel()) <<LOGVAR2("new channel",tsChannel())
+					<<LOGVAR2("transaction being deleted",oldmmc->mmcTE[ati].self());
+				// We dont do anything.  The transaction will be delete when the old channel is closed,
+				// which the caller should do immediately.  We could call teCancel here but teCancel is tricky
+				// and I would like to reduce the number of calls to it.  This probably doesnt happen anyway.
+				// If this does happen, we could be more clever, like a voice transaction could move to the secondary slot, etc.
+			}
+		}
+	}
+}
+
+// This is called whenever we have positively identified an MS so we can connect the MMU to the MMC.
+// That includes:
+// 1. when we receive a PagingResponse message (which includes an IMSI or TMSI; note that PagingResponse
+// is an L3 message which means the MS has already negotiated L2 LAPDm connection to send it.)
+// 2. MOC call control when we identify the MS
+// 3. Mobility Management after authorization.
+// 4. From SMS somewhere too.
 void MMContext::mmcLink(MMUser *mmu)
 {
 	devassert(gMMLock.lockcnt());		// Caller locked it.
-	// Detach the mmu from its existing channel, if any.  That happens when the MS disappeared temporarily
-	// and then came back on another channel, for example, handover to another BTS and back.
 	//RefCntPointer<MMUser> saveme(mmu);	// Dont delete mmu during this procedure.
 	MMContext *mmc = this;
 	if (mmc->mmcMMU == mmu) {
@@ -872,27 +954,41 @@ void MMContext::mmcLink(MMUser *mmu)
 		devassert(mmu->mmuContext == mmc);	// We always maintain pointers both ways.
 		return;
 	}
-	if (mmu->mmuContext) { mmu->mmuContext->mmcUnlink(); }
+	// Detach the mmu from its existing channel, if any.  That happens when the MS disappeared temporarily
+	// and then came back on another channel, for example, handover to another BTS and back.
+	// (pat 4-2014) It also happens for paging response: Sometimes the MS sends two RACHes in a row,
+	// which allocates two channels (say A and B.)
+	// We send two immediate assignments, and the MS may respond to both!  First it does an L1 LAPDm negotiation on A
+	// and sends a Paging Response there, which connects its MMU to the MMContext for A, then it
+	// does an L2 LAPDm negotiation on B and sends a second Paging Response there, so we get here with this == channel B
+	// but with the MMU attached to channel A.  So we must disconnect the existing channel and move the MMU to the new channel.
+	// We have to move the transactions from the old MMContext to the new; for example if there was only one MTC transaction and
+	// it has already been moved from the MMU to the MMC, then the MMU is empty of transactions which will release channel B
+	// immmediately in mmCheckNewActivity.
+	if (MMContext *oldmmc = mmu->mmuContext) {
+		if (oldmmc != mmc) {
+			LOG(DEBUG) <<"reconnecting mmu"<<LOGVAR(mmu)<<LOGVAR(oldmmc)<<LOGVAR(mmc);
+			// pat 4-2014: Move the transactions from the old to the new mmc.
+			mmcMoveTransactions(oldmmc);
+		}
+		oldmmc->mmcUnlink();
+	}
 	mmc->mmcUnlink();
 	mmc->mmcMMU = mmu;
 	mmu->mmuContext = mmc;
 }
 
 
-void MMContext::mmcFree()
+void MMContext::mmcFree(TermCause cause)
 {
 	assert(this->mmcMMU == NULL);
 	devassert(gMMLock.lockcnt());		// Caller locked it.
-	if (mmcFuzzPort) {
-		mmcFuzzPort->close();
-		mmcFuzzPort = NULL;
-	}
 
 	// Cancel all the enclosed transactions and their dialogs.
 	for (unsigned i = 0; i < TE_num; i++) {
 		// When a primary transaction is deleted we may promote the secondary transaction, so delete them all:
 		for (unsigned tries = 0; tries < 3; tries++) {
-			if (mmcTE[i] != NULL) { mmcTE[i]->teCancel(); }	// Removes the transaction from mmcTE via mmDisconnectTran
+			if (mmcTE[i] != NULL) { mmcTE[i]->teCancel(cause); }	// Removes the transaction from mmcTE via mmDisconnectTran
 		}
 		assert(mmcTE[i] == NULL);	// teCancel removed it.
 	}
@@ -901,7 +997,12 @@ void MMContext::mmcFree()
 }
 
 // The logical channel no longer points to this Context, so release it.
-void MMLayer::mmFreeContext(MMContext *mmc)
+// The cause is used only for reporting purposes for any transactions still extent;
+// the underlying channel has already been released so we cannot send a cause code downstream,
+// and if there are any new SIP dialogs upstream we should normally start re-paging the handset
+// to create a new mmcontext rather than cancelling them.
+// TODO: We may want to cancel any SIP dialogs based on the cause.
+void MMLayer::mmFreeContext(MMContext *mmc,TermCause cause)
 {
 	// There can be multiple logical channels pointing to the same Context, so decrement
 	// the channel use count and delete only when 0.
@@ -921,19 +1022,19 @@ void MMLayer::mmFreeContext(MMContext *mmc)
 	// 504 indicates some other timeout beyond SIP (interworking)
 	// 480 indicates some temporary form of resource unavailability or congestion but resource is accessible and can be checked
 	// 503 indicates the service is unavailable but does not imply for how long
-	SipCode sipcode(480,"Temporarily Unavailable");
+	//SipCode sipcode(480,"Temporarily Unavailable");
 
 	if (mmu) {
-		// It is possible for new SIP dialogs to have started between the time we decided
+		// FIXME It is possible for new SIP dialogs to have started between the time we decided
 		// to close this channel and now.  It is also possible that we closed the channel
 		// because of loss of contact with the MS.  In either case, if the MMU has dialogs,
 		// dont delete it - just leave it alone and we will start repaging this MS again.
 		// TODO: But first, walk though dialogs and cancel any that need it.
 		if (mmu->mmuIsEmpty()) {
-			mmu->mmuFree(NULL,CancelCauseUnknown);	// CancelCause is not used because it is empty.
+			mmu->mmuFree(NULL,TermCause::Local(L3Cause::No_Transaction_Expected));	// TermCause is not used because there are no dialogs.
 		}
 	}
-	mmc->mmcFree();
+	mmc->mmcFree(cause);
 }
 
 void MMLayer::mmMTRepage(const string imsi)
@@ -944,7 +1045,7 @@ void MMLayer::mmMTRepage(const string imsi)
 	MMUser *mmu = mmFindByImsi(imsi,false);
 	if (mmu) {
 		// This has no effect unless we are paging, ie, if the MMUser has not yet connected to an MMChannel.
-		mmu->mmuPageTimer.future(gConfig.getNum("GSM.Timer.T3113"));
+		mmu->mmuPageTimer.future(gConfig.GSM.Timer.T3113);
 	} else {
 		LOG(DEBUG) << "repeated INVITE/MESSAGE with no MMUser record";
 	}
@@ -966,6 +1067,27 @@ void MMLayer::mmAttachByImsi(L3LogicalChannel *chan, string imsi)
 
 	// TODO: The MM procedure may have blocked tmsis and imsis.
 	// So now we want to unblock any previously blocked imsi/tmsi
+}
+
+
+bool MMLayer::mmTerminateByImsi(string imsi)
+{
+	ScopedLock lock(gMMLock,__FILE__,__LINE__);
+	MMUser *mmu = mmFindByImsi(imsi,false);
+	if (!mmu) { return false; }	// Not found.
+	MMContext* mmc = mmu->mmuContext;
+	if (!mmc) {
+		// There is no channel, just kill off the MMUser, which will stop paging and cancel the SIP dialogs.
+		mmu->mmuFree(NULL,TermCause::Local(L3Cause::Operator_Intervention));
+		return true;
+	}
+	if (mmc->tsChannel()->chanRunning()) {
+		// Dont call chanClose from here because it sends a message which would block the calling thread.
+		//mmc->tsChannel()->chanClose(L3RRCause::PreemptiveRelease,RELEASE);  DONT DO THIS!
+		// FIXME: We would like to send an RR Release message first.
+		mmc->mmcTerminationRequested = true;
+	}
+	return true;
 }
 
 // This is the way MMUsers are created from the SIP side.
@@ -991,16 +1113,6 @@ MMUser *MMLayer::mmFindByImsi(string imsi,	// Do not change this to a reference.
 {
 	LOG(DEBUG) <<LOGVAR(imsi) <<LOGVAR(create);
 	devassert(gMMLock.lockcnt());		// Caller locked it.
-#if 0
-	MMUser *mmu = MMUsers.readNoBlock(imsi);
-	if (mmu == NULL) {
-		if (create) {
-			mmu = new MMUser(imsi);
-			MMUsers.write(imsi,mmu);
-		}
-	}
-	return mmu;
-#endif
 	MMUser *result;
 	const char *what = "existing ";
 	if (create) {
@@ -1025,6 +1137,16 @@ MMUser *MMLayer::mmFindByImsi(string imsi,	// Do not change this to a reference.
 	return result;
 }
 
+
+TMSI_t MMUser::mmuGetTmsi()
+{
+	if (! this->mmuDidTmsiCheck) {
+		this->mmuDidTmsiCheck = true;
+		if (uint32_t tmsi = gTMSITable.tmsiTabGetTMSI(mmuImsi,true)) { this->mmuTmsi = tmsi; }
+	}
+	return this->mmuTmsi;
+}
+
 MMUser *MMLayer::mmFindByTmsi(uint32_t tmsi)
 {
 	devassert(gMMLock.lockcnt());		// Caller locked it.
@@ -1032,7 +1154,11 @@ MMUser *MMLayer::mmFindByTmsi(uint32_t tmsi)
 	MMUser *result = NULL;
 	for (MMUserMap::iterator it = MMUsers.begin(); it != MMUsers.end(); ++it) {
 		MMUser *mmu = it->second;
-		if (mmu->mmuTmsi.valid() && mmu->mmuTmsi.value() == tmsi) { result = mmu; break; }
+		// (pat) The handset we want could be simultaneously doing an MM procedure that is establishing a TMSI,
+		// so we should check the tmsi table every single time this happens.
+		// However, we are currently doing an expensive sql lookup so only check once.
+		TMSI_t mmutmsi = mmu->mmuGetTmsi();
+		if (mmutmsi.valid() && mmutmsi.value() == tmsi) { result = mmu; break; }
 	}
 	LOG(DEBUG) << LOGVAR(result);
 	return result;
@@ -1050,17 +1176,15 @@ MMUser *MMLayer::mmFindByMobileId(L3MobileIdentity&mid)
 	}
 }
 
-// If wait flag, block until there are some, called forever from the paging thread.
-// When called from the paging thread loop this function is responsible for noticing expired pages and deleting them.
-void MMLayer::mmGetPages(NewPagingList_t &pages, bool wait)
+// When called from the paging thread loop this function is responsible for noticing expired MMUsers and deleting them.
+void MMLayer::mmGetPages(NewPagingList_t &pages)
 {
-	LOG(DEBUG);
-	ScopedLock lock(gMMLock,__FILE__,__LINE__);
+	//LOG(DEBUG) <<LOGVAR(MMUsers.size());
 
 	assert(pages.size() == 0);	// Caller passes us a new list each time.
 
-	LOG(DEBUG) <<LOGVAR(MMUsers.size());
-	while (1) {
+	{
+		ScopedLock lock(gMMLock,__FILE__,__LINE__);
 		pages.reserve(MMUsers.size());
 		for (MMUserMap::iterator it = MMUsers.begin(); it != MMUsers.end(); ) {
 			MMUser *mmu = it->second;
@@ -1074,48 +1198,48 @@ void MMLayer::mmGetPages(NewPagingList_t &pages, bool wait)
 				// Expired.  Get rid of it.
 				LOG(INFO) << "Page expired for imsi="<<mmu->mmuImsi;
 				// Erasing from a map invalidates the iterator, but not the iteration.
-				//MMUsers.erase(thisone);
 				// (pat) The SIP error for no page should probably not be 480 Temporarily Unavailable,
 				// because that implies we know that the user is at the BTS, but if it did not answer the page, we do not.
-				// Paul at Null Team recommended 504
-				mmu->mmuFree(&thisone,CancelCauseNoAnswerToPage);
+				// Paul at Null Team recommended 504.
+				// FIXME URGENTLY:  Dont do an mmFree within the gMMLock, although we need to make sure it does not disappear.
+				mmu->mmuFree(&thisone,TermCause::Local(L3Cause::No_Paging_Response));
 				continue;
 			}
 			// TODO: We could add a check for a "provisional IMSI" 
 
-			bool wantCS = mmu->mmuMTCq.size() > 0;	// Is it a CS transaction, as opposed to SMS?
-			if (! mmu->mmuTmsi.valid()) {
-				uint32_t tmsi = gTMSITable.tmsiTabGetTMSI(mmu->mmuImsi,true);
-				LOG(DEBUG)<<"tmsiTabGetTMSI imsi="<<mmu->mmuImsi<< "returns"<<LOGVAR(tmsi);
-				if (tmsi) { mmu->mmuTmsi = tmsi; }
-			}
-			NewPagingEntry tmp(wantCS,mmu->mmuImsi,mmu->mmuTmsi);
-			WATCH("page "<<LOGVAR2("TMSI",mmu->mmuTmsi)<<LOGVAR2("IMSI",mmu->mmuImsi));
+			NewPagingEntry tmp(mmu->mmuGetInitialChanType(), mmu->mmuImsi);
 			pages.push_back(tmp);
 		}
-		if (pages.size()) { return; }
-
-		// Wait for someone to add a new MMUser.
-		if (!wait) { return; }
-		// too many of these... LOG(DEBUG) <<"waiting for new MMUser signal";
-		// We need to provide a timeout so that we free expired pages in a timely manner; if we dont
-		// then that MMUser is essentially locked because incoming SIP invites get a busy return, and it
-		// wont get released until some other unrelated page intervenes.
-		mmPageSignal.wait(gMMLock,500);
-		// Need a while loop here because the wait does not guarantee it was signalled.
 	}
+	if (pages.size()) LOG(DEBUG) <<LOGVAR(pages.size());
 }
+
+// Not used.  This is only documentation how to do this now.
+//void MMLayer::mmWaitForPages(NewPagingList_t &pages, bool wait)
+//{
+//	ScopedLock lock(gMMLock,__FILE__,__LINE__);
+//	while (1) {
+//		// Code goes here.
+//		// ...
+//		//
+//		if (!wait) { return; }
+//		// We need to provide a timeout so that we free expired pages in a timely manner; if we dont
+//		// then that MMUser is essentially locked because incoming SIP invites get a busy return, and it
+//		// wont get released until some other unrelated page intervenes.
+//		mmPageSignal.wait(gMMLock,500);
+//		// Need a while loop here because the wait does not guarantee it was signalled.
+//	}
+//}
 
 // For use by the CLI: create a copy of the paging list and print it.
 void MMLayer::printPages(ostream &os)
 {
 	// This does not need to lock anything.  The mmGetPages provides locked access to the MMUser list.
 	NewPagingList_t pages;
-	gMMLayer.mmGetPages(pages,false);
+	gMMLayer.mmGetPages(pages);
 	for (NewPagingList_t::iterator it = pages.begin(); it != pages.end(); ++it) {
 		NewPagingEntry &pe = *it;
-		os <<LOGVAR2("imsi",pe.mImsi) <<LOGVAR2("tmsi",pe.mTmsi) <<LOGVAR2("service",pe.mWantCS ? "CS":"SMS")
-			<<LOGVAR2("chtype",pe.getChanType());
+		os <<pe.text();
 	}
 }
 
@@ -1133,7 +1257,7 @@ bool MMLayer::mmPageReceived(MMContext *mmchan, L3MobileIdentity &mobileId)
 		}
 
 		// We do not 'delete' pages - only unattached MMUser are paged,
-		// so the act of attaching the MMUser to a Context (below) causes us to stop paging this MS.
+		// so the act of attaching the MMUser to a MMContext (below) causes us to stop paging this MS.
 
 		// This is what ties the MMUser and MMContext together for MT services.
 		// They are linked together from now on.
@@ -1191,5 +1315,14 @@ string MMLayer::printMMInfo()
 	return ss.str();
 }
 
+void controlInit()
+{
+	LOG(DEBUG);
+	gTMSITable.tmsiTabOpen(gConfig.getStr("Control.Reporting.TMSITable").c_str());
+	LOG(DEBUG);
+	gNewTransactionTable.ttInit();
+	LOG(DEBUG);
+	TranInit();
+}
 
 };

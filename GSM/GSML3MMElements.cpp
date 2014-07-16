@@ -4,10 +4,11 @@
 /*
 * Copyright 2008 Free Software Foundation, Inc.
 * Copyright 2010, 2014 Kestrel Signal Processing, Inc.
+* Copyright 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -18,12 +19,15 @@
 
 */
 
+#define LOG_GROUP LogGroup::GSM		// Can set Log.Level.GSM for debugging
+
 
 
 
 #include <time.h>
 #include "GSML3MMElements.h"
 #include <Logger.h>
+#include <Timeval.h>
 
 
 using namespace std;
@@ -48,9 +52,6 @@ ostream& GSM::operator<<(ostream& os, CMServiceTypeCode code)
 		case L3CMServiceType::LocationService: os << "LCS"; return os;
 		case L3CMServiceType::MobileTerminatedCall: os << "MTC"; return os;
 		case L3CMServiceType::MobileTerminatedShortMessage: os << "MTSMS"; return os;
-		case L3CMServiceType::TestCall: os << "Test"; return os;
-		case L3CMServiceType::FuzzCallTch: os << "FuzzCallTCH"; return os;
-		case L3CMServiceType::FuzzCallSdcch: os << "FuzzCallSDCCH"; return os;
 		case L3CMServiceType::LocationUpdateRequest: os << "LUR"; return os;
 		case L3CMServiceType::HandoverCall: os << "Handover"; return os;
 		case L3CMServiceType::UndefinedType: break;
@@ -65,18 +66,18 @@ void L3CMServiceType::text(ostream& os) const
 	os << mType;
 }
 
-void L3RejectCause::writeV( L3Frame& dest, size_t &wp ) const
+void L3RejectCauseIE::writeV( L3Frame& dest, size_t &wp ) const
 {
 	dest.writeField(wp, mRejectCause, 8);
 }
 
 
-void L3RejectCause::parseV(const L3Frame& src, size_t &rp)
+void L3RejectCauseIE::parseV(const L3Frame& src, size_t &rp)
 {
-        mRejectCause = (RejectCause) src.readField(rp,8);
+        mRejectCause = (MMRejectCause) src.readField(rp,8);
 }
 
-void L3RejectCause::text(ostream& os) const
+void L3RejectCauseIE::text(ostream& os) const
 {	
 	os <<"0x"<< hex << mRejectCause << dec;	
 }
@@ -220,10 +221,12 @@ void L3TimeZoneAndTime::parseV(const L3Frame& src, size_t& rp)
 
 void L3TimeZoneAndTime::text(ostream& os) const
 {
-	char timeStr[26];
+	//char timeStr[26];
 	const time_t seconds = mTime.sec();
-	ctime_r(&seconds,timeStr);
-	timeStr[24]='\0';
+        std::string timeStr("");
+        Timeval::isoTime(seconds, timeStr, true);
+	//ctime_r(&seconds,timeStr);
+	//timeStr[24]='\0';
 	os << timeStr << " (local)";
 }
 

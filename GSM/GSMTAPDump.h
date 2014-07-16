@@ -1,6 +1,8 @@
 /*
 * Copyright 2008, 2009 Free Software Foundation, Inc.
-* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
+* Copyright 2014 Range Networks, Inc.
+*
+* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribution.
 *
     This program is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of

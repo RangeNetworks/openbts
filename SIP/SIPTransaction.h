@@ -3,7 +3,7 @@
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -19,7 +19,6 @@
 
 #include "SIPUtility.h"	// For SipTimer, IPAddressSpec
 #include "SIPBase.h"
-#include "ControlTransfer.h"
 
 namespace SIP {
 using namespace std;
@@ -62,7 +61,7 @@ class SipTransaction : public MemCheckSipTransaction, public SipTimers
 	IPAddressSpec mstPeer;	// The remote peer.  Copied from mDialog at startup, or specified by Transaction creator.
 	string mstBranch;	// no longer used.
 	// TODO: Maybe this should be a SipEngine...
-	SipDialog *mstDialog;		// Transaction owner, or NULL for out-of-dialog transactions.
+	SipDialogRef mstDialog;		// Transaction owner, or NULL for out-of-dialog transactions.
 	TranEntryId mstTranId;		// The associed L3 Transaction, if any.  TODO: Now this could use a RefCntPointer to the transaction.
 
 	public:
@@ -163,7 +162,6 @@ ostream& operator<<(ostream& os, const SipTransaction&st);
 // (pat) Update: We are no longer using this for MESSAGE transactions.
 class SipClientTrLayer : public SipTransaction
 {
-	SipMessage mstOutRequest;	// outbound request, eg INVITE, MESSAGE, REGISTER.
 	SipTimer mTimerAE, mTimerBF, mTimerDK;
 	protected:
 	bool stIsInvite() { return mstOutRequest.isINVITE(); }	// We ended up not using this class for INVITE, but some code still here.
@@ -177,6 +175,7 @@ class SipClientTrLayer : public SipTransaction
 	void stDestroyV() { mstState = stTerminated; }
 	
 	public:
+	SipMessage mstOutRequest;	// outbound request, eg INVITE, MESSAGE, REGISTER.
 	// unused bool stIsTerminated() const { return mstState == stTerminated; }
 	void setTransactionState(States st) { mstState = st; }
 	bool stMatchesMessageV(SipMessage *msg);
@@ -184,7 +183,7 @@ class SipClientTrLayer : public SipTransaction
 	SipMessage *vstGetRequest();
 	// We use a client transaction for REGISTER even though it is not technically a TU, it acts like one
 	// except there are no resends, which we implement just by not setting any timers.
-	void sctInitRegisterClientTransaction(SipDialog *wDialog, SipMessage *request, string branch);
+	void sctInitRegisterClientTransaction(SipDialog *wRegistrar, TranEntryId tid, SipMessage *request, string branch);
 	void sctInitInDialogClientTransaction(SipDialog *wDialog, SipMessage *request, string branch);
 	void sctStart();
 };
@@ -200,10 +199,11 @@ class SipInviteClientTrLayer : public SipClientTrLayer
 // and has only one reply, but we need to know when to destroy it.
 struct SipRegisterTU : public SipClientTrLayer
 {
+	enum Kind { KindRegister=1, KindUnRegister=2 } stKind;
 	string stGetMethodNameV() { static const string registerStr("REGISTER"); return registerStr; }
 	void TUWriteHighSideV(SipMessage *sipmsg);
 	//SipRegisterTU(const FullMobileId &msid, const string &rand, const string &sres, L3LogicalChannel *chan); 		// msid is imsi and/or tmsi
-	SipRegisterTU(SipDialog *registrar, SipMessage *request);
+	SipRegisterTU(Kind kind, SipDialog *registrar, TranEntryId tid, SipMessage *request);
 };
 
 
@@ -213,7 +213,7 @@ struct SipMOByeTU: public SipClientTrLayer
 	void TUWriteHighSideV(SipMessage *sipmsg);
 	// TUTimeoutV not needed; on timeout we set dialog state to SSFail.
 	//void TUTimeoutV();
-	SipMOByeTU(SipDialog *wDialog);
+	SipMOByeTU(SipDialog *wDialog, string wReasonHeader);
 };
 
 struct SipMOCancelTU: public SipClientTrLayer
@@ -222,7 +222,7 @@ struct SipMOCancelTU: public SipClientTrLayer
 	void TUWriteHighSideV(SipMessage *sipmsg);
 	// TUTimeoutV not needed; on timeout we set dialog state to SSFail.
 	//void TUTimeoutV();
-	SipMOCancelTU(SipDialog *wDialog);
+	SipMOCancelTU(SipDialog *wDialog, string wReasonHeader);
 };
 
 

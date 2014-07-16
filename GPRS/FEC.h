@@ -1,10 +1,9 @@
 /*
-* Copyright 2011 Range Networks, Inc.
-* All Rights Reserved.
+* Copyright 2011, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -145,6 +144,7 @@ class GprsDecoder : public SharedL1Decoder
 		mD_CS4(mDP_CS4.head(424))
 		{}
 	bool decodeCS4();
+	const char* descriptiveString() const { return "GprsDecoder"; }	// not very useful.
 };
 
 // CS-4 has 431 input data bits, which are always 424 real data bits (53 bytes)
@@ -169,6 +169,8 @@ class GprsEncoder : public SharedL1Encoder
 		{}
 	void encodeCS4(const BitVector&src);
 	void encodeCS1(const BitVector &src);
+	// would be nice to add "GPRS"; should be at init.
+	const char* descriptiveString() const { return "GprsEncoder"; }
 };
 
 

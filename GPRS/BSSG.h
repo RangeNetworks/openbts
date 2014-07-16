@@ -1,10 +1,9 @@
 /*
-* Copyright 2011 Range Networks, Inc.
-* All Rights Reserved.
+* Copyright 2011, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -27,7 +26,7 @@
 
 namespace BSSG {
 
-// GSM 08.16 describes tne NS layer.
+// GSM 08.16 describes the NS layer.
 // GSM 08.18 sec 10 describes the PDU messages that the SGSN can send to the BSS.
 // GSM 48.018 is the updated spec with PS-HANDOVER related commands.
 // Definitions:

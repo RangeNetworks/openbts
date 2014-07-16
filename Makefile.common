@@ -1,5 +1,6 @@
 #
 # Copyright 2008 Free Software Foundation, Inc.
+# Copyright 2014 Range Networks, Inc.
 #
 # This software is distributed under the terms of the GNU Public License.
 # See the COPYING file in the main directory for details.
@@ -18,11 +19,12 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
+GPROF_OPTIONS ?=
 CXXFLAGS := -g -O2 -DTIMESTAMP_ISO=`date +'"%Y-%m-%dT%H:%M:%S"'`
 CFLAGS := -g -O2 -DTIMESTAMP_ISO=`date +'"%Y-%m-%dT%H:%M:%S"'`
 
 AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES) $(USB_INCLUDES) $(WITH_INCLUDES) $(OPENBTS_CPPFLAGS)
-AM_CXXFLAGS = -Wall -pthread -ldl $(OPENBTS_CXXFLAGS)
+AM_CXXFLAGS = -Wall -pthread -rdynamic -ldl $(OPENBTS_CXXFLAGS)
 
 COMMON_INCLUDEDIR = $(top_srcdir)/CommonLibs
 CONTROL_INCLUDEDIR = $(top_srcdir)/Control
@@ -35,16 +37,17 @@ SMS_INCLUDEDIR = $(top_srcdir)/SMS
 TRX_INCLUDEDIR = $(top_srcdir)/TRXManager
 GLOBALS_INCLUDEDIR = $(top_srcdir)/Globals
 CLI_INCLUDEDIR = $(top_srcdir)/CLI
-SQLITE_INCLUDEDIR = $(top_srcdir)/sqlite3
 PEERING_INCLUDEDIR = $(top_srcdir)/Peering
 NODEMANAGER_INCLUDEDIR = $(top_srcdir)/NodeManager
 JSONBOX_INCLUDEDIR = $(top_srcdir)/NodeManager/JsonBox-0.4.3/include
 SCANNING_INCLUDEDIR = $(top_srcdir)/Scanning
+APPS_INCLUDEDIR = $(top_srcdir)/apps
 
 REPOREV = -D'REPO_REV="$(shell ./$(top_builddir)/Globals/GrabRepoInfo.sh $(top_builddir))"'
 
-STD_DEFINES_AND_INCLUDES = \
+STD_DEFINES_AND_INCLUDES = $(GPROF_OPTIONS) \
 	$(REPOREV) \
+	-I$(APPS_INCLUDEDIR) \
 	-I$(COMMON_INCLUDEDIR) \
 	-I$(CONTROL_INCLUDEDIR) \
 	-I$(GSM_INCLUDEDIR) \
@@ -59,8 +62,7 @@ STD_DEFINES_AND_INCLUDES = \
 	-I$(PEERING_INCLUDEDIR) \
 	-I$(NODEMANAGER_INCLUDEDIR) \
 	-I$(JSONBOX_INCLUDEDIR) \
-	-I$(SCANNING_INCLUDEDIR) \
-	-I$(SQLITE_INCLUDEDIR)
+	-I$(SCANNING_INCLUDEDIR)
 
 # These macros are referenced in apps/Makefile.am, which must be changed in sync with these.
 COMMON_LA = $(top_builddir)/CommonLibs/libcommon.la
@@ -77,6 +79,5 @@ CLI_LA = $(top_builddir)/CLI/libcli.la
 PEERING_LA = $(top_builddir)/Peering/libpeering.la
 NODEMANAGER_LA = $(top_builddir)/NodeManager/libnodemanager.la -lzmq
 SCANNING_LA = $(top_builddir)/Scanning/libscanning.la
-SQLITE_LA = $(top_builddir)/sqlite3/libsqlite.la -ldl
 
 MOSTLYCLEANFILES = *~

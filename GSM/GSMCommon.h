@@ -2,11 +2,11 @@
 /*
 * Copyright 2008, 2009, 2010 Free Software Foundation, Inc.
 * Copyright 2010 Kestrel Signal Processing, Inc.
-* Copyright 2011 Range Networks, Inc.
+* Copyright 2011, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -31,6 +31,7 @@
 #include <Threads.h>
 #include <Timeval.h>
 #include <BitVector.h>
+#include <ScalarTypes.h>
 
 
 namespace GSM {
@@ -107,9 +108,11 @@ const unsigned T200ms = 900;		///< LAPDm ACK timeout, set for typical turnaround
 //@}
 /**@name GSM timeouts for radio resource management, GSM 04.08 11.1. */
 //@{
-const unsigned T3101ms = 4000;		///< L1 timeout for SDCCH assignment (pat) Started on Immediate Assignment, stopped when MS siezes channel.
+//const unsigned T3101ms = 4000;		///< L1 timeout for SDCCH assignment (pat) Started on Immediate Assignment, stopped when MS seizes channel.
+// (pat 4-2014) Increase T3101 to allow time for a SACCH init first, and additionally the old value seemed too low anyway, so add 2 secs.
+const unsigned T3101ms = 6000;		///< L1 timeout for SDCCH assignment (pat) Started on Immediate Assignment, stopped when MS seizes channel.
 const unsigned T3107ms = 3000;		///< L1 timeout for TCH/FACCH assignment (pat) or any change of channel assignment.
-const unsigned T3109ms = 30000;		///< L1 timeout for an existing channel
+// (pat) moved to config const unsigned T3109ms = 30000;		///< L1 timeout for an existing channel
 const unsigned T3111ms = 2*T200ms;	///< L1 timeout for reassignment of a channel
 //@}
 /**@name GSM timeouts for mobility management, GSM 04.08 11.2. */
@@ -301,9 +304,10 @@ std::ostream& operator<<(std::ostream& os, L3PD val);
 /**@name Tables related to Tx-integer; GSM 04.08 3.3.1.1.2 and 10.5.2.29. */
 //@{
 /** "T" parameter, from GSM 04.08 10.5.2.29.  Index is TxInteger. */
-extern const unsigned RACHSpreadSlots[];
+extern const unsigned RACHSpreadSlots[16];
 /** "S" parameter, from GSM 04.08 3.3.1.1.2.  Index is TxInteger. */
-extern const unsigned RACHWaitSParam[];
+extern const unsigned RACHWaitSParam[16];
+extern const unsigned RACHWaitSParamCombined[16];
 //@}
 
 
@@ -414,6 +418,7 @@ class Time {
 		return newVal;
 	}
 
+	// (pat) Notice that + and - are different.
 	Time operator+(const Time& other) const
     {
         unsigned newTN = (mTN + other.mTN) % 8;
@@ -511,9 +516,10 @@ class Clock {
 
 	private:
 
+	Bool_z isValid;
 	mutable Mutex mLock;
 	int32_t mBaseFN;
-	Timeval mBaseTime;
+	Timeval mBaseTime;	// Defaults to now.
 
 	public:
 
@@ -522,19 +528,27 @@ class Clock {
 	{}
 
 	/** Set the clock to a value. */
-	void set(const Time&);
+	void clockSet(const Time&);
+	bool isClockValid() { return isValid; }	// Dont need a semaphore for POD.
 
 	/** Read the clock. */
 	int32_t FN() const;
 
 	/** Read the clock. */
-	Time get() const { return Time(FN()); }
+	Time clockGet() const { return Time(FN()); }
 
 	/** Block until the clock passes a given time. */
 	void wait(const Time&) const;
 
 	/** Return the system time associated with a given timestamp. */
-	double systime(const Time&) const;
+	// (pat) in secs with microsec resolution.
+	// (pat) This is updated at every CLOCK IND from the transceiver, so it is possible
+	// for this time to skip either forward or backward, either as a result of the FN being
+	// changed forward or backward by the radio, or jitter in when the CLOCK IND is processed.
+	// If the when argument was retrieved during the same CLOCK IND interval then it is ok,
+	// but we cannot guarantee that.
+	double systime(const Time& when) const;
+	Timeval systime2(const Time& when) const;
 };
 
 
@@ -579,8 +593,12 @@ class Z100Timer {
 	/** Start or restart the timer, possibly specifying a new limit. */
 	void set(long wLimitTime);
 
+	// Change the limit time, and if active, the remaining time as well.
+	void addTime(int msecs);
+
 	/** Stop the timer. */
 	void reset() { assert(mLimitTime!=0); mActive = false; }
+	void reset(long wLimitTime) { mLimitTime=wLimitTime; reset(); }
 
 	/** Returns true if the timer is active. */
 	bool active() const { return mActive; }
@@ -598,6 +616,22 @@ class Z100Timer {
 	void wait() const;
 };
 std::ostream& operator<<(std::ostream& os, const Z100Timer&);
+
+class Z100TimerThreadSafe : public Z100Timer {
+	mutable Mutex mtLock;
+
+	public:
+	bool expired() const { ScopedLock lock(mtLock); return Z100Timer::expired(); }
+	void expire() { ScopedLock lock(mtLock); Z100Timer::expire(); }
+	void set() { ScopedLock lock(mtLock); Z100Timer::set(); }
+	void set(long wLimitTime) { ScopedLock lock(mtLock); Z100Timer::set(wLimitTime); }
+	void addTime(int msecs) { ScopedLock lock(mtLock); Z100Timer::addTime(msecs); }
+	void reset() { ScopedLock lock(mtLock); Z100Timer::reset(); }
+	void reset(long wLimitTime) { ScopedLock lock(mtLock); Z100Timer::reset(wLimitTime); }
+	// bool active() const;  // No need to protect.
+	long remaining() const { ScopedLock lock(mtLock); return Z100Timer::remaining(); }
+	void wait() const { ScopedLock lock(mtLock); Z100Timer::wait(); }
+};
 
 
 std::string data2hex(const unsigned char *data, unsigned nbytes);

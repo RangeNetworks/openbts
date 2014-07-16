@@ -7,7 +7,7 @@
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -23,8 +23,9 @@
 #ifndef GSML3MMELEMENTS_H
 #define GSML3MMELEMENTS_H
 
+#include "L3Enums.h"
 #include "GSML3Message.h"
-#include <Globals.h>
+#include <OpenBTSConfig.h>
 
 namespace GSM {
 
@@ -46,11 +47,8 @@ class L3CMServiceType : public L3ProtocolElement {
 
 		MobileTerminatedCall=100,				///< non-standard code
 		MobileTerminatedShortMessage=101,		///< non-standard code
-		TestCall=102,			///< non-standard code
 		HandoverCall=103,		///< non-standard code
-		FuzzCallTch=104,			///< non-standard code
-		FuzzCallSdcch=105,			///< non-standard code
-		LocationUpdateRequest=106, ///< non-standard code
+		LocationUpdateRequest=105, ///< non-standard code
 	};
 		
 	private:
@@ -98,46 +96,13 @@ std::ostream& operator<<(std::ostream& os, CMServiceTypeCode code);
 // Better: 24.008 10.5.3.6
 // This is the Mobility Management reject cause.
 // For RR causes see L3RRCause, and for CC Causes see L3Cause.
-class L3RejectCause : public L3ProtocolElement {
-	public:
-	enum RejectCause {
-		Zero = 0,			// This is NOT a GSM RejectCause, it is our unspecified value.
-		IMSIUnknownInHLR = 2,
-		IllegalMS = 3,
-		IMSIUnknownInVLR =  4,
-		IMEINotAccepted =  5,
-		IllegalME = 6,
-		PLMNNotAllowed = 0xb,
-		LocationAreaNotAllowed = 0xc,
-		RoamingNotAllowedInLA =  0xd,		// Roaming not allowed in this Location Area
-		NoSuitableCellsInLA = 0xf,
-		NetworkFailure =  0x11,
-		MACFailure =  0x14,
-		SynchFailure =  0x15,
-		Congestion =  0x16,
-		GSMAuthenticationUnacceptable = 0x17,
-		NotAuthorizedInCSG = 0x19,
-		ServiceOptionNotSupported = 0x20,
-		RequestedServiceOptionNotSubscribed = 0x21,
-		ServiceOptionTemporarilyOutOfOrder = 0x22,
-		CallCannotBeIdentified = 0x26,
-		// 0x30 - 0x3f : retry upon entry into a new cell ???
-		SemanticallyIncorrectMessage = 0x5f,
-		InvalidMandatoryInformation = 0x60,
-		MessageTypeInvalid = 0x61,			// Message type non-existent or not implemented
-		MessageTypeNotCompatibleWithProtocolState = 0x62,
-		IEInvalid = 0x63,						// IE non-existent or not implemented
-		ConditionalIEError = 0x64,
-		MessageNotCompatibleWithProtocolState = 0x65,
-		ProtocolErrorUnspecified = 0x6f
-	};
-
+class L3RejectCauseIE : public L3ProtocolElement {
 private:
-	RejectCause mRejectCause;
+	MMRejectCause mRejectCause;
 
 public:
 	
-	L3RejectCause( const RejectCause wRejectCause=Zero )
+	L3RejectCauseIE( const MMRejectCause wRejectCause=L3RejectCause::Zero )
 		:L3ProtocolElement(),mRejectCause(wRejectCause)
 	{}
 
@@ -147,8 +112,6 @@ public:
 	void parseV(const L3Frame&, size_t& , size_t) { devassert(0); }
 	void text(std::ostream&) const;
 };
-
-typedef L3RejectCause::RejectCause MMRejectCause;
 
 
 

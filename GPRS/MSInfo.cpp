@@ -1,10 +1,9 @@
 /*
-* Copyright 2011 Range Networks, Inc.
-* All Rights Reserved.
+* Copyright 2011, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -13,6 +12,8 @@
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 */
+
+#define LOG_GROUP LogGroup::GPRS		// Can set Log.Level.GPRS for debugging
 
 #include "MSInfo.h"
 #include "TBF.h"
@@ -510,6 +511,8 @@ bool MSInfo::msAssignChannels2(int maxdown, int maxup, int sum)
 	// and do 3x2 or 2x3 instead of 3x1 or 1x3?
 	// The way the user does that is ask for 4x2 or 2x4, and they'll get
 	// 4x1 or 1x4 if avail, else 3x2 or 2x3.
+	// (pat) Update: We settled on using only 3-down/2-up, or 2-down/2-up if we dont have 3 adjacent ch;
+	// for these cases the additional bidir channel can be on either side of the pacch.  (Which fact is encapsulated in the msTrySlots code.)
 	int up21 = maxup >= 2 ? 2 : 1;
 	int down21 = maxdown >= 2 ? 2 : 1;
 	if (maxdown >= 4) {
@@ -691,6 +694,17 @@ RROperatingMode::type MSInfo::getRROperatingMode()
 		return RROperatingMode::PacketIdle;
 	}
 }
+
+// This is used from the CCCH service code to find the TBF that requested service.
+// It is possible that the TBF was destroyed while waiting for the paging opportunity, in which case return NULL.
+//TBF *findTBFForCCCH()
+//{
+//	RN_MS_FOR_ALL_TBF(this,tbf) {
+//		// Gosh, the tbf could be destroyed right now.
+//		if (tbf->mtDir == RLCDir::Down && tbf->mtGetState() == TBFState::DataWaiting1) { return tbf; }
+//	}
+//	return NULL;
+//}
 
 
 // Count how many TBFs exist in the specified direction (which may be Either)

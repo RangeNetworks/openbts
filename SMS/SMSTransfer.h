@@ -1,11 +1,12 @@
 /*
 * Copyright 2008 Free Software Foundation, Inc.
+* Copyright 2014 Range Networks, Inc.
 *
     This program is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
+* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -73,14 +74,14 @@ class RLFrame : public GSM::L3Frame
 	
 #if ORIGINAL
 	RLFrame(SMSPrimitive wPrimitive=SMS_UNDEFINED_PRIMITIVE, size_t len=0)
-		:L3Frame(GSM::DATA,len), mPrimitive(wPrimitive)
+		:L3Frame(GSM::L3_DATA,len), mPrimitive(wPrimitive)
 	{ }
 
 	RLFrame(const BitVector2& source, SMSPrimitive wPrimitive=SMS_UNDEFINED_PRIMITIVE)
 		:L3Frame(source), mPrimitive(wPrimitive)
 	{ }
 #endif
-	RLFrame(size_t bitsNeeded=0) :L3Frame(GSM::DATA,bitsNeeded) { /*RLFrameInit();*/ }
+	RLFrame(size_t bitsNeeded=0) :L3Frame(GSM::L3_DATA,bitsNeeded) { /*RLFrameInit();*/ }
 	RLFrame(const BitVector2& source) :L3Frame(GSM::SAPIUndefined,source) { /*RLFrameInit();*/ }
 	void text(std::ostream& os) const;
 
@@ -104,14 +105,14 @@ class TLFrame : public GSM::L3Frame
 	
 #if ORIGINAL
 	TLFrame(SMSPrimitive wPrimitive=SMS_UNDEFINED_PRIMITIVE, size_t len=0)
-		:L3Frame(GSM::DATA,len), mPrimitive(wPrimitive)
+		:L3Frame(GSM::L3_DATA,len), mPrimitive(wPrimitive)
 	{ }
 
 	TLFrame(const BitVector2& source, SMSPrimitive wPrimitive=SMS_UNDEFINED_PRIMITIVE)
 		:L3Frame(source), mPrimitive(wPrimitive)
 	{ }
 #endif
-	TLFrame(size_t bitsNeeded=0) :L3Frame(GSM::DATA,bitsNeeded) { /*TLFrameInit();*/ }
+	TLFrame(size_t bitsNeeded=0) :L3Frame(GSM::L3_DATA,bitsNeeded) { /*TLFrameInit();*/ }
 	TLFrame(const BitVector2& source) :L3Frame(GSM::SAPIUndefined,source) { /*TLFrameInit();*/ }
 
 #if UNUSED_PRIMITIVE

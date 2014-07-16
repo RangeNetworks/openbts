@@ -1,6 +1,17 @@
 /*
- * Copright 2011 Range Networks, Inc.
- * All rights reserved.
+* Copyright 2011, 2014 Range Networks, Inc.
+
+* This software is distributed under multiple licenses;
+* see the COPYING file in the main directory for licensing
+* information for this specific distribution.
+*
+* This use of this software may be subject to additional restrictions.
+* See the LEGAL file in the main directory for details.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
 */
 
 #include "NeighborTable.h"
@@ -15,15 +26,14 @@
 #include <time.h>
 
 #include <sstream>
+#include <algorithm>
 
 using namespace Peering;
 using namespace std;
+static void runSomeTests();
 
 
-
-
-
-
+#if NEIGHBOR_TABLE_ON_DISK
 static const char* createNeighborTable = {
 	"CREATE TABLE IF NOT EXISTS NEIGHBOR_TABLE ("
 		"IPADDRESS TEXT UNIQUE NOT NULL, "	// IP address of peer BTS  (pat) it includes the port.
@@ -33,14 +43,53 @@ static const char* createNeighborTable = {
 		"BSIC INTEGER DEFAULT NULL"		// peer BTS BSIC
 	")"
 };
+#endif
 
+// Return a copy of the pentry if *entry is non-NULL.
+bool NeighborTable::ntFindByIP(string ip, NeighborEntry *pentry)
+{
+	ScopedLock lock(mLock);
+	NeighborTableMap::iterator mit = mNeighborMap.find(ip);
+	if (mit == mNeighborMap.end()) { return false; }
+	if (pentry) { *pentry = mit->second; }
+	return true;
+}
 
+// Return a copy of the pentry if *entry is non-NULL.
+bool NeighborTable::ntFindByPeerAddr(const struct ::sockaddr_in* peer, NeighborEntry *pentry)
+{
+	string ipaddr = sockaddr2string(peer, false);
+	ScopedLock lock(mLock);
+	NeighborTableMap::iterator mit = mNeighborMap.find(ipaddr);
+	if (mit == mNeighborMap.end()) { return false; }
+	if (pentry) { *pentry = mit->second; }
+	return true;
+}
 
+// The C0 ARFCN is not sufficient because there could be multiple BTS on the same ARFCN, so we need to match the BSIC too.
+bool NeighborTable::ntFindByArfcn(int arfcn, int bsic, NeighborEntry *pentry)
+{
+	if (arfcn < 0 || bsic < 0) {
+		// These were uninitialized values.  It would not have hurt anything to just let this fall through and search for them.
+		return false;
+	}
+	// Requires a brute force search.
+	for (NeighborTableMap::iterator mit = mNeighborMap.begin(); mit != mNeighborMap.end(); mit++) {
+		NeighborEntry &entry = mit->second;
+		if (entry.mC0 == arfcn && (int)entry.mBSIC == bsic) {
+			if (pentry) { *pentry = entry; }
+			return true;
+		}
+	}
+	return false;
+}
 
 
 
 void NeighborTable::NeighborTableInit(const char* wPath)
 {
+	if (0) runSomeTests();
+#if NEIGHBOR_TABLE_ON_DISK
 	int rc = sqlite3_open(wPath,&mDB);
 	if (rc) {
 		LOG(ALERT) << "Cannot open NeighborTable database: " << sqlite3_errmsg(mDB);
@@ -55,15 +104,16 @@ void NeighborTable::NeighborTableInit(const char* wPath)
 	if (!sqlite3_command(mDB,enableWAL)) {
 		LOG(ALERT) << "Cannot enable WAL mode on database at " << wPath << ", error message: " << sqlite3_errmsg(mDB);
 	}
+#endif
 
 	// Fill the database.
-	fill();
+	ntFill();
 }
 
 
 // Does the ipaddr include a port specification?
 // This will fail miserably with ipv6.
-bool includesPort(const char *ipaddr)
+static bool includesPort(const char *ipaddr)
 {
 	const char *colon = strrchr(ipaddr,':');
 	const char *dot = strrchr(ipaddr,'.');
@@ -71,21 +121,18 @@ bool includesPort(const char *ipaddr)
 }
 
 
-// (pat) 5-25: Allow the config neighbor list to optionally include a port.
-// (pat) Neighbor discovery should be moved into SR.  Each BTS should register,
-// then when they want to look up a LAC reported by the MS they could just ask SR.
-void NeighborTable::fill()
+// Create a set of IP addresses of resolved neighbor addresses.
+static void makeNeighborSet(set<string> &neighborSet)
 {
-	mConfigured.clear();
-	if (mDB == NULL) { return; }	// we already threw an ALERT.
 	// Stuff the neighbor ip addresses into the table without any other info.
 	// Let existing information persist for current neighbors.
 	// NeighborTable::refresh() will get updated infomation when it's available.
 	vector<string> neighbors = gConfig.getVectorOfStrings("GSM.Neighbors");
 	LOG(DEBUG) << "neighbor list length " << neighbors.size();
-	unsigned short port = gConfig.getNum("Peering.Port");
+
+	unsigned short defaultPort = gConfig.getNum("Peering.Port");
 	for (unsigned int i = 0; i < neighbors.size(); i++) {
-		struct sockaddr_in address;
+		struct sockaddr_in peer;
 		// (pat) The measurement report allows only 32 ARFCN slots, the last of which we reserve for 3G to avoid confusion.
 		// However, we cannot check that here, because some of the neighbors may share ARFCNs, and we cannot tell
 		// that until they report in.
@@ -95,20 +142,62 @@ void NeighborTable::fill()
 		bool validAddr;
 		if (includesPort(host)) {
 			LOG(DEBUG) << "resolving host name for " << host;
-			validAddr = resolveAddress(&address, host);
+			validAddr = resolveAddress(&peer, host);
 		} else {
-			LOG(DEBUG) << "resolving host name for " << host <<" + port:" <<port;
-			validAddr = resolveAddress(&address, host, port);
+			LOG(DEBUG) << "resolving host name for " << host <<" + port:" <<defaultPort;
+			validAddr = resolveAddress(&peer, host, defaultPort);
 		}
 		if (!validAddr) {
-			LOG(CRIT) << "cannot resolve host name for " << host;
+			LOG(CRIT) << "cannot resolve host name for neighbor:" << host;
 			// these two seem to want to get set even if addNeighbor isn't called
-			mBCCSet = getBCCSet();
-			mARFCNList = getARFCNs();
+			//mBCCSet = getBCCSet();
+			//mARFCNList = getARFCNs();
 			continue;
 		}
-		addNeighbor(&address);
+#if NEIGHBOR_TABLE_ON_DISK
+		addNeighbor(&peer);
+#else
+		string neighborIP = sockaddr2string(&peer,false);
+		if (neighborSet.find(neighborIP) == neighborSet.end()) {
+			LOG(DEBUG) <<"Inserting into set neighborIP="<<neighborIP;
+			neighborSet.insert(neighborIP);
+		} else {
+			LOG(ERR) << "Neighbor appears twice in GSM.Neighbors: "<<neighborIP;
+		}
+#endif
 	}
+}
+
+
+// (pat) 5-25: Allow the config neighbor list to optionally include a port.
+// (pat) Neighbor discovery should be moved into SR.  Each BTS should register,
+// then when they want to look up a LAC reported by the MS they could just ask SR.
+void NeighborTable::ntFill()
+{
+	static const char *GSMNeighbors = "GSM.Neighbors";
+#if NEIGHBOR_TABLE_ON_DISK
+	mConfigured.clear();
+	if (mDB == NULL) { return; }	// we already threw an ALERT.
+#endif
+
+	string configNeighbors = gConfig.getStr(GSMNeighbors);
+	{
+		static string prevConfigNeighbors;
+		if (configNeighbors == prevConfigNeighbors) {
+			// No change.  This is the usual case.
+			return;
+		}
+		prevConfigNeighbors = configNeighbors;
+	}
+
+	LOG(INFO) <<"Updating Neighbor Table from "<<GSMNeighbors<<"="<<configNeighbors;
+
+	set<string> neighborSet;
+	makeNeighborSet(neighborSet);
+
+	ScopedLock lock(mLock);
+
+#if NEIGHBOR_TABLE_ON_DISK
 	// get a list of ipaddresses in neighbor table that aren't configured
 	vector<string> toBeDeleted;
 	sqlite3_stmt *stmt;
@@ -134,12 +223,34 @@ void NeighborTable::fill()
 	// remove entries in neighbor table that aren't configured
 	char query2[400];
 	for (unsigned int i = 0; i < toBeDeleted.size(); i++) {
-		sprintf(query2, "delete from NEIGHBOR_TABLE where IPADDRESS = '%s'", toBeDeleted[i].c_str());
+		snprintf(query2,sizeof(query2), "delete from NEIGHBOR_TABLE where IPADDRESS = '%s'", toBeDeleted[i].c_str());
 		sqlite3_command(mDB, query2);
 	}
+#else
+	// Delete items in map that are not in the newly configured neighbors list.
+	for (NeighborTableMap::iterator mit = mNeighborMap.begin(); mit != mNeighborMap.end(); ) {
+		string key = mit->first;
+		NeighborTableMap::iterator thisone = mit++;
+		if (neighborSet.find(key) == neighborSet.end()) {
+		LOG(DEBUG) <<"Deleting Neighbor IPaddress="<<key;
+			mNeighborMap.erase(thisone);
+		}
+	}
+
+	// Add any new elements needed.
+	for (set<string>::iterator it = neighborSet.begin(); it != neighborSet.end(); it++) {
+		LOG(DEBUG) <<"Adding Neighbor IPaddress="<<*it;
+		mNeighborMap[*it].mIPAddress = *it;		// Creates new entry if necessary.
+	}
+
+	// Update ARFCN list because some neighbors might have been eliminated.
+	//mBCCSet = getBCCSet();
+	mARFCNList = getARFCNs();
+#endif
 }
 
 
+#if NEIGHBOR_TABLE_ON_DISK
 // (pat) This just adds the address; the BSIC will be filled in later when we hear from the peer.
 void NeighborTable::addNeighbor(const struct ::sockaddr_in* address)
 {
@@ -154,7 +265,7 @@ void NeighborTable::addNeighbor(const struct ::sockaddr_in* address)
 	LOG(DEBUG) << "adding " << addrString << ":" << ntohs(address->sin_port) << " to neighbor table";
 
 	char query[200];
-	sprintf(query,
+	snprintf(query,sizeof(query),
 		"INSERT OR IGNORE INTO NEIGHBOR_TABLE (IPADDRESS) "
 		"VALUES ('%s:%d')",
 		addrString,(int)ntohs(address->sin_port));
@@ -166,22 +277,26 @@ void NeighborTable::addNeighbor(const struct ::sockaddr_in* address)
 	mConfigured.insert(p);
 
 	// update mBCCSet  (pat - why?)
-	mBCCSet = getBCCSet();
+	//mBCCSet = getBCCSet();
 
 	// update mARFCNList and check for a change
 	mARFCNList = getARFCNs();
 }
+#endif
 
 
 
 
 
-bool NeighborTable::addInfo(const struct ::sockaddr_in* address,	// neighbor IP
-	unsigned updated,	// current time.  (pat) This is the wrong type.
-	unsigned C0, unsigned BSIC)		// Describes the neighbor radio.
+//bool NeighborTable::addInfo(const struct ::sockaddr_in* address,	// neighbor IP
+//	unsigned updated,	// current time.  (pat) This is the wrong type.
+//	unsigned C0, unsigned BSIC,		// Describes the neighbor radio.
+//	int noise)						// noise level (not supported by NEIGHBOR_TABLE_ON_DISK)
+bool NeighborTable::ntAddInfo(NeighborEntry &newentry)
 {
-	if (mDB == NULL) { return false; }	// we already threw an ALERT.
 	ScopedLock lock(mLock);
+#if NEIGHBOR_TABLE_ON_DISK
+	if (mDB == NULL) { return false; }	// we already threw an ALERT.
 	// Get a string for the sockaddr_in.
 	char addrString[256];
 	const char *ret = inet_ntop(AF_INET,&(address->sin_addr),addrString,255);
@@ -190,49 +305,74 @@ bool NeighborTable::addInfo(const struct ::sockaddr_in* address,	// neighbor IP
 		return false;
 	}
 
-	char query[200];
+	//char query[200];
 	unsigned oldC0;  // C0 is arbitrary integer column.  just want to know if ipaddress is in table.
 	unsigned oldBSIC;
-	sprintf(query, "%s:%d", addrString,(int)ntohs(address->sin_port));
-	if (!sqlite3_single_lookup(mDB, "NEIGHBOR_TABLE", "IPADDRESS", query, "C0", oldC0) ||
-	    !sqlite3_single_lookup(mDB, "NEIGHBOR_TABLE", "IPADDRESS", query, "BSIC", oldBSIC)) {
-		LOG(NOTICE) << "Ignoring unsolicited 'RSP NEIGHBOR_PARAMS' from " << query;
+	//snprintf(query, sizeof(query), "%s:%d", addrString,(int)ntohs(address->sin_port));
+	if (!sqlite3_single_lookup(mDB, "NEIGHBOR_TABLE", "IPADDRESS", newentry.mIPAddress, "C0", oldC0) ||
+	    !sqlite3_single_lookup(mDB, "NEIGHBOR_TABLE", "IPADDRESS", newentry.mIPAddress, "BSIC", oldBSIC)) {
+		LOG(NOTICE) << "Ignoring unsolicited 'RSP NEIGHBOR_PARAMS' from " << newentry.mIPAddress;
 		return false;
 	}
 	LOG(DEBUG) << "updating " << addrString << ":" << ntohs(address->sin_port) << " in neighbor table" <<LOGVAR(C0)<<LOGVAR(BSIC)<<LOGVAR(oldC0) <<LOGVAR(oldBSIC);
-	sprintf(query,
+	// (pat) Why would we set the HOLDOFF to 0 every time we see a RSP to neighbor info?
+	newentry.mUpdated = time(NULL);
+	snprintf(query,sizeof(query),
 		"REPLACE INTO NEIGHBOR_TABLE (IPADDRESS,UPDATED,C0,BSIC,HOLDOFF) "
-		"VALUES ('%s:%d',%u,%u,%u,0) ",
-		addrString,(int)ntohs(address->sin_port),updated,C0,BSIC);
+		"VALUES ('%s',%u,%u,%u,0) ",
+		newentry.mIPAddress,newentry.mUpdated,newentry.mC0,newentry.mBSIC);
 	if (!sqlite3_command(mDB,query)) {
 		LOG(ALERT) << "write to neighbor table failed: " << query;
 		return false;
 	}
-
+#else
+	NeighborTableMap::iterator mit = mNeighborMap.find(newentry.mIPAddress);
+	if (mit == mNeighborMap.end()) {
+		LOG(NOTICE) << "Ignoring unsolicited 'RSP NEIGHBOR_PARAMS' from " << newentry.mIPAddress;
+	}
+	NeighborEntry &oldentry = mit->second;
+	// (pat) Added test to see if C0 or BCC changed.  That would not change the beacon but we need to recheck for conflicts
+	// with the current BTS.
+	bool change = oldentry.mC0 != newentry.mC0 || oldentry.mBSIC != newentry.mBSIC;
+	newentry.mUpdated = time(NULL);
+	newentry.mHoldoff = oldentry.mHoldoff;		// Preserve holdoff if any.
+	oldentry = newentry;
+#endif
 	// update mBCCSet
-	mBCCSet = getBCCSet();
+	//mBCCSet = getBCCSet();
 
 	// update mARFCNList and check for a change
 	std::vector<unsigned> newARFCNs = getARFCNs();
-	bool change = (newARFCNs!=mARFCNList);
-	if (change) mARFCNList = newARFCNs;
+	if (newARFCNs!=mARFCNList) {
+		mARFCNList = newARFCNs;
+		change = true;
+	}
 
-	// (pat) Added test to see if C0 or BCC changed.  That would not change the beacon but we need to recheck for conflicts
-	// with the current BTS.
-	bool result = change || (oldC0 != C0) || oldBSIC != BSIC;
-	LOG(DEBUG) << LOGVAR(result);
-	return result;
+	LOG(DEBUG) << LOGVAR(change);
+	return change;
 }
 
-
-void NeighborTable::refresh()
+void NeighborTable::pingPeer(string ipString)
 {
-	if (mDB == NULL) { return; }	// we already threw an ALERT.
-	fill();
+	struct sockaddr_in address;
+	if (!resolveAddress(&address, ipString.c_str())) {
+		LOG(ERR) << "cannot resolve neighbor address=" << ipString;
+	} else {
+		LOG(INFO) << "sending neighbor param request to:" << ipString;
+		gPeerInterface.sendNeighborParamsRequest(&address);
+	}
+}
+
+void NeighborTable::ntRefresh()
+{
+	ntFill();
+	ScopedLock lock(mLock);
 	time_t now = time(NULL);
 	time_t then = now - gConfig.getNum("Peering.Neighbor.RefreshAge");
-	char query[400];
-	sprintf(query,"SELECT IPADDRESS FROM NEIGHBOR_TABLE WHERE UPDATED < %u",(unsigned)then);
+#if NEIGHBOR_TABLE_ON_DISK
+	if (mDB == NULL) { return; }	// we already threw an ALERT.
+	char query[100];
+	snprintf(query,sizeof(query),"SELECT IPADDRESS FROM NEIGHBOR_TABLE WHERE UPDATED < %u",(unsigned)then);
 	sqlite3_stmt *stmt;
 	if (sqlite3_prepare_statement(mDB,&stmt,query)) {
 		LOG(ALERT) << "read of neighbor table failed: " << query;
@@ -246,48 +386,67 @@ void NeighborTable::refresh()
 			src = sqlite3_step(stmt);
 			continue;
 		}
-		struct sockaddr_in address;
-		if (!resolveAddress(&address, addrString)) {
-			LOG(ALERT) << "cannot resolve neighbor address " << addrString;
-			src = sqlite3_step(stmt);
-			continue;
-		}
-		LOG(INFO) << "sending neighbor param request to " << addrString;
-		gPeerInterface.sendNeighborParamsRequest(&address);
+		pingPeer(addrString);
 		src = sqlite3_step(stmt);
 	}
 	sqlite3_finalize(stmt);
+#else
+	for (NeighborTableMap::iterator mit = mNeighborMap.begin(); mit != mNeighborMap.end(); mit++) {
+		NeighborEntry &entry = mit->second;
+		if (entry.mUpdated < then)  {
+			pingPeer(entry.mIPAddress);
+		}
+	}
+#endif
 }
 
 
-string NeighborTable::getAddress(unsigned BCCH_FREQ_NCELL, unsigned BSIC)
+string NeighborTable::getAddress(unsigned arfcn, unsigned BSIC, string &whatswrong)
 {
-	if (mDB == NULL) { return string(""); }	// we already threw an ALERT.
+	LOG(DEBUG) <<LOGVAR(arfcn) <<LOGVAR(BSIC);
+	ScopedLock lock(mLock);
+	whatswrong = "unknown error";
+#if NEIGHBOR_TABLE_ON_DISK
+	if (mDB == NULL) {
+		whatswrong = "Neighbor Table not opened";
+		return string("");	// we already threw an ALERT.
+	}
 	// There is a potential race condition here where mARFCNList could have changed
-	// between the sending of SI5 and the receipt of the corresponding measurement report.
+	// between the sending of SysInfo2 or SysInfo5 and the receipt of the corresponding measurement report.
 	// That will not be a serious problem as long as BSICs are unique,
 	// which they should be.  The method will just return NULL.
 
-	LOG(DEBUG) << "BCCH_FREQ_NCELL=" << BCCH_FREQ_NCELL << " BSIC=" << BSIC;
 	string retVal;
-	char query[500];
-	int C0 = getARFCN(BCCH_FREQ_NCELL);
-	if (C0 < 0) return string("");
-	sprintf(query,"SELECT IPADDRESS FROM NEIGHBOR_TABLE WHERE BSIC=%d AND C0=%d",BSIC,C0);
+	char query[100];
+	snprintf(query,sizeof(query),"SELECT IPADDRESS FROM NEIGHBOR_TABLE WHERE BSIC=%d AND C0=%d",BSIC,arfcn);
 	LOG(DEBUG) << query;
 	sqlite3_stmt *stmt;
 	int prc = sqlite3_prepare_statement(mDB,&stmt,query);
 	if (prc) {
 		LOG(ALERT) << "cannot prepare statement for " << query;
+		whatswrong = "sqlite prepare failed";
 		return string("");	// (pat 7-30-2013)  This was formerly NULL, which crashes when executed.
 	}
 	int src = sqlite3_run_query(mDB,stmt);
 	if (src==SQLITE_ROW) {
 		const char* ptr = (const char*)sqlite3_column_text(stmt,0);
 		retVal = string(ptr);
+	} else {
+		whatswrong = "arfcn not found in sqlite NeighborTable";
 	}
 	sqlite3_finalize(stmt);
 	return retVal;
+#else
+	// Brute force search.
+	for (NeighborTableMap::iterator mit = mNeighborMap.begin(); mit != mNeighborMap.end(); mit++) {
+		NeighborEntry &entry = mit->second;
+		if ((int)arfcn == entry.mC0 && (int)BSIC == entry.mBSIC) {
+			return entry.mIPAddress;
+		}
+	}
+	whatswrong = format("arfcn %u not found in sqlite NeighborTable",arfcn);
+	return string("");
+#endif
 }
 
 /* Return the ARFCN given its position in the BCCH channel list.
@@ -306,58 +465,116 @@ int NeighborTable::getARFCN(unsigned BCCH_FREQ_NCELL)
 	return mARFCNList[BCCH_FREQ_NCELL];
 }
 
-
-
-void NeighborTable::holdOff(const char* address, unsigned seconds)
+int NeighborTable::getFreqIndexForARFCN(unsigned arfcn)
 {
+	ScopedLock lock(mLock);
+	int freqIndex = 0;
+	for (std::vector<unsigned>::iterator it = mARFCNList.begin(); it != mARFCNList.end(); it++, freqIndex++) {
+		if (*it == arfcn) return freqIndex;
+	}
+	return -1;	// Not found.
+}
+
+
+
+void NeighborTable::setHoldOff(string ipaddress, unsigned seconds)
+{
+	ScopedLock lock(mLock);
+#if NEIGHBOR_TABLE_ON_DISK
 	if (mDB == NULL) { return; }	// we already threw an ALERT.
-	assert(address);
-	LOG(DEBUG) << "address " << address << " seconds " << seconds;
+	assert(ipaddress.size());
+	LOG(DEBUG) <<LOGVAR(ipaddress) <<LOGVAR(seconds);
 
 	if (!seconds) return;
 
 	time_t holdoffTime = time(NULL) + seconds;
 	char query[200];
-	sprintf(query,"UPDATE NEIGHBOR_TABLE SET HOLDOFF=%lu WHERE IPADDRESS='%s'",
-		holdoffTime, address);
+	snprintf(query,sizeof(query),"UPDATE NEIGHBOR_TABLE SET HOLDOFF=%lu WHERE IPADDRESS='%s'",
+		holdoffTime, ipaddress.c_str());
 	if (!sqlite3_command(mDB,query)) {
 		LOG(ALERT) << "cannot access neighbor table";
 	}
+#else
+	NeighborTableMap::iterator mit = mNeighborMap.find(ipaddress);
+	if (mit == mNeighborMap.end()) {
+		LOG(NOTICE) << "Can not set holdoff for unknown IP address:"<<ipaddress;
+	}
+	NeighborEntry &entry = mit->second;
+	entry.mHoldoff = time(NULL) + seconds;
+#endif
 }
 
-void NeighborTable::holdOff(const struct sockaddr_in* peer, unsigned seconds)
+void NeighborTable::setHoldOff(const struct sockaddr_in* peer, unsigned seconds)
 {
-	if (mDB == NULL) { return; }	// we already threw an ALERT.
 	if (!seconds) return;
 
-	char addrString[256];
-	const char *ret = inet_ntop(AF_INET,&(peer->sin_addr),addrString,255);
-	if (!ret) {
+	string addrString = sockaddr2string(peer, false);
+	if (addrString.size() == 0) {
 		LOG(ERR) << "cannot parse peer socket address";
 		return;
 	}
-	return holdOff(addrString,seconds);
+	return setHoldOff(addrString,seconds);
 }
 
 
-bool NeighborTable::holdingOff(const char* address)
+bool NeighborTable::holdingOff(const char* ipaddress)
 {
+	ScopedLock lock(mLock);
+#if NEIGHBOR_TABLE_ON_DISK
 	if (mDB == NULL) { return true; }	// we already threw an ALERT.
 	unsigned holdoffTime;
-	if (!sqlite3_single_lookup(mDB,"NEIGHBOR_TABLE","IPADDRESS",address,"HOLDOFF",holdoffTime)) {
+	if (!sqlite3_single_lookup(mDB,"NEIGHBOR_TABLE","IPADDRESS",ipaddress,"HOLDOFF",holdoffTime)) {
 		LOG(ALERT) << "cannot read neighbor table";
 		return false;
 	}
 	time_t now = time(NULL);
-	LOG(DEBUG) << "hold-off time for " << address << ": " << holdoffTime << ", now: " << now;
+	LOG(DEBUG) << "hold-off time for " << ipaddress << ": " << holdoffTime << ", now: " << now;
 	return now < (time_t)holdoffTime;
+#else
+	NeighborEntry entry;
+	if (! ntFindByIP(ipaddress,&entry)) {
+		LOG(NOTICE) << "Can not find unknown IP address:"<<ipaddress;
+	}
+	return entry.getHoldoff() > 0;
+#endif
+}
+
+// This should be a library utility routine.
+template <typename T>
+static void uniquify(vector<T> &vec)
+{
+	if (vec.size() < 2) return;
+	unsigned i = 0, j = 1;
+	while (j < vec.size()-1) {
+		if (vec[i] != vec[j]) {
+			i++;
+			if (i != j) { vec[i] = vec[j]; }
+		}
+		j++;
+	}
+	// i indexes the new final element.
+	vec.resize(i+1);
+}
+
+template <typename T>
+static void rollLeft(vector<T> &vec)
+{
+	T first = vec.front();
+	for (unsigned i = 0; i < vec.size()-1; i++) {
+		vec[i] = vec[i+1];
+	}
+	vec.back() = first;
 }
 
 std::vector<unsigned> NeighborTable::getARFCNs() const
 {
-	char query[500];
+	ScopedLock lock(mLock);
 	vector<unsigned> bcchChannelList;
-	sprintf(query,"SELECT C0 FROM NEIGHBOR_TABLE WHERE BSIC > -1 ORDER BY UPDATED DESC LIMIT %lu", gConfig.getNum("GSM.Neighbors.NumToSend"));
+#if NEIGHBOR_TABLE_ON_DISK
+	char query[200];
+	// (pat) ORDER BY UPDATED looks wrong to me.
+	// 3GPP 44.018 10.5.2.20 says the ARFCNs are in increasing order of ARFCN, except that ARFCN 0 must appear last.
+	snprintf(query,sizeof(query),"SELECT C0 FROM NEIGHBOR_TABLE WHERE BSIC > -1 ORDER BY UPDATED DESC LIMIT %lu", gConfig.getNum("GSM.Neighbors.NumToSend"));
 	sqlite3_stmt *stmt;
 	int prc = sqlite3_prepare_statement(mDB,&stmt,query);
 	if (prc) {
@@ -371,11 +588,41 @@ std::vector<unsigned> NeighborTable::getARFCNs() const
 		src = sqlite3_step(stmt);
 	}
 	sqlite3_finalize(stmt);
+#else
+	int limit = gConfig.getNum("GSM.Neighbors.NumToSend");
+	for (NeighborTableMap::const_iterator mit = mNeighborMap.begin(); mit != mNeighborMap.end(); mit++) {
+		const NeighborEntry &entry = mit->second;
+		if (entry.mBSIC >= 0 && entry.mC0 >= 0) {	// Ignore entries for which the peer has not responded.
+			bcchChannelList.push_back(entry.mC0);
+		}
+		if ((int)bcchChannelList.size() >= limit) break;
+	}
+
+	if (bcchChannelList.size()) {
+		// Sort it.
+		sort(bcchChannelList.begin(),bcchChannelList.end());
+
+		// Eliminate duplicate ARFCNs.
+		uniquify(bcchChannelList);
+
+		// If first element is ARFCN 0, move it to the back.
+		if (bcchChannelList.size() >= 2 && bcchChannelList[0] == 0) {
+			rollLeft(bcchChannelList);
+		}
+	}
+	if (IS_LOG_LEVEL(DEBUG)) {
+		ostringstream ss;
+		ss << "bcchChannelList size="<<bcchChannelList.size() <<" content=";
+		for (vector<unsigned>::iterator it = bcchChannelList.begin(); it != bcchChannelList.end(); it++) { ss <<" "<<*it; }
+		LOG(DEBUG) << ss.str();
+	}
 	return bcchChannelList;
+#endif
 }
 
 
 
+#if unused
 int NeighborTable::getBCCSet() const
 {
 	int set = 0;
@@ -395,4 +642,71 @@ int NeighborTable::getBCCSet() const
 	sqlite3_finalize(stmt);
 	return set;
 }
+#endif
 
+string NeighborEntry::neC0PlusBSIC() const
+{
+	return format("%d:%d",(int)mC0,(int)mBSIC);
+}
+
+// How many seconds ago the value was updated, or 0.
+// This is only for display; it does not work for comparison, because 0 is not handled properly.
+long NeighborEntry::getUpdated() const
+{
+	if (mUpdated == 0) { return 0; }
+	long updated = time(NULL) - mUpdated;	// elapsed time since updated in seconds.
+	devassert(updated >= 0);		// This can not go negative because it is a time in the past.
+	return updated;
+}
+
+long NeighborEntry::getHoldoff() const
+{
+	if (mHoldoff == 0) { return 0; }
+	time_t now = time(NULL);
+	if (now > mHoldoff) { return 0; }	// holdoff time is passed.
+	return mHoldoff - now;		// seconds remaining.
+}
+
+void NeighborTable::getNeighborVector(std::vector<NeighborEntry> &nvec)
+{
+	ScopedLock lock(mLock);
+	nvec.clear();
+	for (NeighborTableMap::iterator mit = mNeighborMap.begin(); mit != mNeighborMap.end(); mit++) {
+		LOG(DEBUG) <<"Pushing IPaddr="<<mit->first <<" entry.mIPAddress="<<mit->second.mIPAddress;
+		nvec.push_back(mit->second);
+	}
+}
+
+bool NeighborTable::neighborCongestion(unsigned arfcn, unsigned bsic)
+{
+	return false;
+}
+
+static void runSomeTests()
+{
+	vector<int> foo;
+	foo.push_back(7);
+	foo.push_back(19);
+	foo.push_back(7);
+	foo.push_back(19);
+	foo.push_back(5);
+	foo.push_back(4);
+	foo.push_back(0);
+	foo.push_back(3);
+	foo.push_back(3);
+	foo.push_back(2);
+	foo.push_back(0);
+
+	for (vector<int>::iterator it = foo.begin(); it != foo.end(); it++) printf("%d ",*it);
+	printf("\n");
+
+	sort(foo.begin(),foo.end());
+	printf("after sort: "); for (vector<int>::iterator it = foo.begin(); it != foo.end(); it++) printf("%d ",*it);
+	printf("\n");
+	uniquify(foo);
+	printf("after uniquify: "); for (vector<int>::iterator it = foo.begin(); it != foo.end(); it++) printf("%d ",*it);
+	printf("\n");
+	rollLeft(foo);
+	printf("after rollLeft: "); for (vector<int>::iterator it = foo.begin(); it != foo.end(); it++) printf("%d ",*it);
+	printf("\n");
+}

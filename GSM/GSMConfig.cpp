@@ -1,7 +1,8 @@
 /*
 * Copyright 2008, 2009, 2010, 2014 Free Software Foundation, Inc.
+* Copyright 2014 Range Networks, Inc.
 *
-* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
+* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -12,10 +13,13 @@
 
 */
 
+#define LOG_GROUP LogGroup::GSM		// Can set Log.Level.GSM for debugging
+
 
 #include "GSMConfig.h"
 #include "GSMTransfer.h"
 #include "GSMLogicalChannel.h"
+#include "GSMCCCH.h"
 #include "GPRSExport.h"
 #include <ControlCommon.h>
 #include <Logger.h>
@@ -27,24 +31,41 @@
 
 using namespace std;
 using namespace GSM;
+using Control::L3LogicalChannel;
 
+extern void PagerStart();
+
+int GSM::gNumC7s, GSM::gNumC1s;	// Number of C7 and C1 timelots created.
+static bool testStart = false;	// Set this to try testing without the channels started.
 
 
 GSMConfig::GSMConfig()
 	:mCBCH(NULL),
-	mSI5Frame(UNIT_DATA),mSI6Frame(UNIT_DATA),
+	mSI5Frame(SAPI0Sacch,L3_UNIT_DATA),mSI6Frame(SAPI0Sacch,L3_UNIT_DATA),
 	mSI1(NULL),mSI2(NULL),mSI3(NULL),mSI4(NULL),
-	mSI5(NULL),mSI6(NULL),
+	mSI5(NULL),mSI6(NULL), mSI13(NULL),
 	mStartTime(::time(NULL)),
 	mChangemark(0)
 {
 }
 
-void GSMConfig::init() 
+void GSMConfig::gsmInit() 
 {
+	// (pat 3-2014) Because the changemark was always inited to 0, if you kill OpenBTS, change something that affects the beacon,
+	// and restart, the handsets do not know the beacon has changed.  We need the changemark to be persistent across restarts.
+	// As a sneaky dirty way to do this, I am putting it in the config database.
+	const char *GsmChangeMark = "GSM.ChangeMark";
+	if (gConfig.defines(GsmChangeMark)) {
+		mChangemark = gConfig.getNum(GsmChangeMark) % 8;
+	}
+
 	long changed = 0;
 	long band = gConfig.getNum("GSM.Radio.Band");
 	long c0 = gConfig.getNum("GSM.Radio.C0");
+
+	// We do not init this statically because it must be done after config options are inited.
+	gControlChannelDescription = new L3ControlChannelDescription();
+	gControlChannelDescription->validate();
 
 	// adjust to an appropriate band if C0 is bogus
 	if (c0 >= 128 && c0 <= 251 && band != 850) {
@@ -73,23 +94,19 @@ void GSMConfig::init()
 	}
 
 	mBand = (GSMBand)gConfig.getNum("GSM.Radio.Band");
-	mT3122 = gConfig.getNum("GSM.Timer.T3122Min");
  	regenerateBeacon();
 }
 
-void GSMConfig::start()
+void GSMConfig::gsmStart()
 {
-	mPowerManager.start();
-	// Do not call this until the paging channels are installed.
-	mPager.start();
 	// If requested, start gprs to allocate channels at startup.
 	// Otherwise, channels are allocated on demand, if possible.
-	if (GPRS::configGprsChannelsMin() > 0) {
+	if (GPRS::GPRSConfig::IsEnabled()) {
 		// Start gprs.
 		GPRS::gprsStart();
 	}
-	// Do not call this until AGCHs are installed.
-	mAccessGrantThread.start(Control::AccessGrantServiceLoop,NULL);
+	// Do not call this until the paging channels are installed.
+	PagerStart();
 
 	Control::l3start();	// (pat) For the L3 rewrite: start the L3 state machine dispatcher.
 }
@@ -99,10 +116,16 @@ void GSMConfig::start()
 
 void GSMConfig::regenerateBeacon()
 {
-	// FIXME -- Need to implement BCCH_CHANGE_MARK
+	// (pat) regenerateBeacon is called whenever there is a change to the config database.
+	// When we call gConfig.set() it would cause infinite recursion; this prevents that, albeit goofily.
+	// This is not safe in case someone later installs throws that jump over this.
+	static int noRecursionPlease = 0;
+	if (noRecursionPlease) return;
+	noRecursionPlease++;
 
 	gReports.incr("OpenBTS.GSM.RR.BeaconRegenerated");
 	mChangemark++;
+	gConfig.set("GSM.ChangeMark",mChangemark);
 
 	// Update everything from the configuration.
 	LOG(NOTICE) << "regenerating system information messages, changemark " << mChangemark;
@@ -127,7 +150,7 @@ void GSMConfig::regenerateBeacon()
 	if (mSI1) delete mSI1;
 	mSI1 = SI1;
 	LOG(INFO) << *SI1;
-	L3Frame SI1L3(UNIT_DATA,0);
+	L3Frame SI1L3(L3_UNIT_DATA,0);
 	SI1->write(SI1L3);
 	L2Header SI1Header(L2Length(SI1L3.L2Length()));
 	mSI1Frame = L2Frame(SI1Header,SI1L3);
@@ -138,7 +161,7 @@ void GSMConfig::regenerateBeacon()
 	if (mSI2) delete mSI2;
 	mSI2 = SI2;
 	LOG(INFO) << *SI2;
-	L3Frame SI2L3(UNIT_DATA,0);
+	L3Frame SI2L3(L3_UNIT_DATA,0);
 	SI2->write(SI2L3);
 	L2Header SI2Header(L2Length(SI2L3.L2Length()));
 	mSI2Frame = L2Frame(SI2Header,SI2L3);
@@ -149,7 +172,7 @@ void GSMConfig::regenerateBeacon()
 	if (mSI3) delete mSI3;
 	mSI3 = SI3;
 	LOG(INFO) << *SI3;
-	L3Frame SI3L3(UNIT_DATA,0);
+	L3Frame SI3L3(L3_UNIT_DATA,0);
 	SI3->write(SI3L3);
 	L2Header SI3Header(L2Length(SI3L3.L2Length()));
 	mSI3Frame = L2Frame(SI3Header,SI3L3,true);
@@ -161,7 +184,7 @@ void GSMConfig::regenerateBeacon()
 	mSI4 = SI4;
 	LOG(INFO) << *SI4;
 	LOG(INFO) << SI4;
-	L3Frame SI4L3(UNIT_DATA,0);
+	L3Frame SI4L3(L3_UNIT_DATA,0);
 	SI4->write(SI4L3);
 	//printf("SI4 bodylength=%d l2len=%d\n",SI4.l2BodyLength(),SI4L3.L2Length());
 	//printf("SI4L3.size=%d\n",SI4L3.size());
@@ -171,17 +194,20 @@ void GSMConfig::regenerateBeacon()
 
 #if GPRS_PAT | GPRS_TEST
 	// SI13. pat added 8-2011 to advertise GPRS support.
-	L3SystemInformationType13 *SI13 = new L3SystemInformationType13;
-	LOG(INFO) << *SI13;
-	L3Frame SI13L3(UNIT_DATA,0);
-	//printf("start=%d\n",SI13L3.size());
-	SI13->write(SI13L3);
-	//printf("end=%d\n",SI13L3.size());
-	//printf("SI13 bodylength=%d l2len=%d\n",SI13.l2BodyLength(),SI13L3.L2Length());
-	//printf("SI13L3.size=%d\n",SI13L3.size());
-	L2Header SI13Header(L2Length(SI13L3.L2Length()));
-	mSI13Frame = L2Frame(SI13Header,SI13L3,true);
-	LOG(DEBUG) << "mSI13Frame " << mSI13Frame;
+	if (mSI13) { delete mSI13; mSI13 = NULL; }
+	if (GPRS::GPRSConfig::IsEnabled()) {
+		mSI13 = new L3SystemInformationType13;
+		LOG(INFO) << *mSI13;
+		L3Frame SI13L3(L3_UNIT_DATA,0);
+		//printf("start=%d\n",SI13L3.size());
+		mSI13->write(SI13L3);
+		//printf("end=%d\n",SI13L3.size());
+		//printf("SI13 bodylength=%d l2len=%d\n",SI13.l2BodyLength(),SI13L3.L2Length());
+		//printf("SI13L3.size=%d\n",SI13L3.size());
+		L2Header SI13Header(L2Length(SI13L3.L2Length()));
+		mSI13Frame = L2Frame(SI13Header,SI13L3,true);
+		LOG(DEBUG) << "mSI13Frame " << mSI13Frame;
+	}
 #endif
 
 	// SI5
@@ -195,6 +221,7 @@ void GSMConfig::regenerateBeacon()
 	SI6->write(mSI6Frame);
 	LOG(DEBUG) "mSI6Frame " << mSI6Frame;
 
+	noRecursionPlease--;
 }
 
 
@@ -211,27 +238,8 @@ void GSMConfig::regenerateSI5()
 	LOG(DEBUG) << "mSI5Frame " << mSI5Frame;
 }
 
-CCCHLogicalChannel* GSMConfig::minimumLoad(CCCHList &chanList)
-{
-	if (chanList.size()==0) return NULL;
-	CCCHList::iterator chan = chanList.begin();
-	CCCHLogicalChannel *retVal = *chan;
-	unsigned minLoad = (*chan)->load();
-	++chan;
-	while (chan!=chanList.end()) {
-		unsigned thisLoad = (*chan)->load();
-		if (thisLoad<minLoad) {
-			minLoad = thisLoad;
-			retVal = *chan;
-		}
-		++chan;
-	}
-	return retVal;
-}
-
-
-
-
+size_t GSMConfig::AGCHLoad() { return getAGCHLoad(); }
+size_t GSMConfig::PCHLoad() { return getPCHLoad(); }
 
 
 template <class ChanType> ChanType* getChan(vector<ChanType*>& chanList, bool forGprs)
@@ -273,7 +281,7 @@ bool testAdjacent(ChanType *ch1, ChanType *ch2)
 	return (ch1->CN() == ch2->CN() && ch1->TN() == ch2->TN()-1);
 }
 
-// Return the goodness of this possible match of gprs channels.
+// (pat) Return the goodness of this possible match of gprs channels.
 // Higher numbers are gooder.
 template <class ChanType>
 int testGoodness(vector<ChanType*>& chanList, int lo, int hi)
@@ -355,12 +363,12 @@ static unsigned getChanGroup(vector<ChanType*>& chanList, ChanType **results)
 
 // Allocate a group of channels for gprs.
 // See comments at getChanGroup.
-int GSMConfig::getTCHGroup(int groupSize,TCHFACCHLogicalChannel **results)
+int GSMConfig::getTCHGroup(int /* unused groupSize*/,TCHFACCHLogicalChannel **results)
 {
 	ScopedLock lock(mLock);
 	int nfound = getChanGroup<TCHFACCHLogicalChannel>(mTCHPool,results);
 	for (int i = 0; i < nfound; i++) {
-		results[i]->debugGetL1()->setGPRS(true,NULL);
+		results[i]->lcGetL1()->setGPRS(true,NULL);
 	}
 	return nfound;
 }
@@ -371,19 +379,16 @@ int GSMConfig::getTCHGroup(int groupSize,TCHFACCHLogicalChannel **results)
 
 SDCCHLogicalChannel *GSMConfig::getSDCCH()
 {
-	LOG(DEBUG);
 	ScopedLock lock(mLock);
-	LOG(DEBUG);
 	SDCCHLogicalChannel *chan = getChan<SDCCHLogicalChannel>(mSDCCHPool,0);
-	LOG(DEBUG);
-	if (chan) chan->open();
-	LOG(DEBUG);
+	if (chan) chan->lcinit();
+	LOG(DEBUG) <<chan;
 	return chan;
 }
 
 
-// (pat) By a very tortuous path, chan->open() calls L1Encoder::open() and L1Decoder::open(),
-// which sets mActive in both and resets the timers.
+// 6-2014 pat: The channel is now returned with T3101 running but un-started, which means it is not yet transmitting.
+// The caller is responsible for setting the Timing Advance and then starting it.
 TCHFACCHLogicalChannel *GSMConfig::getTCH(
 	bool forGPRS,	// If true, allocate the channel to gprs, else to RR use.
 	bool onlyCN0)	// If true, allocate only channels on the lowest ARFCN.
@@ -409,11 +414,11 @@ TCHFACCHLogicalChannel *GSMConfig::getTCH(
 		if (onlyCN0 && chan->CN()) { return NULL; }
 		if (forGPRS) {
 			// (pat) Reserves channel for GPRS, but does not start delivering bursts yet.
-			chan->debugGetL1()->setGPRS(true,NULL);
+			chan->lcGetL1()->setGPRS(true,NULL);
 			return chan;
 		}
-		chan->open();	// (pat) LogicalChannel::open();  Opens mSACCH also.  Starts T3101.
 		gReports.incr("OpenBTS.GSM.RR.ChannelAssignment");
+		chan->lcinit();
 	} else {
 		//LOG(DEBUG)<<"getTCH returns NULL";
 	}
@@ -445,16 +450,6 @@ size_t GSMConfig::TCHAvailable() const
 {
 	ScopedLock lock(mLock);
 	return chanAvailable<TCHFACCHLogicalChannel>(mTCHPool);
-}
-
-
-size_t GSMConfig::totalLoad(const CCCHList& chanList) const
-{
-	size_t total = 0;
-	for (unsigned i=0; i<chanList.size(); i++) {
-		total += chanList[i]->load();
-	}
-	return total;
 }
 
 
@@ -511,37 +506,6 @@ unsigned GSMConfig::TCHTotal() const
 }
 
 
-
-
-unsigned GSMConfig::T3122() const
-{
-	ScopedLock lock(mLock);
-	return mT3122;
-}
-
-unsigned GSMConfig::growT3122()
-{
-	unsigned max = gConfig.getNum("GSM.Timer.T3122Max");
-	ScopedLock lock(mLock);
-	unsigned retVal = mT3122;
-	mT3122 += (random() % mT3122) / 2;
-	if (mT3122>(int)max) mT3122=max;
-	return retVal;
-}
-
-
-unsigned GSMConfig::shrinkT3122()
-{
-	unsigned min = gConfig.getNum("GSM.Timer.T3122Min");
-	ScopedLock lock(mLock);
-	unsigned retVal = mT3122;
-	mT3122 -= (random() % mT3122) / 2;
-	if (mT3122<(int)min) mT3122=min;
-	return retVal;
-}
-
-
-
 void GSMConfig::createCombination0(TransceiverManager& TRX, unsigned TN)
 {
 	// This channel is a dummy burst generator.
@@ -562,9 +526,80 @@ void GSMConfig::createCombinationI(TransceiverManager& TRX, unsigned CN, unsigne
 	TCHFACCHLogicalChannel* chan = new TCHFACCHLogicalChannel(CN,TN,gTCHF_T[TN]);
 	chan->downstream(radio);
 	Thread* thread = new Thread;
-	thread->start((void*(*)(void*))Control::DCCHDispatcher,chan);
-	chan->open();
+	thread->start((void*(*)(void*))Control::DCCHDispatcher,dynamic_cast<L3LogicalChannel*>(chan));
+	chan->lcinit();
+	if (CN == 0 && !testStart) chan->lcstart();	// Everything on C0 must broadcast continually.
 	gBTS.addTCH(chan);
+}
+
+class Beacon {};
+
+
+// Combination-5 beacon has 3 x CCCH + 4 x SDCCH.
+// There can be only one Combination 5 beacon, always on timeslot 0.
+class BeaconC5 : public Beacon {
+	SCHL1FEC SCH;
+	FCCHL1FEC FCCH;
+	BCCHL1FEC BCCH;
+	RACHL1FEC *RACH;
+	CCCHLogicalChannel *CCCH;
+	CBCHLogicalChannel *CBCH;
+	Thread CBCHControlThread;
+	SDCCHLogicalChannel *C0T0SDCCH[4];
+	Thread C0T0SDCCHControlThread[4];
+
+	public:
+	BeaconC5(ARFCNManager *radio)
+	{
+		LOG(DEBUG);
+		unsigned TN = 0;
+		radio->setSlot(TN,5);
+		SCH.downstream(radio);
+		SCH.l1open();
+		FCCH.downstream(radio);
+		FCCH.l1open();
+		BCCH.downstream(radio);
+		BCCH.l1open();
+		RACH = new RACHL1FEC(gRACHC5Mapping,0);
+		RACH->downstream(radio);
+		RACH->l1open();
+		CCCH = new CCCHLogicalChannel(0, gCCCH_C5Mapping);	// Always ccch_grooup == 0
+		CCCH->downstream(radio);
+		CCCH->ccchOpen();
+		// C-V C0T0 SDCCHs
+		C0T0SDCCH[0] = new SDCCHLogicalChannel(0,0,gSDCCH_4_0);
+		C0T0SDCCH[1] = new SDCCHLogicalChannel(0,0,gSDCCH_4_1);
+		C0T0SDCCH[2] = new SDCCHLogicalChannel(0,0,gSDCCH_4_2);
+		C0T0SDCCH[3] = new SDCCHLogicalChannel(0,0,gSDCCH_4_3);
+
+		// Subchannel 2 used for CBCH if SMSCB enabled.
+		bool SMSCB = (gConfig.getStr("Control.SMSCB.Table").length() != 0);
+		for (int i=0; i<4; i++) {
+			if (SMSCB && (i==2)) continue;
+			C0T0SDCCH[i]->downstream(radio);
+			C0T0SDCCHControlThread[i].start((void*(*)(void*))Control::DCCHDispatcher,dynamic_cast<L3LogicalChannel*>(C0T0SDCCH[i]));
+			C0T0SDCCH[i]->lcinit();
+			C0T0SDCCH[i]->lcstart();	// Everything on channel 0 needs to broadcast constantly.
+			gBTS.addSDCCH(C0T0SDCCH[i]);
+		}
+		// Install CBCH if used.
+		// It writes on SDCCH4.
+		if (SMSCB) {
+			LOG(INFO) << "creating CBCH for SMSCB";
+			CBCH = new CBCHLogicalChannel(gSDCCH_4_2);
+			CBCH->downstream(radio);
+			CBCH->lcopen();
+			gBTS.addCBCH(CBCH);
+			CBCHControlThread.start((void*(*)(void*))Control::SMSCBSender,NULL);
+		}
+	}
+};
+
+
+
+void GSMConfig::createBeacon(ARFCNManager *radio)
+{
+	new BeaconC5(radio);
 }
 
 
@@ -578,116 +613,26 @@ void GSMConfig::createCombinationVII(TransceiverManager& TRX, unsigned CN, unsig
 		SDCCHLogicalChannel* chan = new SDCCHLogicalChannel(CN,TN,gSDCCH8[i]);
 		chan->downstream(radio);
 		Thread* thread = new Thread;
-		thread->start((void*(*)(void*))Control::DCCHDispatcher,chan);
-		chan->open();
+		thread->start((void*(*)(void*))Control::DCCHDispatcher,dynamic_cast<L3LogicalChannel*>(chan));
+		chan->lcinit();
+		if (CN == 0 && !testStart) chan->lcstart();	// Everything on C0 must broadcast continually.
 		gBTS.addSDCCH(chan);
 	}
 }
 
 
-void GSMConfig::hold(bool val)
+void GSMConfig::setBtsHold(bool val)
 {
 	ScopedLock lock(mLock);
 	mHold = val;
 }
 
-bool GSMConfig::hold() const
+bool GSMConfig::btsHold() const
 {
 	ScopedLock lock(mLock);
 	return mHold;
 }
 
-
-
-#if ENABLE_PAGING_CHANNELS
-
-// 5-27-2012 pat added:
-// Routines for CCCH messages to add real paging channels.
-// Added in the simplest possible way to avoid destabilizing anything.
-// GPRS still needs a pretty major rewrite of the underlying CCCHLogicalChannel class
-// to reduce the latency, but paging queues at least relieve the congestion on CCCH.
-// In DRX [Discontinuous Reception] mode the MS listens only to a subset of CCCH based on its IMSI.
-// This is a GPRS thing but dependent on the configuration of CCCH in our system.
-// See: GSM 05.02 6.5.2: Determination of CCCH_GROUP and PAGING_GROUP for MS in idle mode.
-void GSMConfig::crackPagingFromImsi(	
-	unsigned imsiMod1000	// The phones imsi mod 1000, so just atoi the last 3 digits.
-	unsigned &paging_block_index,	// Returns which of the paging ccchs to use.
-	unsigned &multiframe_index	// Returns which 51-multiframe to use.
-	)
-{
-	L3ControlChannelDescription mCC;
-
-	// BS_CCCH_SDCCH_COMB is defined in GSM 05.02 3.3.2.3;
-	int bs_cc_chans;			// The number of ccch timeslots per 51-multiframe.
-	bool bs_ccch_sdcch_comb;	// temp var indicates if sdcch is on same TS as ccch.
-	switch (mCC.mCCCH_CONF) {
-	case 0: bs_cc_chans=1; bs_ccch_sdcch_comb=false; break;
-	case 1: bs_cc_chans=1; bs_ccch_sdcch_comb=true; break;
-	case 2: bs_cc_chans=2; bs_ccch_sdcch_comb=false; break;
-	case 4: bs_cc_chans=3; bs_ccch_sdcch_comb=false; break;
-	case 6: bs_cc_chans=4; bs_ccch_sdcch_comb=false; break;
-	default:
-		LOG(ERR) << "Invalid GSM.CCCH.CCCH-CONF value:"<<mCC.mCCCH_CONF <<" GPRS will fail until fixed";
-		return NULL;	// There will be no reliable GPRS service until you fix this.
-	}
-
-	// BS_PA_MFRMS is the number of 51-multiframes used for paging.
-	unsigned bs_pa_mfrms = mCC.getBS_PA_MFRMS();
-
-	// Here are some example numbers:
-	// We currently use CCCH_CONF=1 so cc_chans=1, so agch_avail=3.
-	// Since BS_CC_CHANS=1, then CCCH_GROUP is always 0.
-	// For BS_PA_MFRMS=2, BS_AG_BLKS_RES=2:
-	//	N=2; tmp = imsi % 2; CCCH_GROUP = 0; PAGING_GROUP = imsi % 2;
-	// For BS_PA_MFRMS=2, BS_AG_BLKS_RES=1:
-	//	N=4; tmp = imsi % 4; PAGING_GROUP = imsi % 4;
-	// For BS_PA_MFRMS=2, BS_AG_BLKS_RES=0:
-	//	N=6; tmp = imsi % 6; PAGING_GROUP = imsi % 6;
-	// For BS_PA_MFRMS=3, BS_AG_BLKS_RES=0:
-	//	N=9; tmp = imsi % 9; PAGING_GROUP = imsi % 9;
-	// Paging block index = PAGING_GROUP % BS_PA_MFRMS
-	// Multiframe index = PAGING_GROUP / pch_avail;
-	// correct multiframe when: multiframe_index == (FN div 51) % BA_PA_MFRMS
-
-	// From GSM 05.02 Clause 7 table 5 (located after sec 6.5)
-	unsigned agch_avail = bs_ccch_sdcch_comb ? 3 : 8;
-	// If you hit this assertion, go fix L3ControlChannelDescription
-	// to make sure you leave some paging channels available.
-	assert(agch_avail > mPCC.mBS_AG_BLKS_RES);
-
-	// GSM 05.02 6.5.2: N is number of paging blocks "available" on one CCCH.
-	// The "available" is in quotes and not specifically defined, but I believe
-	// they mean after subtracting out BS_AG_BLKS_RES, as per 6.5.1 paragraph v).
-	unsigned pch_avail = agch_avail - mPCC.mBS_AG_BLKS_RES;
-	unsigned Ntotal = pch_avail * bs_pa_mfrms;
-	unsigned tmp = (imsiMod1000 % (bs_cc_chans * Ntotal)) % Ntotal;
-	unsigned paging_group = tmp % Ntotal;
-	paging_block_index = paging_group / (Ntotal / bs_pa_mfrms);
-	// And I quote: The required 51-multiframe occurs when:
-	// PAGING_GROUP div (N div BS_PA_MFRMS) = (FN div 51) mod (BS_PA_MFRMS)
-	multiframe_index = paging_group / (Ntotal % bs_pa_mfrms); 
-}
-
-void GSMConfig::sendPCH(const L3RRMessage& msg,unsigned imsiMod1000)
-{
-	unsigned paging_block_index;	// which of the paging ccchs to use.
-	unsigned multiframe_index;	// which 51-multiframe to use.
-	crackPagingFromImsi(imsiMod1000,paging_block_index, multiframe_index);
-	assert(multiframe_index < sMax_BS_PA_MFRMS);
-	CCCHLogicalChannel* ch = getPCH(paging_block_index);
-	ch->mPagingQ[multiframe_index].write(new L3Frame((const L3Message&)msg,UNIT_DATA,0));
-}
-
-Time GSMConfig::getPchSendTime(imsiMod1000)
-{
-	unsigned paging_block_index;	// which of the paging ccchs to use.
-	unsigned multiframe_index;	// which 51-multiframe to use.
-	crackPagingFromImsi(imsiMod1000,paging_block_index, multiframe_index);
-	assert(multiframe_index < sMax_BS_PA_MFRMS);
-	CCCHLogicalChannel* ch = getPCH(paging_block_index);
-	return ch->getNextPchSendTime(multiframe_index);
-}
-#endif
 
 // (pat) Return a vector of the available channels.
 // Use to avoid publishing these iterators to the universe.

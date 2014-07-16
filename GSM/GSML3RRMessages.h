@@ -3,8 +3,9 @@
 /*
 * Copyright 2008, 2010 Free Software Foundation, Inc.
 * Copyright 2011 Kestrel Signal Processing, Inc.
+* Copyright 2014 Range Networks, Inc.
 *
-* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
+* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -259,6 +260,9 @@ class L3PagingResponse : public L3RRMessageNRO {
 
 
 
+// (pat 4-2014) The RACH timing from some handsets does not match the spec values of S and T in 4.08 3.3,
+// so I verified in wireshark that the L3RACHControlParameters are sent correctly in all SysInfo messages.
+// My thought was that maybe it was wrong in one of the SysInfo messages which might cause intermittently incorrect RACH behavior.
 
 
 /**
@@ -582,10 +586,13 @@ private:
 	// Used for Packet uplink/downlink assignment messages, which, when transmitted
 	// on CCCH, appear in the rest octets of the Immediate Assignment message.
 	struct L3IARestOctets mIARestOctets;
+	Bool_z mStartTimePresent;
+	uint32_t mStartTimeFrame;
 
 
 public:
 	size_t restOctetsLength() const { return (mIARestOctets.lengthBits()+7)/8; }
+	void setStartFrame(uint32_t wStartFrame) { mStartTimePresent = true; mStartTimeFrame = wStartFrame; }
 
 
 	L3ImmediateAssignment(
@@ -610,9 +617,9 @@ public:
 		// 3: request reference
 		// 1: timing advance
 		// 1-9: Mobile Allocation (not implemented, so just 1 byte)
-		// 0: starting time, not implemented
+		// 0-3: starting time if present.
 		// = 9 total bytes.
-		return 9;
+		return 9 + (mStartTimePresent ? 3 : 0);
 	}
 
 	// (pat) Return the PacketAssignment part of the message for the client to fill in.
@@ -628,6 +635,7 @@ public:
 	//                      mL2Length(wPrimitive) { L3Message msg.write(); }
 	// L3Message::write() calls writeBody()
 
+	void writeStartTime(L3Frame& dest, size_t &wp) const;
 	void writeBody(L3Frame &dest, size_t &wp) const;
 	void text(std::ostream&) const;
 };
@@ -651,6 +659,9 @@ public:
 		mWaitIndication(seconds)
 	{ mRequestReference.push_back(wRequestReference); }
 
+	void addReject(const L3RequestReference& wRequestReference) { mRequestReference.push_back(wRequestReference); }
+	void setWaitTime(unsigned seconds) { mWaitIndication.mValue = seconds; }
+
 	int MTI() const { return (int)ImmediateAssignmentReject; }
 
 	size_t l2BodyLength() const { return 17; }
@@ -669,7 +680,7 @@ class L3ChannelRelease : public L3RRMessageNRO {
 
 private:
 
-	L3RRCause mRRCause;
+	L3RRCauseElement mRRCause;
 	// 3GPP 44.018 10.5.2.14c GPRS Resumption.
 	// It is one bit to specify to the MS whether GPRS services should resume.
 	// Kinda important.
@@ -679,7 +690,7 @@ private:
 public:
 	
 	/** The default cause is 0x0, "normal event". */
-	L3ChannelRelease(const L3RRCause& cause = L3RRCause(L3RRCause::NormalEvent))
+	L3ChannelRelease(const RRCause cause = L3RRCause::Normal_Event)
 		:L3RRMessageNRO(),mRRCause(cause),mGprsResumptionPresent(0)
 	{}
 
@@ -776,13 +787,13 @@ class L3AssignmentComplete : public L3RRMessageNRO {
 
 	private:
 
-	L3RRCause mCause;
+	L3RRCauseElement mCause;
 
 	public:
 
 	///@name Accessors.
 	//@{
-	const L3RRCause& cause() const { return mCause; }
+	const L3RRCauseElement& cause() const { return mCause; }
 	//@}
 
 	int MTI() const { return (int) AssignmentComplete; }
@@ -799,13 +810,13 @@ class L3AssignmentFailure : public L3RRMessageNRO {
 
 	private:
 
-	L3RRCause mCause;
+	L3RRCauseElement mCause;
 
 	public:
 
 	///@name Accessors.
 	//@{
-	const L3RRCause& cause() const { return mCause; }
+	const L3RRCauseElement& cause() const { return mCause; }
 	//@}
 
 	int MTI() const { return (int) AssignmentFailure; }
@@ -822,13 +833,13 @@ class L3RRStatus : public L3RRMessageNRO {
 
 	private:
 
-	L3RRCause mCause;
+	L3RRCauseElement mCause;
 
 	public:
 
 	///@name Accessors.
 	//@{
-	const L3RRCause& cause() const { return mCause; }
+	const L3RRCauseElement& cause() const { return mCause; }
 	//@}
 
 	int MTI() const { return (int) RRStatus; }
@@ -1097,7 +1108,7 @@ class L3HandoverComplete : public L3RRMessageNRO {
 
 	protected:
 
-	L3RRCause mCause;
+	L3RRCauseElement mCause;
 
 	public:
 
@@ -1107,7 +1118,7 @@ class L3HandoverComplete : public L3RRMessageNRO {
 	void parseBody(const L3Frame&, size_t&);
 	void text(std::ostream&) const;
 
-	const L3RRCause& cause() const { return mCause; }
+	const L3RRCauseElement& cause() const { return mCause; }
 };
 
 
@@ -1117,7 +1128,7 @@ class L3HandoverFailure : public L3RRMessageNRO {
 
 	protected:
 
-	L3RRCause mCause;
+	L3RRCauseElement mCause;
 
 	public:
 
@@ -1127,7 +1138,7 @@ class L3HandoverFailure : public L3RRMessageNRO {
 	void parseBody(const L3Frame&, size_t&);
 	void text(std::ostream&) const;
 
-	const L3RRCause& cause() const { return mCause; }
+	const L3RRCauseElement& cause() const { return mCause; }
 };
 
 

@@ -3,7 +3,7 @@
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -20,7 +20,6 @@
 
 #include "SIPUtility.h"
 #include "SIPBase.h"
-#include "SIPDialog.h"
 #include "SIP2Interface.h"
 #include "SIPMessage.h"
 #include "SIPTransaction.h"
@@ -96,19 +95,29 @@ void SipTransaction::stWrite(SipMessage *sipmsg)
 void SipTransaction::sendSimpleMessage(DialogState::msgState wInfo, int code)
 {
 	DialogMessage *dmsg = new DialogMessage(mstTranId,wInfo,code);
-	NewTransactionTable_ttAddMessage(mstTranId,dmsg);
+	SipCallbacks::ttAddMessage(mstTranId,dmsg);
 }
 
 void SipTransaction::sendAuthFailMessage(int code, string rand, string gsmRejectCode)
 {
+	devassert(mstTranId);
+	// The tran id is 0 for unregister messages.  If one of those gets this far it is a bug.
+	if (! mstTranId) { return; }
+
 	DialogChallengeMessage *dmsg = new DialogChallengeMessage(mstTranId, DialogState::dialogFail,code);
 	dmsg->dmRand = rand;
 	dmsg->dmRejectCause = atoi(gsmRejectCode.c_str());
-	NewTransactionTable_ttAddMessage(mstTranId,dmsg);
+	devassert(mstTranId);
+	// The tran id is 0 for unregister messages.  If one of those gets this far it is a bug.
+	if (mstTranId) { SipCallbacks::ttAddMessage(mstTranId,dmsg); }
 }
 
 void SipTransaction::sendAuthOKMessage(SipMessage *sipmsg)
 {
+	devassert(mstTranId);
+	// The tran id is 0 for unregister messages.  If one of those gets this far it is a bug.
+	if (! mstTranId) { return; }
+
 	string imsi = sipmsg->msmTo.uriUsername(); // The To: and From: have the same value for a REGISTER message.
 	// Validate the imsi:
 	if (imsi.empty()) {
@@ -155,13 +164,14 @@ void SipTransaction::sendAuthOKMessage(SipMessage *sipmsg)
 		LOG(NOTICE) << "No Kc in SIP REGISTER response:"<<sipmsg->msmContent;
 	}
 
-	NewTransactionTable_ttAddMessage(mstTranId,dmsg);
+	//NewTransactionTable_ttAddMessage(mstTranId,dmsg);
+	SipCallbacks::ttAddMessage(mstTranId,dmsg);
 }
 
 // The cause is not currently used.
 void SipTransaction::stSetDialogState(SipState newState, int code, char timer) const
 {
-	if (SipDialog *dialog = mstDialog) {
+	if (SipDialog *dialog = mstDialog.self()) {
 		dialog->dialogPushState(newState,code,timer);
 	}
 }
@@ -277,6 +287,8 @@ bool SipClientTrLayer::TLWriteHighSideV(SipMessage *sipmsg)
 }
 
 // This only gets called once.
+// Looks like it never gets called SVG
+// Outbound
 void SipClientTrLayer::TLWriteLowSideV(SipMessage *request)
 {
 	LOG(DEBUG);
@@ -289,9 +301,10 @@ void SipClientTrLayer::TLWriteLowSideV(SipMessage *request)
 	mstState = stCallingOrTrying;
 }
 
-void SipClientTrLayer::sctInitRegisterClientTransaction(SipDialog *wDialog, SipMessage *request, string branch)
+void SipClientTrLayer::sctInitRegisterClientTransaction(SipDialog *wRegistrar, TranEntryId tid, SipMessage *request, string branch)
 {
-	stInitInDialogTransaction(wDialog, branch, request);	// Do this first.
+	//stInitInDialogTransaction(wDialog, branch, request);	// Do this first.
+	stInitNonDialogTransaction(tid, branch,request,wRegistrar->dsPeer());
 	mstOutRequest = *request;
 }
 
@@ -518,94 +531,70 @@ bool SipClientTrLayer::TLPeriodicServiceV()
 
 // ===========================================================================================
 
-//static void stashAuthInfo(SipMessage *sipmsg)
-//{
-//	string imsi = sipmsg->msmTo.uriUsername(); // The To: and From: have the same value for a REGISTER message.
-//	// Validate the imsi:
-//	if (imsi.empty()) {
-//		LOG(ERR) << "can't find imsi to store kc";
-//		return;
-//	}
-//	if (0 == strncasecmp(imsi.c_str(),"imsi",4)) {
-//		// happiness
-//	} else if (0 == strncasecmp(imsi.c_str(),"tmsi",4)) {
-//		// TODO: In future the user name could be a TMSI.
-//		LOG(ERR) << "SIP REGISTER message with TMSI not supported, userid="<<imsi;
-//		return;
-//	} else {
-//		LOG(ERR) << "SIP REGISTER message with invalid IMSI:"<<imsi<<" Message:"<<sipmsg->msmContent;
-//		return;
-//	}
-//
-//	string pAssociatedUri = sipmsg->msmHeaders.paramFind("P-Associated-URI");	// case doesnt matter
-//	string pAssertedIdentity = sipmsg->msmHeaders.paramFind("P-Asserted-Identity");
-//
-//	string authinfo = sipmsg->msmHeaders.paramFind("Authentication-Info");
-//	if (authinfo.empty()) {
-//		LOG(NOTICE) << "No Authenticate-Info in SIP REGISTER response:"<<sipmsg->msmContent;
-//		return;
-//	}
-//
-//	SipParamList params;
-//	parseToParams(authinfo, params);
-//	string kc = params.paramFind("cnonce"); // This is the way SR passes the Kc.
-//	if (kc.empty()) {
-//		kc = sipmsg->msmHeaders.paramFind("P-GSM-Kc"); // This is the way Yate passes the Kc.
-//	}
-//	WATCHF("CNONCE: imsi=%s Kc=%s\n",imsi.c_str(),kc.c_str());
-//	if (! kc.empty()) {
-//		LOG(DEBUG) << "Storing Kc:"<<LOGVAR(imsi)<<LOGVAR(kc.size());	// We dont put Kc itself in the log.
-//		fixme
-//		gTMSITable.putKc(imsi.c_str()+4, kc, pAssociatedUri, pAssertedIdentity);
-//	} else {
-//		LOG(NOTICE) << "No Kc in SIP REGISTER response:"<<sipmsg->msmContent;
-//	}
-//}
 
 // It is hardly worth the effort to make a transaction for REGISTER, which occurs outside a dialog
 // and has only one reply, but we need to know when to destroy it.
-void SipRegisterTU::TUWriteHighSideV(SipMessage *sipmsg) {
+// Note: The registrar may return messages, which we must ignore for the Unregister case since there is no transaction to receive them.
+void SipRegisterTU::TUWriteHighSideV(SipMessage *sipmsg)
+{
 	int code = sipmsg->msmCode;
 	static const char *pRejectCauseHeader = "P-GSM-Reject-Cause";
+	static const char *whatami = stKind == KindRegister ? "SIP Register " : "SIP UnRegister ";
 	LOG(DEBUG) <<LOGVAR(code);
 	if (code == 0) {
 		// A register transaction does not receive any requests.
-		LOG(ERR) << "Register SIP TU received unexpected message:"<<sipmsg;
+		LOG(ERR) << whatami <<"received unexpected message:"<<sipmsg;
 		stDestroyV();
 	} else if (code == 401) {
 		//setDialogState(Fail,sipmsg);
-		sendAuthFailMessage(code,sipmsg->smGetRand401(),sipmsg->msmHeaders.paramFind(pRejectCauseHeader));
+		LOG(INFO) <<whatami <<"received:"<<sipmsg;
+		if (stKind == KindRegister) {
+			sendAuthFailMessage(code,sipmsg->smGetRand401(),sipmsg->msmHeaders.paramFind(pRejectCauseHeader));
+		}
 		setTransactionState(stCompleted);
 	} else if (code == 200) {
 		// (pat) We can no longer stash Kc directly in the TMSI table because the entry is not created until the MS is validated.
-		//stashAuthInfo(sipmsg); // Stash the Kc from the message.
-		sendAuthOKMessage(sipmsg);
+		if (stKind == KindRegister) {
+			sendAuthOKMessage(sipmsg);
+		}
 	} else switch ((code/100) * 100) {
-		// These SetDialogState are really only for in-dialog messages.
 		case 100: return;	// we dont care.
-		case 200: LOG(ERR) << "invalid SIP REGISTER code:"<<code;	// Code in the range 201-299 is allegedly impossible.
+		case 200: LOG(ERR) <<whatami<<"received invalid code:"<<code <<" in message:"<<sipmsg;	// Code in the range 201-299 is allegedly impossible.
 		default:
-			sendAuthFailMessage(code,"",sipmsg->msmHeaders.paramFind(pRejectCauseHeader));
+			if (stKind == KindRegister) {
+				sendAuthFailMessage(code,"",sipmsg->msmHeaders.paramFind(pRejectCauseHeader));
+			}
 			return;
 	}
 }
 
-SipRegisterTU::SipRegisterTU(SipDialog *registrar, SipMessage *request)
+SipRegisterTU::SipRegisterTU(SipRegisterTU::Kind wKind, SipDialog *registrar, TranEntryId tid, SipMessage *request)
 {
 	// Kinda dumb to fish out the branch from the request, but its ok.
 	//SipDialog *registrar = getRegistrar();
 	//SipMessage *request = registrar->makeRegisterMsg(SIPDTRegister,chan,rand,msid,sres.c_str());
 	// It is in the dummy dialog established for the registrar.
-	sctInitRegisterClientTransaction(registrar, request, request->smGetBranch());
+	stKind = wKind;
+	sctInitRegisterClientTransaction(registrar, tid, request, request->smGetBranch());
 }
 
-void startRegister(const FullMobileId &msid, const string rand, const string sres, L3LogicalChannel *chan) 		// msid is imsi and/or tmsi
+void startRegister(TranEntryId tid, const FullMobileId &msid, const string rand, const string sres, L3LogicalChannel *chan) 		// msid is imsi and/or tmsi
 {
 	LOG(DEBUG) <<LOGVAR(msid)<<LOGVAR(rand)<<LOGVAR(sres);
 	// Kinda dumb to fish out the branch from the request, but its ok.
 	SipDialog *registrar = getRegistrar();
 	SipMessage *request = registrar->makeRegisterMsg(SIPDTRegister,chan,rand,msid,sres.c_str());
-	SipRegisterTU *reg = new SipRegisterTU(registrar,request);
+	SipRegisterTU *reg = new SipRegisterTU(SipRegisterTU::KindRegister,registrar,tid,request);
+	delete request;		// sctInitRegisterTransaction made a copy.  Kind of wasteful.
+	reg->sctStart();
+}
+
+void startUnregister(const FullMobileId &msid, L3LogicalChannel *chan)
+{
+	LOG(DEBUG) <<LOGVAR(msid);
+	SipDialog *registrar = getRegistrar();
+	SipMessage *request = registrar->makeRegisterMsg(SIPDTUnregister,chan,"",msid,NULL);
+	SipRegisterTU *reg = new SipRegisterTU(SipRegisterTU::KindUnRegister,registrar,(TranEntryId)0,request);
 	delete request;		// sctInitRegisterTransaction made a copy.  Kind of wasteful.
 	reg->sctStart();
 }
@@ -614,16 +603,17 @@ void startRegister(const FullMobileId &msid, const string rand, const string sre
 // ===========================================================================================
 
 void SipMOByeTU::TUWriteHighSideV(SipMessage *sipmsg) {
-	LOG(DEBUG);
+	LOG(INFO) << "SIP term info msmCode: " << sipmsg->msmCode;
 	if (sipmsg->msmCode >= 200) { stSetDialogState(Cleared,sipmsg->msmCode,'K'); }
 }
 //void SipMOByeTU::TUTimeoutV() { stSetDialogState(Cleared,0); }
 
-SipMOByeTU::SipMOByeTU(SipDialog *wDialog) // : SipClientTrLayer(wDialog->dsPeer(), make_branch(),wDialog)
+SipMOByeTU::SipMOByeTU(SipDialog *wDialog, string wReasonHeader) // : SipClientTrLayer(wDialog->dsPeer(), make_branch(),wDialog)
 {
-	LOG(DEBUG);
+	LOG(INFO) << "SIP term info SipMOByeTU"; // SVGDBG
 	string branch = make_branch();
 	SipMessage *bye = new SipMessageRequestWithinDialog(stGetMethodNameV(),wDialog,branch);
+	bye->msmReasonHeader = wReasonHeader;
 	sctInitInDialogClientTransaction(wDialog, bye, branch);
 	delete bye;
 }
@@ -634,11 +624,14 @@ void SipMOCancelTU::TUWriteHighSideV(SipMessage *sipmsg) {
 
 //void SipMOCancelTU::TUTimeoutV() { stSetDialogState(Canceled,0); }
 
-SipMOCancelTU::SipMOCancelTU(SipDialog *wDialog) // : SipClientTrLayer(wDialog->dsPeer(), make_branch(),wDialog)
-{
+SipMOCancelTU::SipMOCancelTU(SipDialog *wDialog,string wReasonHeader) { // : SipClientTrLayer(wDialog->dsPeer(), make_branch(),wDialog
+	LOG(INFO) << "SIP term info SipMOCancelTU";  // Mobile originate
+
 	string branch = make_branch();
 	SipMessage *cancelMsg = new SipMessageRequestWithinDialog(this->stGetMethodNameV(),wDialog,branch);
-	this->sctInitInDialogClientTransaction(wDialog, cancelMsg, branch);
+	cancelMsg->msmReasonHeader = wReasonHeader;
+	//wDialog->getTermList().copyEntireList(cancelMsg->getTermList());  // SVGDBG SipMOCancelTU
+	this->sctInitInDialogClientTransaction(wDialog, cancelMsg, branch);  // Message gets copied in here
 	delete cancelMsg;
 }
 

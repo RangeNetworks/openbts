@@ -1,10 +1,9 @@
 /*
-* Copyright 2011 Range Networks, Inc.
-* All Rights Reserved.
+* Copyright 2011, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -84,7 +83,7 @@ class RLCMsgDownlinkIE
 	}
 };
 
-// The RLCDownlink and RLCUplink Messagesc are RLC Control messages -
+// The RLCDownlink and RLCUplink Messages are RLC Control messages -
 // they are not L3 Messages as defined in GSM 04.18.
 // These messages are used at the RLC/MAC layer to control the PDCH channels
 // assigned for packet (GPRS) use.  Their primary use is to transfer

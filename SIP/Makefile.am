@@ -1,5 +1,6 @@
 #
 # Copyright 2008 Free Software Foundation, Inc.
+# Copyright 2014 Range Networks, Inc.
 #
 # This software is distributed under the terms of the GNU Public License.
 # See the COPYING file in the main directory for details.
@@ -20,13 +21,14 @@
 
 include $(top_srcdir)/Makefile.common
 
-AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES) \
-	     -I$(ORTP_INCLUDEDIR) $(ORTP_CPPFLAGS)
+# Previously: -I$(ORTP_INCLUDEDIR) $(ORTP_CPPFLAGS)
+AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES)
 AM_CXXFLAGS = -Wall -Wextra
 
 noinst_LTLIBRARIES = libSIP.la
 
 libSIP_la_SOURCES = \
+	SIPRtp.cpp \
 	SIPParse.cpp \
 	SIPMessage.cpp \
 	SIPDialog.cpp \
@@ -36,6 +38,7 @@ libSIP_la_SOURCES = \
 	SIPTransaction.cpp
 
 noinst_HEADERS = \
+	SIPRtp.h \
 	SIPParse.h \
 	SIPBase.h \
 	SIPDialog.h \

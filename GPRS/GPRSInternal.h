@@ -1,10 +1,9 @@
 /*
-* Copyright 2011 Range Networks, Inc.
-* All Rights Reserved.
+* Copyright 2011, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -115,7 +114,9 @@ namespace GPRS {
 #undef GPRSLOG
 #endif
 // 6-18-2012: If someone sets Log.Level to DEBUG, show everything.
-#define GPRSLOG(level) if (GPRS::GPRSDebug & (level) || IS_LOG_LEVEL(DEBUG)) \
+// #define GPRSLOG(level) if (GPRS::GPRSDebug & (level) || IS_LOG_LEVEL(DEBUG))
+// Don't show all GPRS logging  in normal debug level.  Log output is so high calls can't be processed 05/09/14 SVG
+#define GPRSLOG(level) if (GPRS::GPRSDebug & (level))\
 	_LOG(DEBUG) <<"GPRS"<<(level)<<","<<GPRS::gBSNNext<<":"
 #define LOGWATCHF(...) if (GPRS::gGprsWatch&1) printf(__VA_ARGS__); GPRSLOG(1)<<"watch:"<<format(__VA_ARGS__);
 

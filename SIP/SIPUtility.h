@@ -1,7 +1,8 @@
 /*
 * Copyright 2008, 2014 Free Software Foundation, Inc.
+* Copyright 2014 Range Networks, Inc.
 *
-* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
+* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -82,7 +83,13 @@ class ThreadSafeList {
 namespace SIP {
 using namespace std;
 
+// These could be global.
+extern string localIP(); // Replaces mSIPIP.
+extern string localIPAndPort(); // Replaces mSIPIP and mSIPPort.
+
 struct IPAddressSpec {
+	enum ConnectionType { None, TCP, UDP };
+	ConnectionType mipType;
 	string mipName;		// Original address, which may be an IP address in dotted notation or possibly a domain name, and optional port.
 	string mipIP;		// The IP address of mipName as a string.  If mipName is already an IP address, it is the same.
 	unsigned mipPort;
@@ -90,9 +97,10 @@ struct IPAddressSpec {
 	struct ::sockaddr_in mipSockAddr;	///< the ready-to-use UDP address
 	bool ipSet(string addrSpec, const char *provenance);
 	string ipToText() const;
+	string ipAddrStr() const { return format("%s:%d",mipIP,mipPort); }
 	string ipTransportName() const { return "UDP"; }
 	bool ipIsReliableTransport() const { return false; }	// Right now we only support UDP
-	IPAddressSpec() : mipPort(0) {}
+	IPAddressSpec() : mipType(None), mipPort(0) {}
 };
 
 // Ticket #1158
@@ -188,6 +196,8 @@ extern string dequote(const string);
 
 extern string makeMD5(string input);
 extern string makeResponse(string username, string realm, string password, string method, string uri, string nonce);
+extern const char* sipSkipPrefix1(const char* in);
+extern string sipSkipPrefix(string in);
 
 
 };

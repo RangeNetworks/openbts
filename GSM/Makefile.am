@@ -1,5 +1,6 @@
 #
 # Copyright 2008 Free Software Foundation, Inc.
+# Copyright 2014 Range Networks, Inc.
 #
 # This software is distributed under the terms of the GNU Public License.
 # See the COPYING file in the main directory for details.
@@ -20,12 +21,15 @@
 
 include $(top_srcdir)/Makefile.common
 
-AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES)
+AM_CPPFLAGS = -Wall $(STD_DEFINES_AND_INCLUDES)
 #AM_CXXFLAGS = -O2 -g
 
 noinst_LTLIBRARIES = libGSM.la
 
 libGSM_la_SOURCES = \
+	GSMChannelHistory.cpp \
+	GSMCCCH.cpp \
+	GSMRadioResource.cpp \
 	GSML3SSMessages.cpp \
 	GSM610Tables.cpp \
 	GSMCommon.cpp \
@@ -42,7 +46,6 @@ libGSM_la_SOURCES = \
 	GSML3RRElements.cpp \
 	GSML3RRMessages.cpp \
 	GSMLogicalChannel.cpp \
-	GSMSAPMux.cpp \
 	GSMTDMA.cpp \
 	GSMTransfer.cpp \
 	GSMTAPDump.cpp \
@@ -51,6 +54,9 @@ libGSM_la_SOURCES = \
 	PhysicalStatus.cpp
 
 noinst_HEADERS = \
+	GSMChannelHistory.h \
+	GSMCCCH.h \
+	GSMRadioResource.h \
 	GSML3SSMessages.h \
  	GSM610Tables.h \
 	GSMCommon.h \
@@ -67,7 +73,6 @@ noinst_HEADERS = \
 	GSML3RRElements.h \
 	GSML3RRMessages.h \
 	GSMLogicalChannel.h \
-	GSMSAPMux.h \
 	GSMTDMA.h \
 	GSMTransfer.h \
 	PowerManager.h \

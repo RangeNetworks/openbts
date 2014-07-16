@@ -1,7 +1,8 @@
 /*
 * Copyright 2008, 2009, 2010 Free Software Foundation, Inc.
+* Copyright 2014 Range Networks, Inc.
 *
-* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
+* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -10,6 +11,8 @@
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 */
+
+#define LOG_GROUP LogGroup::GSM		// Can set Log.Level.GSM for debugging
 
 
 
@@ -184,7 +187,7 @@ GSM::L3Message* GSM::parseL3(const GSM::L3Frame& source)
 				return NULL;
 		}
 	}
-	catch (...) {	// (pat) Used to just catch L3ReadError, but lets be safer.
+	catch (...) {	// (pat) Used to just catch L3ReadError, but lets be safer.  Specifically, need to catch SMSReadError also.
 		LOG(NOTICE) << "L3 parsing failed for " << source;
 		return NULL;
 	}

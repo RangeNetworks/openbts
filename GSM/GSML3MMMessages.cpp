@@ -5,10 +5,11 @@
 /*
 * Copyright 2008-2010 Free Software Foundation, Inc.
 * Copyright 2010 Kestrel Signal Processing, Inc.
+* Copyright 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -18,6 +19,8 @@
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
+
+#define LOG_GROUP LogGroup::GSM		// Can set Log.Level.GSM for debugging
 
 
 
@@ -136,6 +139,13 @@ void L3LocationUpdatingRequest::text(ostream& os) const
 {
 	L3MMMessage::text(os);
 	os << " UpdateType="<<mUpdateType;
+	switch (mUpdateType & 0x3) {
+		case 0: os << "(normal LUR)"; break;
+		case 1: os << "(periodic LUR)"; break;
+		case 2: os << "(IMSI attach)"; break;
+		default: os << "(invalid)"; break;
+	}
+	os << " FOR="<<((mUpdateType&0x8)?1:0);	// Follow On Request bit
 	os << " CipherKeySeqNum="<<mCKSN;
 	os << " LAI=("<<mLAI<<")";
 	os << " MobileIdentity=("<<mMobileIdentity<<")";

@@ -1,7 +1,8 @@
 /*
 * Copyright 2008 Free Software Foundation, Inc.
+* Copyright 2014 Range Networks, Inc.
 *
-* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
+* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -23,15 +24,13 @@
 #include <ortp/ortp.h>
 
 #include "SIPUtility.h"
-#include "SIPBase.h"
 #include "SIPMessage.h"
-#include "SIPDialog.h"
-#include <ControlTransfer.h>
+#include "SIPBase.h"
+#include <OpenBTSConfig.h>
 #undef WARNING		// The nimrods defined this to "warning"
 #undef CR			// This too
 
 using namespace std;
-using namespace Control;
 
 namespace SIP {
 
@@ -186,7 +185,7 @@ static void appendHeader(string *result,const char *name,int val)
 }
 
 // Generate the string representing this sip message.
-string SipMessage::smGenerate()
+string SipMessage::smGenerate(string userAgent)
 {
 	string result;
 	result.reserve(1000);
@@ -218,17 +217,29 @@ string SipMessage::smGenerate()
 	if (! msmContactValue.empty()) { appendHeader(&result,"Contact",msmContactValue); }
 	if (! msmAuthorizationValue.empty()) { appendHeader(&result,"Authorization",msmAuthorizationValue); }
 	// The WWW-Authenticate header occurs only in inbound replies from the Registrar, so we ignore it here.
+	if (! msmMaxForwards.empty()) { appendHeader(&result,"Max-Forwards",msmMaxForwards); }
 
 	// These are other headers we dont otherwise process.
 	for (SipParamList::iterator it = msmHeaders.begin(); it != msmHeaders.end(); it++) {
-		appendHeader(&result,it->mName.c_str(),it->mValue);
+		// Take out the headers we are going to add below.
+		const char *name = it->mName.c_str();
+		if (strcasecmp(name,"User-Agent") && /*strcasecmp(name,"Max-Forwards") &&*/
+		    strcasecmp(name,"Content-Type") && strcasecmp(name,"Content-Length")) {
+			appendHeader(&result,it->mName.c_str(),it->mValue);
+		}
 	}
-
-	static const char* userAgent1 = "OpenBTS " VERSION " Build Date " __DATE__;
-	const char *userAgent = userAgent1;
 	appendHeader(&result,"User-Agent",userAgent);
 
-	appendHeader(&result,"Max-Forwards",gConfig.getNum("SIP.MaxForwards"));
+	// Append termination cause text see examples below
+	// Reason: SIP ;cause=580 ;text="Precondition Failure"
+	// Reason: Q.850 ;cause=16 ;text="Terminated"
+	// SVG Added 4/21/14 for Lynx  SIPCallTermination
+
+	//LOG(INFO) << "SIP term info copy SIP call termination reasons to SIP message, count: " << SIPMsgCallTerminationList.size(); // SVGDBG
+	//string sTemp = SIPMsgCallTerminationList.getTextForAllMsgs();;
+	//LOG(INFO) << "SIP term info in smGenerate text: " << sTemp.c_str(); // SVGDBG
+	//result.append(sTemp.c_str());
+	if (msmReasonHeader.size()) { appendHeader(&result,"Reason",msmReasonHeader); }
 
 	// Create the body, if any.
 	appendHeader(&result,"Content-Type",msmContentType);
@@ -236,6 +247,8 @@ string SipMessage::smGenerate()
 	result.append("\r\n");
 	result.append(msmBody);
 	msmContent = result;
+	LOG(INFO) << "SIP term info generated SIP msg: \r\n" << result.c_str();  //SVGDBG
+
 	return msmContent;
 }
 
@@ -246,17 +259,41 @@ void SipMessage::smCopyTopVia(SipMessage *other)
 }
 
 // Add a new Via with a new unique branch.
-void SipMessage::smAddViaBranch(string transport, string branch)
+void SipMessage::smAddViaBranch3(string transport, string proxy, string branch)
 {
-	string newvia = format("SIP/2.0/%s %s;branch=%s\r\n",transport,localIPAndPort(),branch);
+	string newvia = format("SIP/2.0/%s %s;branch=%s\r\n",transport,proxy,branch);
 	commaListPushFront(&msmVias,newvia);
 }
+
+void SipMessage::smAddViaBranch(string transport, string branch)
+{
+	smAddViaBranch3(transport,localIPAndPort(),branch);
+}
+
 void SipMessage::smAddViaBranch(SipBase *dialog, string branch)
 {
 	// Add a visible hint to the tag for debugging.  Use the Request Method, if any.
 	string newvia = format("SIP/2.0/%s %s;branch=%s\r\n",dialog->transportName(),dialog->localIPAndPort(),branch);
 	commaListPushFront(&msmVias,newvia);
 }
+string SipMessage::smPopVia()		// Pop and return the top via; modifies msmVias.
+{
+	return commaListPopFront(&msmVias);
+}
+
+string SipMessage::smGetProxy() const
+{
+	string topvia = commaListFront(msmVias);
+	if (topvia.empty()) { return string(""); }	// oops
+	SipVia via(topvia);
+	return via.mSentBy;
+}
+
+void SipMessage::addCallTerminationReasonSM(CallTerminationCause::termGroup group, int cause, string desc) {
+	LOG(INFO) << "SIP term info addCallTerminationReasonSM cause: " << cause;
+	SIPMsgCallTerminationList.add(group, cause, desc);
+}
+
 
 string SipMessage::smGetBranch()
 {
@@ -339,7 +376,7 @@ string SipMessage::smGetPrecis() const
 	if (*methodname) {
 		return format("method=%s to=%s",methodname,smGetToHeader().c_str());
 	} else {
-		return format("response code=%d %s %s to=%s",smGetCode(),smGetReason(),smCSeqMethod().c_str(),smGetToHeader().c_str());
+		return format("response code=%d %s %s to=%s",smGetCode(),smGetReason().c_str(),smCSeqMethod().c_str(),smGetToHeader().c_str());
 	}
 }
 
@@ -412,11 +449,13 @@ string SipMessage::smUriUsername()
 	//LOG(DEBUG) << LOGVAR(msmReqUri) <<LOGVAR(username);
 	//return username;
 }
+
 string SipMessage::smGetInviteImsi()
 {
 	// Get request username (IMSI) from assuming this is the invite message.
 	string username = smUriUsername();
-	return string(extractIMSI(username.c_str()));
+	LOG(DEBUG) <<LOGVAR(username) <<LOGVAR(extractIMSI(sipSkipPrefix1(username.c_str())));
+	return string(extractIMSI(sipSkipPrefix1(username.c_str())));
 }
 
 string SipMessage::smGetRand401()
@@ -432,6 +471,7 @@ string SipMessage::smGetRand401()
 
 // TODO: This could now be constructed from the dialog state instead of saving the INVITE.
 SipMessageAckOrCancel::SipMessageAckOrCancel(string method, SipMessage *other) {
+	this->smInit();
 	this->msmCallId = other->msmCallId;
 	this->msmReqMethod = method;
 	this->msmCSeqMethod = method;
@@ -445,6 +485,8 @@ SipMessageAckOrCancel::SipMessageAckOrCancel(string method, SipMessage *other) {
 	this->smCopyTopVia(other);
 }
 
+// (pat 5-2014) I dont think OpenBTS currently uses any of the below; it just sends all messages and replies to the single
+// proxy specified by config option for each of Registration, Speech, and SMS type messages.
 // RFC3261 section 4 page 16 describes routing as follows:
 // 1. The INVITE is necessarily sent via proxies, which add their own "via" headers.
 // 2.  The reply to the INVITE must include the "via" headers so it can get back.
@@ -487,6 +529,7 @@ SipMessageAckOrCancel::SipMessageAckOrCancel(string method, SipMessage *other) {
 // 3. If no route-set, request-URI = remote-target-URI
 // The remote-target-URI is set by the Contact header only from a INVITE or re-INVITE.
 SipMessageRequestWithinDialog::SipMessageRequestWithinDialog(string reqMethod, SipBase *dialog, string branch) {
+	this->smInit();
 	this->msmCallId = dialog->callId();
 	this->msmReqMethod = reqMethod;
 	this->msmCSeqMethod = reqMethod;
@@ -511,6 +554,7 @@ SipMessageRequestWithinDialog::SipMessageRequestWithinDialog(string reqMethod, S
 SipMessageHandoverRefer::SipMessageHandoverRefer(const SipBase *dialog, string peer)
 {
 	// The request URI will be the BTS we are sending it to...
+	this->smInit();
 	this->msmReqMethod = string("REFER");
 	this->msmReqUri = makeUri("handover",peer);
 	this->msmTo = *dialog->dsRequestToHeader();
@@ -561,7 +605,8 @@ SipMessageHandoverRefer::SipMessageHandoverRefer(const SipBase *dialog, string p
 // TODO: Preserve the route set.
 // If dialog is non-NULL this is a reply within a dialog.  Note that we create a SipDialog class
 // for REGISTER and MESSAGE, and those are not dialogs.
-SipMessageReply::SipMessageReply(SipMessage *request,int code, string reason, SipBase *dialog) {
+SipMessageReply::SipMessageReply(SipMessage *request, int code, string reason, SipBase *dialog) {
+	LOG(INFO) << "SIP term info SipMessageReply SIP code: " << code;
 	msmCode = code;
 	msmReason = reason;
 	if (dialog) {
@@ -588,6 +633,22 @@ SipMessageReply::SipMessageReply(SipMessage *request,int code, string reason, Si
 bool sameMsg(SipMessage *msg1, SipMessage *msg2)
 {
 	return msg1->msmCSeqNum == msg2->msmCSeqNum && msg1->msmCSeqMethod == msg2->msmCSeqMethod;
+}
+
+// Return false if the Max-Forwards is 1 or less or non-integral.
+bool SipMessage::smDecrementMaxFowards()
+{
+	if (msmMaxForwards.size()) {
+		assert(msmMaxForwards[0] != ' ');
+		int val = atoi(msmMaxForwards.c_str());	// If it is not numeric, it will return 0 silently.
+		val--;
+		if (val <= 0) { val = 0; }
+		msmMaxForwards = format("%d",val);
+		return val > 0;
+	} else {
+		msmMaxForwards = string("70");
+		return true;
+	}
 }
 
 

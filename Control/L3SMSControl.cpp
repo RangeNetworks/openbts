@@ -1,8 +1,9 @@
-/* Copyright 2013, 2014 Range Networks, Inc.
+/* 
+* Copyright 2013, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -24,6 +25,7 @@
 #include <GSML3Message.h>
 #include <GSMLogicalChannel.h>
 #include <SMSMessages.h>
+#include <Globals.h>
 #include <CLI.h>
 
 
@@ -35,8 +37,9 @@ using namespace SIP;
 struct SMSCommon : public MachineBase {
 	unsigned mRpduRef;
 	SMSCommon(TranEntry *tran) : MachineBase(tran) {}
-	void l3sendSms(const L3Message &msg, SAPI_t sapi);		// Send an SMS message to the correct place.
-	L3LogicalChannel *getSmsChannel() const;
+	void l3sendSms(const L3Message &msg);		// Send an SMS message to the correct place.
+	//L3LogicalChannel *getSmsChannel() const;
+	SAPI_t getSmsSap() const;
 };
 
 
@@ -71,19 +74,29 @@ class MTSMSMachine : public SMSCommon
 };
 
 
-L3LogicalChannel *SMSCommon::getSmsChannel() const
+//L3LogicalChannel *SMSCommon::getSmsChannel() const
+//{
+//	if (channel()->isSDCCH()) {
+//		return channel();		// Use main SDCCH.
+//	} else {
+//		assert(channel()->isTCHF());
+//		return channel()->getSACCHL3();	// Use SACCH associated with TCH.
+//	}
+//}
+
+SAPI_t SMSCommon::getSmsSap() const
 {
 	if (channel()->isSDCCH()) {
-		return channel();		// Use main SDCCH.
+		return SAPI3;		// The SDCCH is faster than SACCH.
 	} else {
 		assert(channel()->isTCHF());
-		return channel()->getSACCHL3();	// Use SACCH associated with TCH.
+		return SAPI3Sacch; // Use SACCH associated with TCH.
 	}
 }
 
-void SMSCommon::l3sendSms(const L3Message &msg, SAPI_t sapi)
+void SMSCommon::l3sendSms(const L3Message &msg)
 {
-	getSmsChannel()->l3sendm(msg,GSM::DATA,sapi);
+	channel()->l3sendm(msg,GSM::L3_DATA,getSmsSap());
 }
 
 
@@ -173,9 +186,12 @@ MachineStatus MOSMSMachine::machineRunState(int state, const GSM::L3Message *l3m
 		}
 		case stateIdentResult: {
 			if (! mIdentifyResult) {
-				//const L3CMServiceReject reject = L3CMServiceReject(L3RejectCause::InvalidMandatoryInformation);
-				l3sendSms(L3CMServiceReject(L3RejectCause::InvalidMandatoryInformation),SAPI0);
-				return MachineStatusQuitTran;
+				//const L3CMServiceReject reject = L3CMServiceReject(L3RejectCause::Invalid_Mandatory_Information);
+				// (pat 6-2014) I think this is wrong, based on comment below, so changing it to the main channel:
+				// l3sendSms(L3CMServiceReject(L3RejectCause::Invalid_Mandatory_Information),SAPI0);
+				MMRejectCause rejectCause = L3RejectCause::Invalid_Mandatory_Information;
+				channel()->l3sendm(L3CMServiceReject(rejectCause),L3_DATA,SAPI0);
+				return MachineStatus::QuitTran(TermCause::Local(rejectCause));
 			}
 
 			// Let the phone know we're going ahead with the transaction.
@@ -184,7 +200,7 @@ MachineStatus MOSMSMachine::machineRunState(int state, const GSM::L3Message *l3m
 			// Update 8-6-2013: The nokia does not accept this message on SACCH SAPI 0 for in-call SMS;
 			// so I am trying moving it to the main channel.
 			//l3sendSms(GSM::L3CMServiceAccept(),SAPI0);
-			channel()->l3sendm(GSM::L3CMServiceAccept(),GSM::DATA,SAPI0);
+			channel()->l3sendm(GSM::L3CMServiceAccept(),L3_DATA,SAPI0);
 
 			gReports.incr("OpenBTS.GSM.SMS.MOSMS.Start");
 			return MachineStatusOK;
@@ -195,7 +211,7 @@ MachineStatus MOSMSMachine::machineRunState(int state, const GSM::L3Message *l3m
 			// (pat) TODO: Call this on parsel3 error...
 			// TODO: Also send an error code to the sip side, if any.
 
-			l3sendSms(CPError(getL3TI()),SAPI3);
+			l3sendSms(CPError(getL3TI()));
 			return MachineStatusQuitTran;
 		}
 #endif
@@ -214,14 +230,14 @@ MachineStatus MOSMSMachine::machineRunState(int state, const GSM::L3Message *l3m
 
 			const CPData *cpdata = dynamic_cast<typeof(cpdata)>(l3msg);
 			if (cpdata == NULL) {	// Currently this is impossible, but maybe someone will change the code later.
-				l3sendSms(CPError(L3TI),SAPI3);
-				return MachineStatusQuitTran;
+				l3sendSms(CPError(L3TI));
+				return MachineStatus::QuitTran(TermCause::Local(L3Cause::SMS_Error));
 			}
 
 			// Step 2: Respond with CP-ACK.
 			// This just means that we got the message and could parse it.
 			PROCLOG(DEBUG) << "sending CPAck";
-			l3sendSms(CPAck(L3TI),SAPI3);
+			l3sendSms(CPAck(L3TI));
 
 			// (pat) The SMS message has already been through L3Message:parseL3, which called SMS::parseSMS(source), which manufactured
 			// a CPMessage::CPData and called L3Message::parse() which called CPData::parseBody which called L3Message::parseLV,
@@ -247,7 +263,7 @@ MachineStatus MOSMSMachine::machineRunState(int state, const GSM::L3Message *l3m
 			catch (SMSReadError) {
 				LOG(WARNING) << "SMS parsing failed (above L3)";
 				// Cause 95, "semantically incorrect message".
-				LCH->l3sendf(CPData(L3TI,RPError(95,ref)),3);
+				LCH->l3sendf(CPData(L3TI,RPError(95,ref)),3);  if you ever use this, it should call l3sendSms
 				delete CM;
 				throw UnexpectedMessage();
 			}
@@ -275,7 +291,7 @@ MachineStatus MOSMSMachine::machineRunState(int state, const GSM::L3Message *l3m
 			if (! success) {
 				PROCLOG(INFO) << "sending RPError in CPData";
 				// Cause 95 is "semantically incorrect message"
-				l3sendSms(CPData(L3TI,RPError(95,mRpduRef)),SAPI3);
+				l3sendSms(CPData(L3TI,RPError(95,mRpduRef)));
 			}
 			mSmsState = MoSmsWaitForAck;
 			LOG(DEBUG) << "case DATA returning";
@@ -283,8 +299,8 @@ MachineStatus MOSMSMachine::machineRunState(int state, const GSM::L3Message *l3m
 		}
 
 		case L3CASE_SIP(dialogBye): {	// SIPDialog sends this when the MESSAGE clears.
-			PROCLOG(INFO) << "sending RPAck in CPData";
-			l3sendSms(CPData(getL3TI(),RPAck(mRpduRef)),SAPI3);
+			PROCLOG(INFO) << "SMS peer did not respond properly to dialog message; sending RPAck in CPData";
+			l3sendSms(CPData(getL3TI(),RPAck(mRpduRef)));
 			LOG(DEBUG) << "case dialogBye returning";
 		}
 		case L3CASE_SIP(dialogFail): {
@@ -292,7 +308,7 @@ MachineStatus MOSMSMachine::machineRunState(int state, const GSM::L3Message *l3m
 			// TODO: Map the dialog failure state to an RPError state.
 			// Cause 127 is "internetworking error, unspecified".
 			// See GSM 04.11 8.2.5.4 Table 8.4.
-			l3sendSms(CPData(getL3TI(),RPError(127,mRpduRef)),SAPI3);
+			l3sendSms(CPData(getL3TI(),RPError(127,mRpduRef)));
 			LOG(DEBUG) << "case dialogFail returning";
 		}
 
@@ -318,7 +334,7 @@ MachineStatus MOSMSMachine::machineRunState(int state, const GSM::L3Message *l3m
 			LOG(DEBUG) << "case ACK returning";
 			// This attach causes any pending MT transactions to start now.
 			gMMLayer.mmAttachByImsi(channel(),tran()->subscriberIMSI());
-			return MachineStatusQuitTran;
+			return MachineStatus::QuitTran(TermCause::Local(L3Cause::SMS_Success));
 		}
 
 		default:
@@ -385,7 +401,7 @@ void startMOSMS(const GSM::L3MMMessage *l3msg, MMContext *mmchan)
 			LOG(ERR) <<"Received third simultaneous MO-SMS, which is illegal:"<<LOGVAR2("MO-SMS1",prevMOSMS.self())<<LOGVAR2("MO-SMS2",prevMOSMS2.self());
 			// Now what?  We could kill the oldest one or reject the new one.
 			// Kill the oldest one, on the assumption that this indicates a bug in our code and that SMS is hung.
-			prevMOSMS->teCancel();	// Promotes TE_MOSMS2 to TE_MOSMS1
+			prevMOSMS->teCancel(TermCause::Local(L3Cause::SMS_Error));	// Promotes TE_MOSMS2 to TE_MOSMS1
 			devassert(mmchan->mmGetTran(MMContext::TE_MOSMS2) == NULL);
 		}
 		//mmchan->setTran(MMContext::TE_MOSMS2,tran);
@@ -402,20 +418,7 @@ void startMOSMS(const GSM::L3MMMessage *l3msg, MMContext *mmchan)
 // Return true on success.
 bool MTSMSMachine::createRPData(RPData &rp_data)
 {
-#if 0
-	// HACK -- Check for "Easter Eggs"
-	// TL-PID
-	unsigned TLPID=0;
-	if (strncmp(message,"#!TLPID",7)==0) sscanf(message,"#!TLPID%d",&TLPID);
-
-	unsigned reference = random() % 255;
-	//CPData deliver(L3TI,
-	rp_data = RPData(reference,
-			RPAddress(gConfig.getStr("SMS.FakeSrcSMSC").c_str()),
-			TLDeliver(callingPartyDigits,message,TLPID));
-#else
 	// TODO: Read MIME Type from smqueue!!
-
 	const char *contentType = tran()->mContentType.c_str();
 	PROCLOG(DEBUG)<<LOGVAR(contentType)<<LOGVAR(tran()->mMessage);
 	if (strncmp(contentType,"text/plain",10)==0) {
@@ -428,12 +431,12 @@ bool MTSMSMachine::createRPData(RPData &rp_data)
 	} else if (strncmp(contentType,"application/vnd.3gpp.sms",24)==0) {
 		BitVector2 RPDUbits(strlen(tran()->mMessage.c_str())*4);
 		if (!RPDUbits.unhex(tran()->mMessage.c_str())) {
-			LOG(WARNING) << "Hex string parsing failed (in incoming SIP MESSAGE)";
-			//throw UnexpectedMessage();
-			return false;
+			LOG(WARNING) << "Message is zero length which is valid";
+			// This is valid continue
+			return true;
 		}
 
-		try {
+		try { // I suspect this is here to catch the above FIXED crash when string is zero length
 			RLFrame RPDU(RPDUbits);
 			LOG(DEBUG) << "SMS RPDU: " << RPDU;
 
@@ -443,14 +446,12 @@ bool MTSMSMachine::createRPData(RPData &rp_data)
 		catch (SMSReadError) {
 			LOG(WARNING) << "SMS parsing failed (above L3)";
 			// Cause 95, "semantically incorrect message".
-			//LCH->l2sendf(CPData(L3TI,RPError(95,this->mRpduRef)),3);
-			//throw UnexpectedMessage();
+			//LCH->l2sendf(CPData(L3TI,RPError(95,this->mRpduRef)),3); if you ever use this, it should call l3sendSms
 			return false;
 		}
 		catch (GSM::L3ReadError) {
 			LOG(WARNING) << "SMS parsing failed (in L3)";
 			// TODO:: send error back to the phone
-			//throw UnsupportedMessage();
 			return false;
 		}
 		catch (...) {
@@ -459,11 +460,9 @@ bool MTSMSMachine::createRPData(RPData &rp_data)
 		}
 	} else {
 		LOG(WARNING) << "Unsupported content type (in incoming SIP MESSAGE) -- type: " << contentType;
-		//throw UnexpectedMessage();
 		return false;
 	}
 	return true;
-#endif
 }
 
 MachineStatus MTSMSMachine::machineRunState1(int state,const L3Frame*frame,const L3Message*l3msg, const SIP::DialogMessage*sipmsg)
@@ -483,7 +482,7 @@ MachineStatus MTSMSMachine::machineRunState1(int state,const L3Frame*frame,const
 				// SIP side closed already.
 				// We can no longer inform the SIP side whether we succeed or not.
 				// Should we continue and deliver the message to the MS or not?
-				return MachineStatusQuitTran;
+				return MachineStatus::QuitTran(TermCause::Local(L3Cause::SMS_Timeout));	// could be a sip internal error?
 			}
 			timerStart(TR2M,TR2Mms,TimerAbortTran);
 
@@ -496,12 +495,16 @@ MachineStatus MTSMSMachine::machineRunState1(int state,const L3Frame*frame,const
 
 			gReports.incr("OpenBTS.GSM.SMS.MTSMS.Start");
 
-			L3LogicalChannel *smschan = getSmsChannel();
-
-			if (smschan->multiframeMode(3)) { goto step1; }		// If already established.
+			// pat 6-2014.  We just send the ESTABLISH_REQUEST no matter what now.
+			// The LAPDm will respond with ESTABLISH_INDICATION immediately if 
+			SAPI_t sap = getSmsSap();
+			//L3LogicalChannel *smschan = getSmsChannel();
+			//if (smschan->multiframeMode(3)) { goto step1; }		// If already established.
+			// if (channel()->multiframeMode(sap)) { goto step1; }		// If already established.
 
 			// Start ABM in SAP3.
-			smschan->l3sendp(GSM::ESTABLISH,SAPI3);
+			//smschan->l3sendp(GSM::L3_ESTABLISH_REQUEST,SAPI3);
+			channel()->l3sendp(GSM::L3_ESTABLISH_REQUEST,sap);
 			// Wait for SAP3 ABM to connect.
 			// The next read on SAP3 should be the ESTABLISH primitive.
 			// This won't return NULL.  It will throw an exception if it fails.
@@ -512,8 +515,12 @@ MachineStatus MTSMSMachine::machineRunState1(int state,const L3Frame*frame,const
 			return MachineStatusOK;	// Wait for the ESTABLISH on the uplink.
 		}
 
-		case L3CASE_PRIMITIVE(ESTABLISH): {
-			step1:
+		// We use ESTABLISH_INDICATION instead of ESTABLISH_CONFIRM to indicate establishment.
+		// We would have to accept both ESTABLISH_CONFIRM and ESTABLISH_INDICATION here anyway in case
+		// SABM was started by us and handset simultaneously, so we just dont bother with making ESTABLISH_CONFIRM separate.
+		case L3CASE_PRIMITIVE(L3_ESTABLISH_INDICATION):
+		case L3CASE_PRIMITIVE(L3_ESTABLISH_CONFIRM): {
+			//step1:
 
 			// Step 1
 			// Send the first message.
@@ -521,19 +528,19 @@ MachineStatus MTSMSMachine::machineRunState1(int state,const L3Frame*frame,const
 
 			RPData rp_data;
 			int l3ti = getL3TI();
-			if (! createRPData(rp_data)) {
-				l3sendSms(CPData(l3ti,RPError(95,this->mRpduRef)),SAPI3);
+			if (! createRPData(rp_data)) { // NULL can be returned
+				l3sendSms(CPData(l3ti,RPError(95,this->mRpduRef)));
 				// TODO: Is this correct? 
 				// TODO: Make sure MachineStatusQuitTran sends a failure code to SIP.
 				if (getDialog()) getDialog()->MTSMSReply(400, "Bad Request");
-				return MachineStatusQuitTran;
+				return MachineStatus::QuitTran(TermCause::Local(L3Cause::SMS_Error));
 			}
 
 			CPData deliver(l3ti,rp_data);
 			PROCLOG(INFO) << "sending " << deliver;
 	// WORKING: MS Does not respond to this message.
-	// Probably the messages are not hooked properly 
-			l3sendSms(deliver,SAPI3);
+	// (pat) FIXME: The MS may send a DELIVER_REPORT which is discarded by parseTPDU.
+			l3sendSms(deliver);
 			LOG(DEBUG) << "case ESTABLISH returning, after receiving ESTABLISH";
 			return MachineStatusOK; // Wait for CP-ACK message.
 		}
@@ -586,7 +593,7 @@ MachineStatus MTSMSMachine::machineRunState1(int state,const L3Frame*frame,const
 			// Step 4
 			// Send CP-ACK to the MS.
 			PROCLOG(INFO) << "MTSMS: sending CPAck";
-			l3sendSms(CPAck(getL3TI()),SAPI3);
+			l3sendSms(CPAck(getL3TI()));
 
 			// Ack in SIP domain.
 			if (!getDialog()) {
@@ -598,7 +605,7 @@ MachineStatus MTSMSMachine::machineRunState1(int state,const L3Frame*frame,const
 			}
 
 			LOG(DEBUG) << "case DATA returning";
-			return MachineStatusQuitTran;	// Finished.
+			return MachineStatus::QuitTran(TermCause::Local(L3Cause::SMS_Success));	// Finished.
 		}
 		default:
 			return unexpectedState(state,l3msg);

@@ -1,8 +1,9 @@
 /**@file Elements for Call Control, GSM 04.08 10.5.4.  */
 /*
 * Copyright 2008, 2009, 2014 Free Software Foundation, Inc.
+* Copyright 2014 Range Networks, Inc.
 *
-* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
+* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -21,7 +22,7 @@
 
 #include "GSML3Message.h"
 #include <iostream>
-#include <ControlTransfer.h>
+#include <CodecSet.h>
 #include <Logger.h>
 
 namespace GSM {
@@ -188,7 +189,8 @@ public:
 		mHaveOctet3a(false)
 	{
 		mType = (wDigits[0] == '+') ?  GSM::InternationalNumber : GSM::NationalNumber;
-		LOG(DEBUG) << "L3CallingPartyBCDNumber ctor type=" << mType << " Digits " << wDigits;
+		//LOG(DEBUG) << "L3CallingPartyBCDNumber ctor type=" << mType << " Digits " << wDigits;		(pat) what was "ctor"?
+		LOG(DEBUG) << "L3CallingPartyBCDNumber create type=" << mType << " Digits " << wDigits;
 	}
 
 	L3CallingPartyBCDNumber(const L3CallingPartyBCDNumber &other)
@@ -274,72 +276,10 @@ public:
 	and that format doesn't carry the "recommendation" field.
 */
 
-class L3Cause : public L3ProtocolElement {
-
+class L3CauseElement : public L3ProtocolElement {
 public:
-
-	enum Location {
-		User=0,
-		PrivateServingLocal=1,
-		PublicServingLocal=2,
-		Transit=3,
-		PublicServingRemote=4,
-		PrivateServingRemote=5,
-		International=7,
-		BeyondInternetworking=10
-	};
-
-	enum Cause {
-		UnassignedNumber = 1,		// or unallocated number
-		NoRouteToDestination = 3,
-		ChannelUnacceptable = 6,
-		OperatorDeterminedBarring = 8,
-		NormalCallClearing = 16,
-		UserBusy = 17,
-		NoUserResponding = 18,
-		UserAlertingNoAnswer = 19,
-		CallRejected = 21,
-		NumberChanged = 22,
-		Preemption = 25,
-		NonSelectedUserClearing = 26,
-		DestinationOutOfOrder = 27,
-		InvalidNumberFormat = 28,		// invalid or incomplete number
-		FacilityRejected = 29,
-		ResponseToSTATUSENQUIRY = 30,
-		NormalUnspecified = 31,
-		NoChannelAvailable = 34,
-		NetworkOutOfOrder = 38,
-		TemporaryFailure = 41,
-		SwitchingEquipmentCongestion = 42,
-		AccessInformationDiscarded = 43,
-		RequestedChannelNotAvailable = 44,
-		ResourcesUnavailable = 47,
-		QualityOfServiceUnavailable = 49,
-		RequestedFacilityNotSubscribed = 50,
-		IncomingCallsBarredWithinCUG = 55,
-		BearerCapabilityNotAuthorized = 57,
-		BearerCapabilityNotPresentlyAvailable = 58,
-		ServiceOrOptionNotAvailable = 63,
-		BearerServiceNotImplemented = 65,
-		ACMGEMax = 68,			// ACM greater or equal to ACM max.  Whatever that is.
-		RequestedFacilityNotImplemented = 69,
-		OnlyRestrictedDigitalInformationBearerCapabilityIsAvailable = 70,	// If you ever use, go ahead and abbreviate it.
-		ServiceOrOptionNotImplemented = 79,
-		InvalidTransactionIdentifiervalue = 81,
-		UserNotMemberOfCUG = 87,
-		IncompatibleDestination = 88,
-		InvalidTransitNetworkSelection = 91,
-		SemanticallyIncorrectMessage = 95,
-		InvalidMandatoryInformation = 96,
-		MessageTypeNotImplemented = 97,
-		MessagetypeNotCompatibleWithProtocolState = 98,
-		IENotImplemented = 99,			// Information Element non-existent or not implemented.
-		ConditionalIEError = 100,
-		MessageNotCompatibleWithProtocolState = 101,
-		RecoveryOnTimerExpiry = 102,
-		ProtocolErrorUnspecified = 111,
-		InterworkingUnspecified = 127,
-	};
+	typedef L3Cause::Location Location;
+	typedef L3Cause::CCCause Cause;
 
 private:
 
@@ -351,13 +291,13 @@ private:
 	
 public:
 
-	L3Cause(Cause wCause=NormalCallClearing, Location wLocation=PrivateServingLocal)
+	L3CauseElement(Cause wCause=L3Cause::Normal_Call_Clearing, Location wLocation=L3Cause::Private_Serving_Local)
 		:L3ProtocolElement(),
 		mLocation(wLocation),mCause(wCause)
 	{ }
 
 	Location location() const { return mLocation; }
-	unsigned cause() const { return mCause; }
+	Cause cause() const { return mCause; }
 
 	// We don't support diagnostics, so length=2.
 	size_t lengthV() const { return  2; }
@@ -367,7 +307,6 @@ public:
 	void parseV(const L3Frame&, size_t&) { assert(0); }
 	void text(std::ostream&) const;
 };
-typedef L3Cause::Cause CCCause;
 
 
 /** Call State, GSM 04.08 10.5.4.6. */
@@ -409,6 +348,8 @@ class L3ProgressIndicator : public L3ProtocolElement {
 		BeyondInternetworking=10
 	};
 
+	// pat 2-2014: GSM 4.08 5.5.1: The ProgressIndicator is used to start in-band tones and announcements
+	// if the value is 1-3 or 6-20.
 	enum Progress {
 		Unspecified=0,
 		NotISDN=1,
@@ -458,6 +399,33 @@ class L3KeypadFacility : public L3ProtocolElement {
 	{}
 
 	char IA5() const { return mIA5; }
+
+	size_t lengthV() const { return 1; }
+   	void writeV(L3Frame&, size_t&) const;
+	void parseV(const L3Frame&, size_t&, size_t) { assert(0); }
+	void parseV(const L3Frame& src, size_t& rp);
+	void text(std::ostream&) const;
+};
+
+
+/** GSM 04.08 10.5.4.23 */
+// (pat) 2-2014: Added to try to work around bug that ZTE phone does not play ring-back tone during Alerting.
+class L3Signal : public L3ProtocolElement {
+	char mSignalValue;
+	public:
+	enum SignalValues {
+		SignalDialToneOn = 0,
+		SignalRingBackToneOn = 1,
+		SignalInterceptToneOn = 2,
+		SignalNetworkCongestionToneOn = 3,
+		SignalBusyToneOn = 4,
+		SignalConfirmToneOn = 5,
+		SignalAnswerToneOn = 6,
+		SignalCallWaitingToneOn = 7,
+		SignalTonesOff = 0x3f,
+		SignalAlertingOff = 0x4f
+	};
+	L3Signal(SignalValues tone = SignalRingBackToneOn) : mSignalValue(tone) {}
 
 	size_t lengthV() const { return 1; }
    	void writeV(L3Frame&, size_t&) const;

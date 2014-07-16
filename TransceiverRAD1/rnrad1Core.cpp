@@ -1,3 +1,17 @@
+/*
+* Copyright 2014 Range Networks, Inc.
+*
+* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribution.
+*
+* This use of this software may be subject to additional restrictions.
+* See the LEGAL file in the main directory for details.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+*/
+
 #include "rnrad1Core.h"
 
 #ifdef HAVE_CONFIG_H
@@ -535,6 +549,7 @@ rnrad1Core::rnrad1Core (int which_board,
   mFpgaMasterClockFreq = 52000000;
   
   memset (mFpgaShadows, 0, sizeof (mFpgaShadows));
+  LOG(INFO) << "rad1Core starting on board number "<<which_board+1;
 
   if (libusb_init (&mctx) < 0)
     LOG(ERR) << "libusb_init failed";
@@ -549,7 +564,7 @@ rnrad1Core::rnrad1Core (int which_board,
   
   libusb_device *dev = rad1FindDevice (which_board, false, mctx);
   if (dev == 0){
-    LOG(ERR) << "Can't find RAD1 board " << which_board;
+    LOG(ERR) << "Can't find RAD1 board (zero-based number) " << which_board;
     exit(1);
   }
 

@@ -2,10 +2,11 @@
 /*
 * Copyright 2008 Free Software Foundation, Inc.
 * Copyright 2010 Kestrel Signal Processing, Inc.
+* Copyright 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -183,7 +184,7 @@ public:
 
 class L3MMStatus : public L3MMMessage
 {
-	L3RejectCause mRejectCause;
+	L3RejectCauseIE mRejectCause;
 	
 public:
 	L3MMStatus() : L3MMMessage(){}
@@ -202,11 +203,12 @@ public:
 /** GSM 04.08 9.2.14  */
 class L3LocationUpdatingReject : public L3MMMessage 
 {
-	L3RejectCause mRejectCause;
+	L3RejectCauseIE mRejectCause;
 
 public:
 
-	L3LocationUpdatingReject(const L3RejectCause& cause)
+	//L3LocationUpdatingReject(const L3RejectCauseIE& cause)
+	L3LocationUpdatingReject(const MMRejectCause cause)
 		:L3MMMessage(),mRejectCause(cause)
 	{}
 
@@ -274,11 +276,12 @@ class L3CMServiceReject : public L3MMMessage {
 
 	private:
 
-	L3RejectCause mCause;
+	L3RejectCauseIE mCause;
 
 	public:
 
-	L3CMServiceReject(const L3RejectCause& wCause)
+	//L3CMServiceReject(const L3RejectCauseIE& wCause)
+	L3CMServiceReject(const MMRejectCause wCause)
 		:L3MMMessage(),
 		mCause(wCause)
 	{}

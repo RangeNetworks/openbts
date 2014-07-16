@@ -1,7 +1,8 @@
 /*
 * Copyright 2008, 2009, 2014 Free Software Foundation, Inc.
+* Copyright 2014 Range Networks, Inc.
 *
-* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
+* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -15,6 +16,8 @@
 //#define NDEBUG
 #include "radioInterface.h"
 #include <Logger.h>
+#include <GSMTransfer.h>
+using namespace GSM;
 
 
 GSM::Time VectorQueue::nextTime() const
@@ -79,6 +82,7 @@ RadioInterface::RadioInterface(RadioDevice *wRadio,
   mNumARFCNs = wNumARFCNs;
 
   loadTest = wLoadTest;
+
 }
 
 RadioInterface::~RadioInterface(void) {
@@ -161,6 +165,7 @@ void RadioInterface::pushBuffer(void) {
   if (sendCursor < 2*INCHUNK*samplesPerSymbol) return;
 
   // send resampleVector
+  // (pat) returned samplesWritten is always (INCHUNK*1)/2/sizeof(short);
   int samplesWritten = mRadio->writeSamples(sendBuffer,
 					  INCHUNK*samplesPerSymbol,
 					  &underrun,
@@ -268,6 +273,7 @@ void RadioInterface::start()
 
 void *AlignRadioServiceLoopAdapter(RadioInterface *radioInterface)
 {
+  LOG(NOTICE) << "THREAD: AlignRadioServiceLoopAdapter @ tid " << gettid();
   while (1) {
     radioInterface->alignRadio();
     pthread_testcancel();
@@ -312,6 +318,7 @@ void RadioInterface::driveReceiveRadio() {
   while (rcvSz > (symbolsPerSlot + (tN % 4 == 0))*samplesPerSymbol) {
     signalVector rxVector((symbolsPerSlot + (tN % 4 == 0))*samplesPerSymbol);
     unRadioifyVector(rcvBuffer+readSz*2,rxVector);
+
     GSM::Time tmpTime = rcvClock;
     if (rcvClock.FN() >= 0) {
       //LOG(DEBUG) << "FN: " << rcvClock.FN();
@@ -333,6 +340,7 @@ void RadioInterface::driveReceiveRadio() {
     //LOG(DEBUG) << "receiveFIFO: wrote radio vector at time: " << mClock.get() << ", new size: " << mReceiveFIFO.size() ;
     readSz += (symbolsPerSlot+(tN % 4 == 0))*samplesPerSymbol;
     rcvSz -= (symbolsPerSlot+(tN % 4 == 0))*samplesPerSymbol;
+
 
     tN = rcvClock.TN();
   }

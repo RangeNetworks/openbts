@@ -1,5 +1,6 @@
 #
 # Copyright 2008 Free Software Foundation, Inc.
+# Copyright 2014 Range Networks, Inc.
 #
 # This software is distributed under the terms of the GNU Public License.
 # See the COPYING file in the main directory for details.
@@ -20,17 +21,17 @@
 
 include $(top_srcdir)/Makefile.common
 
-DESTDIR :=
+DESTDIR := 
 
 AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES) $(USB_INCLUDES) $(WITH_INCLUDES)
 AM_CXXFLAGS = -Wall -pthread -ldl
+
 #AM_CXXFLAGS = -Wall -O2 -NDEBUG -pthread -ldl
 #AM_CFLAGS = -Wall -O2 -NDEBUG -pthread -ldl
 
 # Order must be preserved
 _SUBDIRS = \
 	config \
-	sqlite3 \
 	CommonLibs \
 	Globals \
 	SIP \
@@ -68,6 +69,7 @@ EXTRA_DIST = \
 	INSTALLATION \
 	LEGAL \
 	COPYING \
+	README.APIs \
 	README
 
 install: all
@@ -81,8 +83,5 @@ else
 	$(MAKE) -C ./TransceiverRAD1 install
 endif
 endif
-
-dox: FORCE
-	doxygen doxconfig
 
 FORCE:

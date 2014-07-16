@@ -1,10 +1,9 @@
 /*
-* Copyright 2011 Range Networks, Inc.
-* All Rights Reserved.
+* Copyright 2011, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -14,6 +13,8 @@
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 */
 
+#define LOG_GROUP LogGroup::GPRS		// Can set Log.Level.GPRS for debugging
+
 #define TBF_IMPLEMENTATION 1
 #include "MSInfo.h"
 #include "TBF.h"
@@ -21,6 +22,9 @@
 #include "RLCMessages.h"
 #include "BSSG.h"
 #include "RLCEngine.h"
+#include <ControlTransfer.h>
+#include <GSMCCCH.h>
+using namespace Control;
 
 namespace GPRS {
 
@@ -38,6 +42,7 @@ static int configTbfRetry() {
 
 bool MsgTransaction::mtMsgPending(MsgTransactionType mttype)
 {
+	ScopedLock lock(mtLock);
 	// The multiple tests here are overkill.
 	return mtMsgExpectedBits.isSet(mttype) &&
 		mtExpectedAckBSN[mttype].valid() &&
@@ -47,6 +52,7 @@ bool MsgTransaction::mtMsgPending(MsgTransactionType mttype)
 // Is any message pending?
 bool MsgTransaction::mtMsgPending()
 {
+	ScopedLock lock(mtLock);
 	// We are not 'waiting' until the expectedAckBSN is valid, because:
 	// 1. the first time through the TBF state machine's logic,
 	// it tests this function before the msgAckTime has been set.
@@ -344,6 +350,7 @@ uint32_t TBF::mtGetTlli()
 	return tlli;
 }
 
+#if 0
 // 7-25: Neither the Blackberry nor Multitech like this message.
 // Maybe  because I include the downlink assignment when there is no downlink TBF?
 static bool sendTimeslotReconfigure(
@@ -370,6 +377,7 @@ static bool sendTimeslotReconfigure(
 			send1MsgFrame(tbf,msg,2,MsgTransReassign,&tbf->mtReassignCounter);
 	}
 }
+#endif
 
 static bool sendAssignmentPacch(
 	PDCHL1FEC *pacch,	// The PACCH channel.
@@ -432,120 +440,113 @@ static bool sendAssignmentPacch(
 	}
 }
 
-void sendAssignmentCcch(
+// 2-14-2014: Create the L3ImmediateAssignment to assign a downlink TBF to this MS.
+// We create the L3ImmediateAssignment in the main gprs thread so we dont have to worry about locking anything,
+// then just before it is sent by the CCCH controller, gprsPageCcchSetTime is called to set the time.
+// This routine does not care whether the MS is in DRX mode or not; the caller tracks the drx timer
+// and sends the result on either PCH or generic CCCH depending on drx mode, but we dont yet track it very well.
+// GSM 44.60 5.5.1.5 Describes the conditions under which DRX should be applied.
+// The MS sends the DRX info to the SGSN in the Attach message.
+// None of that implemented yet.
+L3ImmediateAssignment *gprsPageCcchStart(
 	PDCHL1FEC *pacch,	// The PACCH channel.
-	TBF *tbf,
-	std::ostream *os)	// for testing - if set, print out the message instead of sending it.
+	TBF *tbf)
 {
-	static GSM::CCCHLogicalChannel *ourAGCH = 0;
+	assert(tbf->mtDir == RLCDir::Down);
 	MSInfo *ms = tbf->mtMS;
-		// Send a message on CCCH.
-		// TODO FIXME:
-		// GSM 44.60 5.5.1.5 Describes the conditions under which DRX should be applied.
-		// The MS sends the DRX info to the SGSN in the Attach message.
-		// None of that implemented yet.
-		bool drxmode = false;
 
-	// BUG: The returned AGCH time is not monotonically increasing.  The bug traces all
-	// the way back down that the getAGCH call is not, in fact, returning the next one.
-	// I am guessing that the choice of CCCH has a bug that does not really
-	// return the next CCCH slot because of the way the idle frames are handled.
-	// Anyway, this screws up sendAssignment; see todo.txt.
-	// To try to fix this, we will use just one AGCH, ever, to try to get our
-	// messages delivered in order.
 
-		// TODO: We need to use ourAGCH for unattached MS,
-		// but we could select a different AGCH for every attached MS.
-		if (ourAGCH == 0) { ourAGCH = gBTS.getAGCH(); }
+	// The RequestReference is not used for this type of downlink assignment,
+	// which contains TLLI instead; we have to set RequestReference to a number that
+	// cannot possibly be confused with any valid value, ie, somewhere in the future,
+	// at the time this is sent.
+	RLCBSN_t impossibleBSN = gBSNNext + 10000;
+	//RLCBSN_t impossibleBSN = resBSN + 1000;
+	GSM::Time impossible(BSN2FrameNumber(impossibleBSN),0);	// TN not used.
+	// The downlink bit documentation is goofed up in GSM 4.08/4.18: They clarified it
+	// in GSM 44.018 sec 10.5.2.25b: This bit is 1 only for downlink TBFs.
+	L3ImmediateAssignment *result = new L3ImmediateAssignment(
+		L3RequestReference(0,impossible),
+		pacch->packetChannelDescription(),
+		GSM::L3TimingAdvance(ms->msGetTA()),
+		true,true);	// for_tbf, downlink
 
-		// Make a reservation for the poll response.
-		RLCBSN_t resBSN = 0;
-		// TODO: Fix this.  The DRX mode is sent to us by the MS I think in the
-		// initial attach message which went to the SGSN.
-		if (gFixDRX && tbf->mtCcchAssignCounter >= (unsigned)gFixDRX) {
-			// We may have lost contact with the MS because it is in DRX mode.
-			// Send the message on all 3 AGCH channels twice - we need
-			// to saturate both 51 multi-frames because there
-			// are 6 paging channels.  And we just hope no other
-			// AGCH messages are in the way.
-			// We need to increase the reservation to make sure it is beyond
-			// the CCCH in the second 51 multiframe.
-			drxmode = true;
-		}
-		GSM::CCCHLogicalChannel *currentAGCH = drxmode ? gBTS.getPCH(0) : ourAGCH;
+	L3IAPacketAssignment *pa = result->packetAssign();
+	// DEBUG: I tried taking out power:
+	// 12-16: Put power back in:
+	pa->setPacketPowerOptions(GetPowerAlpha(),GetPowerGamma());
 
-		resBSN = pacch->makeCCCHReservation(currentAGCH,RLCBlockReservation::ForPoll,tbf,NULL,drxmode,MsgTransAssign1);
-		if (! resBSN.valid()) {
-			// We will try again later.
-			return /*false*/;	// We did not use the packet channel downlink.
-		}
-		// TODO: mtSetAckExpected function should be moved into the makeReservation code.
-		// We have to wait for the time whether we sent the poll or not.
-		tbf->mtSetAckExpected(resBSN,MsgTransAssign1);
+	pa->setPacketDownlinkAssign(tbf->mtGetTlli(), tbf->mtTFI,
+		tbf->mtChannelCoding(), tbf->mtUnAckMode, 1);
 
-		// The RequestReference is not used for this type of downlink assignment,
-		// which contains TLLI instead; we have to set RequestReference to a number that
-		// cannot possibly be confused with any valid value, ie, somewhere in the future,
-		// at the time this is sent.
-		RLCBSN_t impossibleBSN = resBSN + 1000;
-		GSM::Time impossible(BSN2FrameNumber(impossibleBSN),0);	// TN not used.
-		// The downlink bit documentation is goofed up in GSM 4.18: They clarified it
-		// in GSM 44.018 sec 10.5.2.25b: This bit is 1 only for downlink TBFs.
-		L3ImmediateAssignment amsg(
-			L3RequestReference(0,impossible),
-			pacch->packetChannelDescription(),
-			GSM::L3TimingAdvance(ms->msGetTA()),
-			true,tbf->mtDir == RLCDir::Down);	// tbf, downlink
 
-		L3IAPacketAssignment *pa = amsg.packetAssign();
-		// DEBUG: I tried taking out power:
-		// 12-16: Put power back in:
-		pa->setPacketPowerOptions(GetPowerAlpha(),GetPowerGamma());
-		if (gFixIAUsePoll) {
-			pa->setPacketPollTime(resBSN.FN());
-		}
-		if (tbf->mtDir == RLCDir::Up) {
-			// This assignment type is only for 1-phase access, which we do not support.
-			// An uplink immediate assignment can only be in response to a RACH
-			// and is identified by the request reference.  Instead we send a
-			// one-block uplink assignment to get a packet resource request,
-			// then do the uplink TBF on PACCH based on that.
-			devassert(0);
-			// There is only one USF (ie, no multi-slot).
-			//int usf = ms->msUSFs[pacch->uplink()->TN()];
-			int usf = ms->msUSFs[pacch->TN()];
-			devassert(USF_VALID(usf));
-			pa->setPacketUplinkAssignDynamic(tbf->mtTFI, tbf->mtChannelCoding(), usf);
-		} else {
-			pa->setPacketDownlinkAssign(tbf->mtGetTlli(), tbf->mtTFI,
-				tbf->mtChannelCoding(), tbf->mtUnAckMode, 1);
-		}
-
-		if (os) {
-			amsg.text(*os);
-		} else {
-			GPRSLOG(1) << "GPRS sendAssignment "<<tbf<<" sending L3ImmediateAssignment:"
-				<<LOGVAR2("agchload",currentAGCH->load()) << amsg;
-			LOGWATCHF("%s CCCH load=%d\n", tbf->tbfid(1), currentAGCH->load());
-			tbfDumpAll();
-			tbf->mtAssignCounter++;
-
-			// FIXME TODO:
-			if (drxmode) {
-				// Send the message on a paging channel.
-				// This code assumes the paging channel setup described
-				// in the class L3ControlChannelDescription.
-				// This code should be replaced with real paging channels.
-				// Our BS_PA_MFRMS is 2, so send the paging message twice to make
-				// sure it is sent in all (2) available paging 51-multiframes.
-				currentAGCH->l2sendm(amsg);
-				currentAGCH->l2sendm(amsg);
-			} else {
-				currentAGCH->l2sendm(amsg);	// send() takes care of converting it to a BitVector.
-			}
-			tbf->mtCcchAssignCounter++;
-		}
+	//GPRSLOG(1) << "GPRS sendAssignment "<<tbf<<" sending L3ImmediateAssignment:"
+	//	<<LOGVAR2("agchload",currentAGCH->load()) << *result;
+	LOGWATCHF("%s\n", tbf->tbfid(1));
+	tbfDumpAll();
+	tbf->mtAssignCounter++;
+	tbf->mtCcchAssignCounter++;
+	return result;
 }
+
+void sendAssignmentCcch(
+	PDCHL1FEC *pacch,	// The PACCH channel where the MS will be directed to send its answer.
+	TBF *tbf,			// The TBF that wants to initiate a downlink transfer to the MS.
+	std::ostream *os)	// not supported in C_RELEASE.
+{
+	MSInfo *ms = tbf->mtMS;
+	string imsi = ms->sgsnFindImsiByHandle(ms->msGetHandle());
+	if (imsi.empty()) {
+		LOG(ERR) << "Attempt to send TBF assignment on CCCH to MS without an IMSI?";
+		return;	// This is a disaster.  I dont know what is going to happen to this TBF; will it ever timeout?  Just hope this never happens.
+	}
+	// Set an ack time far far in the future to keep the caller (mtServiceDownlink) from trying
+	// to start another assignment.  This ack time will be updated to the real value by gprsPageCcchSetTime().
+	tbf->mtSetAckExpected(gBSNNext + 1000,MsgTransAssign1);
+	// We allocate a NewPagingEntry for convenience of queuing this request, but since this is not a real page the first argument (ChannelType) is unused.
+	NewPagingEntry *npe = new NewPagingEntry(GSM::PSingleBlock1PhaseType,imsi);
+	npe->mGprsClient = tbf;
+	npe->mImmAssign = gprsPageCcchStart(pacch,tbf);
+	// We dont support DRX yet, so just set the DRX time to the current frame, ie, assume all MS are in DRX if they are on CCCH.
+	npe->mDrxBegin = gBTS.time().FN();
+	pagerAddCcchMessageForGprs(npe);
+}
+
+// WARNING: This is called from the CCCH thread.
+// Make the reservation and set the poll time in the L3ImmediateAssignment.
+// Return true on success or false on failure, in which case the caller should try again later.
+bool gprsPageCcchSetTime(TBF *tbf, L3ImmediateAssignment *iap, unsigned afterFrame)
+{
+	LOG(DEBUG) <<LOGVAR(iap)<<LOGVAR(afterFrame)<<LOGVAR(tbf);
+	// Make a reservation for the poll response.
+	RLCBSN_t afterBSN = FrameNumber2BSN(afterFrame);
+	PDCHL1FEC *chan = gL2MAC.macPickChannel();	// pick the least busy channel;
+	RLCBSN_t resBSN = chan->makeReservationInt(RLCBlockReservation::ForPoll,	// We are requesting a confirming poll from the MS.
+		afterBSN,	// Reservation must be after this time.
+		tbf,	// Tells which tbf to inform when the poll arrives.  Also used for statistics gathering.
+		NULL,	// RSSI, TimingAdvance not needed.
+		NULL,	// No RRBP
+		MsgTransAssign1);	// Dont inform anyone else.
+
+	if (! resBSN.valid()) {
+		// Abject failure.  This should never happen because the reservation controller can make
+		// reservations as far in advance as necessary.
+		GPRSLOG(1) << "serviceRACH failed to make a reservation at" <<LOGVAR(gBSNNext);
+		// The MS may try another RACH for us again later,
+		// or give up and try some other cell that it can also hear.
+		return false;
+	}
+
+	// We have to wait for the time whether we sent the poll or not.
+	tbf->mtSetAckExpected(resBSN,MsgTransAssign1);
+
+	if (gFixIAUsePoll) {
+		L3IAPacketAssignment *pa = iap->packetAssign();
+		pa->setPacketPollTime(resBSN.FN());
+	}
+	return true;
+}
+
 
 // Return true if we send a block on the downlink.
 // NOTE: The L3ImmediateAssignment message can not assign multislot assignments.
@@ -618,6 +619,8 @@ bool sendAssignment(
 	}
 
 	if (tbf->mtAssignmentOnCCCH) {
+		// (pat) 2-2014: Changing the CCCH from push to pull, so we send a message to the CCCH code and
+		// it will call us back when the CCCH is available.
 		sendAssignmentCcch(pacch,tbf,os);
 		return false;	// We did not use the packet channel downlink.
 	} else {
@@ -626,6 +629,7 @@ bool sendAssignment(
 	}
 }
 
+#
 static bool sendTA(PDCHL1Downlink *down,TBF *tbf)
 {
 	RLCMsgPacketPowerControlTimingAdvance *tamsg = new RLCMsgPacketPowerControlTimingAdvance(tbf);
@@ -637,6 +641,7 @@ static bool sendTA(PDCHL1Downlink *down,TBF *tbf)
 	// Lets ask for a response and see what happens:
 	return down->send1MsgFrame(tbf,msg,2,MsgTransTA,NULL);
 }
+
 
 bool MSInfo::msCanUseDownlinkTn(unsigned tn)
 {
@@ -820,6 +825,8 @@ void MSInfo::msRestart()
 }
 #endif
 
+
+// Writes a block of data to the MS
 static RLCDownEngine *createDownlinkTbf(MSInfo *ms, DownlinkQPdu *dlmsg, bool isRetry, ChannelCodingType codingMax)
 {
 	ms->msStalled = 0;
@@ -828,7 +835,7 @@ static RLCDownEngine *createDownlinkTbf(MSInfo *ms, DownlinkQPdu *dlmsg, bool is
 	// Wrong! Removed 4-24 : ms->msT3193.reset();
 	// At this point the RLCEngine takes charge of the dlmsg memory.
 	TBF *tbf = engine->getTBF();
-	tbf->mtTlli = dlmsg->mTlli;	// Dont think mtTlli is used in a downlink TBF.
+	tbf->mtTlli = dlmsg->mTlli;	// Don't think mtTlli is used in a downlink TBF.
 	tbf->mtChannelCodingMax = codingMax;
 	//tbf->mtIsRetry = isRetry;
 	engine->engineWriteHighSide(dlmsg);
@@ -838,6 +845,7 @@ static RLCDownEngine *createDownlinkTbf(MSInfo *ms, DownlinkQPdu *dlmsg, bool is
 
 // Service this MS, called from the service loop every RLCBSN time.
 // Counters and Timers defined in GSM04.60 sec 13.
+// Goes through msDownlinkQueue messages
 void MSInfo::msService()
 {
 	// After the last downlink TBF, the MS waits until this timer expires
@@ -853,10 +861,12 @@ void MSInfo::msService()
 	if (msIsSuspended()) {return;}
 
 	if (msTBFs.size()) {
-		msIdleCounter = 0;
+		msIdleCounter = 0;  // Not idle
 	} else {
-		if (++msIdleCounter > gL2MAC.macMSIdleMax) {
-			msDelete();
+		// List empty
+		if (++msIdleCounter > gL2MAC.macMSIdleMax) {  // default 600 seconds * blocks per second
+			// LOG(DEBUG) << "Exceeded macMSIdleMax: " << gL2MAC.macMSIdleMax;
+			msDelete();  // SVGDBG This removes an MS from gL2MAC
 			return;
 		}
 	}
@@ -909,27 +919,43 @@ void MSInfo::msService()
 
 	// If there is a downlink message and this MS does not have any downlink TBFs running,
 	// create a new TBF.
-	while (msDownlinkQueue.size()) {
+	//LOG(DEBUG) << "msDownlinkAttempts: " << msDownlinkAttempts;  SVGDBG
+	while (msDownlinkQueue.size()) { // We have something to send
+		//LOG(DEBUG) << "Processing msDownlinkQueue message attempt: " << msDownlinkAttempts; SVGDBG
 		// We will not start a new downlink TBF as long as there is any kind
 		// of downlink TBF.
 		// Formerly, (if 0==StallOnlyForActiveTBF) we also stalled for dead TBFS
 		// (indicating the MS is probably unreachable) but that tended to kill off
 		// active TBFs when any one died for mysterious reasons, so I turned it off.
-		// 6-24-2012 UPDATE: I am going to reset StallOnlyForActive because we dont
+		// 6-24-2012 UPDATE: I am going to reset StallOnlyForActive because we don't
 		// have bugs and we now use dead tbfs to legitimately block downlinks until expiry.
 		bool stallOnlyForActiveTBF = configGetNumQ("GPRS.TBF.StallOnlyForActive",0);
 		TBF *blockingtbf;
-		if (! msCountTBF2(RLCDir::Down,stallOnlyForActiveTBF?TbfMActive:TbfMAny,&blockingtbf)) {
-			DownlinkQPdu *dlmsg = msDownlinkQueue.read();
+		// Make sure there is something to process
+		if (! msCountTBF2(RLCDir::Down,stallOnlyForActiveTBF?TbfMActive:TbfMAny,&blockingtbf)) {  // Look in list of TBF's
+
+			// (pat 3-2014) The 3 is just made up; allows the MS to ride out a simple bad connection.
+			// The MS may also be non-responsive due to temporary suspension, which is not supported yet.
+			if (msDownlinkAttempts >= 3) {
+				// We already tried this and failed.
+				msStop(RLCDir::Either,MSStopCause::NonResponsive,TbfNoRetry,gL2MAC.macT3169Value);
+				msDelete();
+				// LOG(DEBUG) << "Greater than 3 attempts sending TBF count: " << msDownlinkAttempts; SVGDBG
+				// SVGDBG should msDownlinkAttempts be reset here
+				return;
+			}
+			// Send downlink message
+			DownlinkQPdu *dlmsg = msDownlinkQueue.read();  // Gets entry from top of the queue
 			// Because the message is queued for this MS, it means the tlli
 			// is equal to either msTlli or msOldTlli.  The SGSN tells us which
 			// one to use.  Make sure it is the current one.
 			// The tlli is changed on the next message after an attach procedure.
 			msChangeTlli(dlmsg->mTlli);
-			createDownlinkTbf(this,dlmsg,false,ChannelCodingMax);
+			createDownlinkTbf(this,dlmsg,false,ChannelCodingMax);  // Write a block in msService
+			msDownlinkAttempts++;
 		} else {
 			// This code just prints a nice message:
-			devassert(blockingtbf);
+			devassert(blockingtbf); // SVGDBG fix if this is a crash
 			// stalltype is 1 for stalled by active, 2 for stalled by dead tbf.
 			unsigned stalltype = blockingtbf->isActive() ? 1 : 2;
 			if (stalltype != msStalled) {
@@ -938,7 +964,7 @@ void MSInfo::msService()
 				msStalled = stalltype;
 			}
 		}
-		break;
+		break; // SVGDBG msDownlinkAttempts may not work because msDownlinkAttempts can get reset in macServiceLoop
 	}
 
 	// If the MS has a delayed request an uplink TBF, start it up.
@@ -960,6 +986,7 @@ void MSInfo::msService()
 		// TODO: Should be TBF.NonResponsivve.
 		int timerVal = gConfig.getNum("GPRS.Timers.MS.NonResponsive");	// value of 0 disables.
 		if (timerVal > 0 && msTalkUpTime.elapsed() > timerVal) {
+			// LOG(DEBUG) << "GPRS.Timers.MS.NonResponsive exceeded";   // SVGDBG
 			msStop(RLCDir::Either,MSStopCause::NonResponsive,TbfNoRetry,gL2MAC.macT3169Value);
 		}
 	}
@@ -970,6 +997,7 @@ void MSInfo::msService()
 // The TBF ends either in mtFinishSuccess or mtCancel.
 void TBF::mtFinishSuccess()
 {
+	// LOG(DEBUG) << "mtFinishSuccess"; // SVGDBG
 	mtMS->msT3191.reset();
 	//GPRSLOG(1) << "@@@ok" << this <<" dir="<<mtDir <<" descr="<<mtDescription <<" OnCCCH="<<mtAssignmentOnCCCH;
 	GPRSLOG(1) << "@@@ok" << this->tbfDump(false)<<timestr();
@@ -996,8 +1024,9 @@ void TBF::mtFinishSuccess()
 // off of the queue yet.
 void TBF::mtRetry()
 {
+	// LOG(DEBUG) << "mtRetry"; //SVGDBG
 	int retrycoding;
-	bool retry = (mtDir == RLCDir::Down) && (retrycoding = configTbfRetry());
+	bool retry = (mtDir == RLCDir::Down) && (retrycoding = configTbfRetry());  // in mtRetry
 	if (mtMS->msDeprecated) {
 		// No retry for MSInfo that has been replaced by some other TLLI.
 		// We check again because deprecated may have changed between the time this TBF
@@ -1018,13 +1047,14 @@ void TBF::mtRetry()
 			dlmsg = oldengine->mDownlinkPdu;
 			oldengine->mDownlinkPdu = NULL;
 		} else {
-			dlmsg = mtMS->msDownlinkQueue.readNoBlock();
+			dlmsg = mtMS->msDownlinkQueue.readNoBlock();  // Aka pop_front
 		}
 		if (dlmsg) { // Not possible to be NULL, but be safe.
 			if (dlmsg->mDlTime.elapsed() < gConfig.getNum("GPRS.TBF.Expire")) {
-				createDownlinkTbf(mtMS, dlmsg, true, chCoding);
+				createDownlinkTbf(mtMS, dlmsg, true, chCoding);  // In mtRetry
 			} else {
 				// Too old.  Give up.
+				// LOG(DEBUG) << "Exceeded GPRS.TBF.Expire time";  //SVGDBG
 				delete dlmsg;
 			}
 		}
@@ -1039,6 +1069,7 @@ void TBF::mtRetry()
 void TBF::mtCancel(MSStopCause::type cause,
 	TbfCancelMode release)	// When to release and whether to retry.
 {
+	// LOG(DEBUG) << "mtCancel mtState: " << mtState; //SVGDBG
 	// Clear out any reservation, in case the reservation does try to notify
 	// this tbf, which will no longer exist.  This is probably overkill,
 	// because either the reservations were answered and cleaned up and they
@@ -1129,6 +1160,7 @@ void TBF::mtCancel(MSStopCause::type cause,
 // assigned to its MS yet.
 void TBF::mtServiceUnattached()
 {
+	LOG(INFO) << "mtServiceUnattached mtState: " << mtState; // SVGDBG Make DEBUG
 	// Dead tbfs are attached, so dont test this flag.
 	//if (mtAttached) return;
 	switch (mtState) {
@@ -1138,11 +1170,13 @@ void TBF::mtServiceUnattached()
 			// Fix it so we wont see this message again.
 			mtCancel(MSStopCause::CauseUnknown, TbfNoRetry);
 			//mtState = TBFState::Dead;
+			LOG(INFO) << "mtServiceUnattached Unused"; // SVGDBG Make DEBUG
 			return;
 		case TBFState::DataReadyToConnect:
 			if (mtAttach()) {
 				mtSetState(TBFState::DataWaiting1);
 			}
+			LOG(INFO) << "mtServiceUnattached DataReadyToConnect"; // SVGDBG Make DEBUG
 			return;
 		case TBFState::Deleting:
 			casedeleting:
@@ -1150,19 +1184,28 @@ void TBF::mtServiceUnattached()
 				// Wait until the response must have been received,
 				// to make sure it gets delivered to the right TBF.
 				// This is overkill - whoever put this in Deleting state already did this.
+				LOG(INFO) << "mtServiceUnattached Deleting mtMsgPending"; // SVGDBG Make DEBUG
 				return;
 			}
 			mtDelete();	// Cleans up and deletes.
+			LOG(INFO) << "mtServiceUnattached Deleting mtDelete"; // SVGDBG Make DEBUG
 			return;
 		case TBFState::Dead:
 			// A dead TBF is normally still "attached", ie, hanging onto its resources
 			// to prevent someone else from using them, until its killtime expires.
 			// But the MS may lose its channel assignment (eg, due to RACH)
 			// so this case may not be handled by the attached tbf code.
+			LOG(INFO) << "mtServiceUnattached Dead"; // SVGDBG Make DEBUG
 			devassert(mtDeadTime.valid());
-			if (mtDeadTime.expired()) { mtDetach(); goto casedeleting; }
+			if (mtDeadTime.expired()) {
+				mtDetach();
+				LOG(INFO) << "mtServiceUnattached expired"; // SVGDBG Make DEBUG
+				goto casedeleting;
+			}
 			return;
-		default:return;
+		default:
+			LOG(INFO) << "mtServiceUnattached default"; // SVGDBG Make DEBUG
+			return;
 	}
 }
 
@@ -1206,6 +1249,7 @@ bool TBF::wantsMultislot()
 // We depend on setState resetting the msgAck flag.
 bool TBF::mtSendTbfRelease(PDCHL1Downlink *down)
 {
+	LOG(INFO) << "mtSendTbfRelease"; // SVGDBG Make DEBUG
 	if (mtMsgPending()) { return false; }	// Wait for message in progress.
 	if (mtGotAck(MsgTransTbfRelease,true)) {
 		mtDetach();
@@ -1214,6 +1258,7 @@ bool TBF::mtSendTbfRelease(PDCHL1Downlink *down)
 		return false;
 	}
 	if ((int)mtTbfReleaseCounter > gConfig.getNum("GPRS.Counters.TbfRelease")) {
+		LOG(INFO) << "GPRS.Counters.TbfRelease count exceeded"; // SVGDBG Make DEBUG
 		mtCancel(MSStopCause::ReleaseCounter,TbfRetryAfterWait);
 		return false;
 	}
@@ -1224,6 +1269,7 @@ bool TBF::mtSendTbfRelease(PDCHL1Downlink *down)
 // See if the TBF can send anything on this downlink, and return true if it sent a block.
 bool TBF::mtServiceDownlink(PDCHL1Downlink *down)
 {
+	LOG(INFO) << "mtServiceDownlink mtState: " << mtState; // SVGDBG Make DEBUG
 	// Only send messages on PACCH.
 	while (1) {
 		mac_debug();
@@ -1261,7 +1307,7 @@ bool TBF::mtServiceDownlink(PDCHL1Downlink *down)
 					}
 					if (mtAssignmentOnCCCH && ! gFixIAUsePoll) {
 						// We will never get a response since we didnt poll.
-						// The second time through this loop, // just go to the next state.
+						// The second time through this loop, just go to the next state.
 						// The ExpectedAckBSN is valid even though we are not polling because we are
 						// using it basically as a timer to wait until the message is sent on AGCH.
 						//if (mtExpectedAckBSN.valid())

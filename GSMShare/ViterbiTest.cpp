@@ -1,5 +1,6 @@
 /*
 * Copyright 2008, 2014 Free Software Foundation, Inc.
+* Copyright 2014 Range Networks, Inc.
 *
 *
 * This software is distributed under the terms of the GNU Affero Public License.
@@ -41,8 +42,8 @@
 using namespace std;
 
 // We must have a gConfig now to include BitVector.
-//#include "Configuration.h"
-//ConfigurationTable gConfig;
+#include "Configuration.h"
+ConfigurationTable gConfig;
 
 
 void origTest()

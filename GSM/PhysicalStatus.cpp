@@ -6,7 +6,7 @@
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -22,6 +22,8 @@
  * All rights reserved.
  *
  */
+
+#define LOG_GROUP LogGroup::GSM		// Can set Log.Level.GSM for debugging
 
 
 #include "PhysicalStatus.h"
@@ -39,10 +41,17 @@
 #include <math.h>
 #include <string>
 
+#include "NodeManager.h"
+extern NodeManager gNodeManager;
+
 using namespace std;
 using namespace GSM;
 
+#define RN_DISABLE_PHYSICAL_DB 1		// (pat 3-2014) Try disabling this for the major load test.
 
+
+#if RN_DISABLE_PHYSICAL_DB
+#else
 static const char* createPhysicalStatus = {
 	"CREATE TABLE IF NOT EXISTS PHYSTATUS ("
 		"CN_TN_TYPE_AND_OFFSET STRING PRIMARY KEY, "		// CnTn <chan>-<index>
@@ -61,9 +70,12 @@ static const char* createPhysicalStatus = {
 		"NCELL_RSSI INTEGER DEFAULT NULL "				// RSSI of strongest neighbor
 	")"
 };
+#endif
 
 int PhysicalStatus::open(const char* wPath)
 {
+#if RN_DISABLE_PHYSICAL_DB
+#else
 	int rc = sqlite3_open(wPath, &mDB);
 	if (rc) {
 		LOG(EMERG) << "Cannot open PhysicalStatus database at " << wPath << ": " << sqlite3_errmsg(mDB);
@@ -79,6 +91,7 @@ int PhysicalStatus::open(const char* wPath)
 	if (!sqlite3_command(mDB,enableWAL)) {
 		LOG(EMERG) << "Cannot enable WAL mode on database at " << wPath << ", error message: " << sqlite3_errmsg(mDB);
 	}
+#endif
 	return 0;
 }
 
@@ -87,7 +100,7 @@ PhysicalStatus::~PhysicalStatus()
 	if (mDB) sqlite3_close(mDB);
 }
 
-bool PhysicalStatus::createEntry(const L2LogicalChannel* chan)
+bool PhysicalStatus::createEntry(const SACCHLogicalChannel* chan)
 {
 	assert(mDB);
 	assert(chan);
@@ -110,22 +123,18 @@ bool PhysicalStatus::createEntry(const L2LogicalChannel* chan)
 	return false;
 }
 
-bool PhysicalStatus::setPhysical(const L2LogicalChannel* chan,
+bool PhysicalStatus::setPhysical(const SACCHLogicalChannel* chan,
 								const L3MeasurementResults& measResults)
 {
 	// TODO -- It would be better if the argument what just the channel
 	// and the key was just the descriptiveString.
-
-	assert(mDB);
 	assert(chan);
 
-	// If MEAS_VALID is true, we don't have valid measurements.
-	// Really.  See GSM 04.08 10.5.2.20.
-	if (measResults.MEAS_VALID()) return true; 
+	if (!measResults.isServingCellValid()) {
+		return true;
+	}
 
 	ScopedLock lock(mLock);
-
-	createEntry(chan);
 
 	int CN = -1;
 	if (measResults.NO_NCELL()>0) CN = measResults.BCCH_FREQ_NCELL(0);
@@ -141,9 +150,16 @@ bool PhysicalStatus::setPhysical(const L2LogicalChannel* chan,
 		}
 	}
 
-	char query[500];
-	MSPhysReportInfo *phys = chan->getPhysInfo();
 
+
+#if RN_DISABLE_PHYSICAL_DB
+	if (ARFCN) {}	// shuts up gcc.
+	return true;
+#else
+	assert(mDB);
+	createEntry(chan);
+
+	char query[500];
 	if (ARFCN<0) {
 		sprintf(query,
 			"UPDATE PHYSTATUS SET "
@@ -204,6 +220,7 @@ bool PhysicalStatus::setPhysical(const L2LogicalChannel* chan,
 	LOG(DEBUG) << "Query: " << query;
 
 	return sqlite3_command(mDB, query);
+#endif
 }
 
 #if 0

@@ -6,7 +6,7 @@
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -43,6 +43,10 @@
 #include "L3MobilityManagement.h"
 #include "L3Utils.h"
 
+extern int gCountTranEntry;
+
+struct sqlite3;
+
 
 /**@namespace Control This namepace is for use by the control layer. */
 namespace Control {
@@ -75,14 +79,7 @@ class HandoverEntry {
 	string mSipReferStr;
 	string mHexEncodedL3HandoverCommand;
 
-	// (pat) This is used to encode the L3 Handover Command.
-	struct ::sockaddr_in mOutboundPeer;		///< other BTS in outbound handover
-
-	//GSM::L3CellDescription mOutboundCell;
-	//GSM::L3ChannelDescription2 mOutboundChannel;
-	//GSM::L3HandoverReference mOutboundReference;
-	//GSM::L3PowerCommandAndAccessType mOutboundPowerCmd;
-	//GSM::L3SynchronizationIndication mOutboundSynch;
+	struct ::sockaddr_in mOutboundPeer;
 
 	protected:
 	void initHandoverEntry(
@@ -191,35 +188,26 @@ class HandoverEntry {
 // These variables may not be modified even by TranEntry except via the accessor methods.
 class TranEntryProtected
 {
-	friend class StaleTranEntry;
 	// No one may set mGSMState directly, call setGSMState
 	CallState mGSMState;				///< the GSM/ISDN/Q.931 call state  (pat)  No it is not; the enum has been contaminated.
 	Timeval mStateTimer;					///< timestamp of last state change.
-	// (pat) The mRemoved could be the final in CallState, but then we would have to be careful about the order of setting
-	// it during cleanup, so its safer to use a separate bool for mRemoved.
-	//volatile bool mRemoved;			///< true if being removed.
 
 	public:
 	CallState getGSMState() const; 			// (pat) This is the old call state and will eventually just go away.
 	void setGSMState(CallState wState);
-	//void GSMState(CallState wState) { setGSMState(wState); }
 	bool isStuckOrRemoved() const;
 
-	// (pat) This is called after the TranEntry has been removed from the TransactionTable.
-	// We are tagging it for deletion, not removal.
-	//void tagForDeletion() { mRemoved=true; mStateTimer.now(); }
 
 	unsigned stateAge() const { /*ScopedLock lock(mLock);*/ return mStateTimer.elapsed(); }
-	//bool removed() const { return mRemoved; }
-	//bool isRemoved() const;
 	
 	/** Return true if clearing is in progress in the GSM side. */
 	bool clearingGSM() const;
 	void stateText(ostream &os) const;
-	void stateText(unsigned &state, std::string &deleted) const;
 
 	virtual TranEntryId tranID() const = 0;	// This is our private transaction id, not the layer 3 TI mL3TI
-	TranEntryProtected() : mGSMState(CCState::NullState) /*, mRemoved(false)*/ { mStateTimer.now(); }
+	TranEntryProtected() : mGSMState(CCState::NullState) { mStateTimer.now(); }
+	// (pat 6-2014) It looks like Dave added this.  It would be needed to preserve the state timer
+	// if the TranEntry were ever copied.  Is it?  This may have been part of the staletranentry that was deleted.
 	TranEntryProtected(TranEntryProtected &old)
 	{
 		mGSMState = old.mGSMState;
@@ -227,12 +215,46 @@ class TranEntryProtected
 	}
 };
 
+// pat added 6-2014.
+// Call Data Record, created from a TranEntry.
+// The information we dont know is left empty.
+struct L3CDR {
+	string cdrType;	// MOC, MTC, Emergency
+	TranEntryId cdrTid;
+	string cdrToImsi, cdrFromImsi;
+	string cdrToNumber, cdrFromNumber;
+	string cdrPeer;
+	time_t cdrConnectTime;
+	long cdrDuration;	// Connect duration, as distinct from total duration.
+	int cdrMessageSize;	// For SMS
+	string cdrToHandover, cdrFromHandover;
+	TermCause cdrCause;
+
+	static void cdrWriteHeader(FILE *pf);
+	void cdrWriteEntry(FILE *pf);
+};
+
+// pat added 6-2014.
+// This is sent L3CDR records.  It writes them to a file.
+class CdrService {
+	InterthreadQueue<L3CDR> mCdrQueue;
+	Thread cdrServiceThread;
+	FILE *mpf;
+	int cdrCurrentDay;
+	Bool_z cdrServiceRunning;
+	public:
+	CdrService() : mpf(NULL), cdrCurrentDay(-1) {}
+	void cdrServiceStart();
+	void cdrOpenFile();
+	static void *cdrServiceLoop(void*);
+	void cdrAdd(L3CDR*cdrp) { mCdrQueue.write(cdrp); }
+};
+extern CdrService gCdrService;
 
 DEFINE_MEMORY_LEAK_DETECTOR_CLASS(TranEntry,MemCheckTranEntry)
 class TranEntry : public MemCheckTranEntry, public RefCntBase, public TranEntryProtected, public L3TimerList
 {
 	friend class NewTransactionTable;
-	friend class StaleTranEntry;
 	friend class MachineBase;
 	friend class MMContext;
 	//mutable Mutex mLock;					///< thread-safe control, shared from gTransactionTable
@@ -284,6 +306,12 @@ class TranEntry : public MemCheckTranEntry, public RefCntBase, public TranEntryP
 	std::string mContentType;				///< text message payload content type
 	//@}
 
+	TermCause mFinalDisposition;		// How transaction ended.
+
+
+
+
+
 	// (pat) In v1 (Pre-l3-rewrite), this was a value, not a pointer.
 	// In v2, the TranEntry represents a connection to an MS,
 	// and the SipDialog is a decoupled separate structure managed in the SIP directory.
@@ -296,14 +324,14 @@ class TranEntry : public MemCheckTranEntry, public RefCntBase, public TranEntryP
 	// transaction and we will be able to destroy TranEntrys
 	// immediately upon loss of radio link.
 	private:
-	SIP::SipDialog *mDialog;		// (pat) post-l3-rewrite only.
+	SIP::SipDialogRef mDialog;		// (pat) post-l3-rewrite only.
 
-	SIP::SipDialog *getDialog() { return mDialog; }
-	SIP::SipDialog *getDialog() const { return mDialog; }	// grrr
+	SIP::SipDialog *getDialog() { return mDialog.self(); }
+	SIP::SipDialog *getDialog() const { return mDialog.self(); }	// grrr
 
 	public:
 	void setDialog(SIP::SipDialog *dialog);		// Also passed through to here from MachineBase
-	void teCloseDialog(CancelCause cause=CancelCauseUnknown);
+	void teCloseDialog(TermCause cause);
 
 	private:
 	mutable SIP::SipState mPrevSipState;	///< previous SIP state, prior to most recent transactions
@@ -319,7 +347,7 @@ class TranEntry : public MemCheckTranEntry, public RefCntBase, public TranEntryP
 
 	private:
 
-	Bool_z mTerminationRequested;
+	L3Cause::AnyCause mTerminationRequested;
 
 	public:	// But only used by MobilityManagement routines.
 	// TODO: Maybe this should move into the MMContext.
@@ -350,7 +378,7 @@ class TranEntry : public MemCheckTranEntry, public RefCntBase, public TranEntryP
 	static TranEntry *newMTC(
 		SIP::SipDialog *wDialog,
 		const FullMobileId& msid,
-		const GSM::L3CMServiceType& wService,	// MobileTerminatedCall, FuzzCall, TestCall, or UndefinedType for generic page from CLI.
+		const GSM::L3CMServiceType& wService,	// MobileTerminatedCall or UndefinedType for generic page from CLI.
 		string wCallerId);
 
 	static TranEntry *newMTSMS(
@@ -388,15 +416,11 @@ class TranEntry : public MemCheckTranEntry, public RefCntBase, public TranEntryP
 			);
 
 	/** Set the inbound handover parameters on the channel; state should alread be HandoverInbound. */
-	void setInboundHandover(
-		float wRSSI,
-		float wTimingError
-			);
+	//void setInboundHandover(float wRSSI, float wTimingError);
 
-private:
+
 	/** Delete the database entry upon destruction. */
 	~TranEntry();
-public:
 
 	/**@name Accessors. */
 	//@{
@@ -442,7 +466,7 @@ public:
 
 	//@}
 
-	bool terminationRequested();
+	L3Cause::AnyCause terminationRequested();
 
 	/**@name SIP-side operations */
 	//@{
@@ -452,13 +476,8 @@ public:
 
 
 	// Obviously, these are only for TransactionEntries for voice calls.
-	//void txFrame(GSM::AudioFrame* frame) { ScopedLock lock(mLock); return mSIP->txFrame(frame); }
-	// Obviously, these are only for TransactionEntries for voice calls.
-	void txFrame(GSM::AudioFrame* frame, unsigned numFlushed);
-	GSM::AudioFrame *rxFrame();
-
-	// (pat) NOTE: This is unused except by the temporary code csl3HandleSipMsg
-	//const std::string SIPCallID() const { return mDialog->callID(); }
+	void txFrame(SIP::AudioFrame* frame, unsigned numFlushed);
+	SIP::AudioFrame *rxFrame();
 
 	//@}
 
@@ -469,15 +488,16 @@ public:
 	bool deadOrRemoved() const;
 
 	/** Dump information as text for debugging. */
-	void textTable(std::ostream&) const;
 	void text(std::ostream&) const;
 	string text() const;
-	static void header(std::ostream&);
 
 	/** Genrate an encoded string for handovers. */
 	std::string handoverString(string peer) const;
 
 	private:
+
+	/** Set up a new entry in gTransactionTable's sqlite3 database. */
+	//void insertIntoDatabase();
 
 	/** Run a database query. */
 	void runQuery(const char* query) const;
@@ -488,12 +508,11 @@ public:
 	// (pat) This is genuine removal, and partial cleanup if the TranEntry is dirty.
 
 	/** Removal status. */
-	private: void teRemove(CancelCause cause);		// Keep private.  Dont call from Procedures.  Call teCloseCall or teCancel or chanClose instead.
+	private: void teRemove(TermCause cause);		// Keep private.  Dont call from Procedures.  Call teCloseCall or teCancel or chanClose instead.
 	public:
-	void teCancel(CancelCause cause = CancelCauseUnknown) { teRemove(cause); }		// Used from MM.  Cancel dialog and delete transaction, do not notify MM layer.  Used within MMLayer.
+	void teCancel(TermCause cause) { teRemove(cause); }		// Used from MM.  Cancel dialog and delete transaction, do not notify MM layer.  Used within MMLayer.
+	void teCloseCallNow(TermCause cause, bool sendCause);
 	// If the channel ends being released, this is the cause.
-	void teCloseCallNow(GSM::L3Cause cause);	// Same as teCancel but notify MM layer; used from Procedures..
-	//void teCloseCall(GSM::L3Cause cause, bool faster);	// Same as teCancel but notify MM layer; used from Procedures..
 	
 	////////////////////////////////// l3rwrite ///////////////////////////////////////////
 	// (pat) l3rewrite stuff:
@@ -537,46 +556,15 @@ public:
 	HandoverEntry *getHandoverEntry(bool create) const;	// Creates if necessary.
 	TranEntry *unconst() const { return const_cast<TranEntry*>(this); }
 
+	// Is this handset ever communicated with us?
+	bool teIsTalking();
+
 	// The following block is used to contain the fields from the TRANSACTION_TABLE that are useful for statistics
-	private:
-	time_t startTime, endTime; // "call" start and end time
 	public:
-	inline void setEndTime(time_t t) { endTime = t; }
-	inline time_t getEndTime(void) { return endTime; }
+	time_t mStartTime;		// transaction creation time.
+	time_t mConnectTime;	// When call is connected, or 0 if never.
+	L3CDR *createCDR(bool makeCMR, TermCause cause);
 };
-
-namespace TranFmt
-{
-	// These are the format strings for the various columns being output by
-	// header() and text().  Make sure that they have trailing spaces.
-	// TODO: Figure out what the correct lengths to use are
-	// lblfmt_ is for the label lines - everything are strings
-	// fmt_ is for the data - make the format letter consistent with the actual
-	//		data.
-	static const char lblfmt_Active[] = "%6.6s ";
-	static const char lblfmt_TranId[] = "%10.10s ";
-	static const char lblfmt_L3TI[] = "%9.9s ";
-	static const char lblfmt_Service[] = "%9.9s ";
-	static const char lblfmt_To[] = "%16.16s ";
-	static const char lblfmt_From[] = "%16.16s ";
-	static const char lblfmt_AgeSec[] = "%9.9s ";
-	static const char lblfmt_StartTime[] = "%36.36s ";
-	static const char lblfmt_EndTime[] = "%36.36s ";
-	static const char lblfmt_Message[] = "%16.16s ";
-
-	static const char fmt_Active[] = "%6.6s ";
-	static const char fmt_TranId[] = "%10u ";
-	static const char fmt_L3TI[] = "%9u ";
-	static const char fmt_Service[] = "%9.9s ";
-	static const char fmt_To[] = "%16.16s ";
-	static const char fmt_From[] = "%16.16s ";
-	static const char fmt_AgeSec[] = "%9u ";
-	static const char fmt_StartTime[] = "%04.4d/%02d/%02d %02d:%02d:%02d %16d ";
-	static const char fmt_EndTime[] = "%04.4d/%02d/%02d %02d:%02d:%02d %16d ";
-	static const char fmt_EndTime2[] = "%36.36s "; // used if time is 0
-	static const char fmt_Message[] = "%s "; // TODO
-}
-
 
 std::ostream& operator<<(std::ostream& os, const TranEntry&);
 std::ostream& operator<<(std::ostream& os, const TranEntry*);
@@ -585,10 +573,6 @@ std::ostream& operator<<(std::ostream& os, const TranEntry*);
 
 /** A map of transactions keyed by ID. */
 class NewTransactionMap : public std::map<TranEntryId,TranEntry*> {};
-
-class StaleTranEntry; // forward reference
-/** A map of transactions keyed by ID, used for completed tasks. */
-class StaleTransactionMap : public std::map<TranEntryId,StaleTranEntry*> {};
 
 /**
 	A table for tracking the states of active transactions.
@@ -599,16 +583,25 @@ class NewTransactionTable {
 
 	private:
 
+#if EXTERNAL_TRANSACTION_TABLE
+	sqlite3 *mDB;			///< database connection
+#endif
+
 	NewTransactionMap mTable;
-	mutable RWLock rwLock;
+	mutable Mutex mttLock;
 	unsigned mIDCounter;
 
 	public:
-
 	/**
 		Initialize a transaction table.
+		@param path Path fto sqlite3 database file.
 	*/
 	void ttInit();
+
+#if EXTERNAL_TRANSACTION_TABLE
+	NewTransactionTable() : mDB(0) {}	// (pat) Make sure no garbage creeps in.
+	~NewTransactionTable();
+#endif
 
 	/**
 		Return a new ID for use in the table.
@@ -627,6 +620,10 @@ class NewTransactionTable {
 		@return NULL if ID is not found or was dead
 	*/
 	TranEntry* ttFindById(TranEntryId wID);
+	bool ttIsTalking(TranEntryId tranid);
+	// (pat) This is a temporary routine to return the state asynchronously.
+	// Should be replaced by using a RefCntPointer in the NewTransactionTable and returning that.
+	CallState ttGetGSMStateById(TranEntryId wId);
 	bool ttIsDialogReleased(TranEntryId wID);
 	bool ttSetDialog(TranEntryId tid, SIP::SipDialog *dialog);	// Unlike TranEntry::setDialog(), this can be used from other directories, other threads.
 
@@ -646,7 +643,7 @@ class NewTransactionTable {
 		Return the availability of this particular RTP port
 		@return True if Port is available, False otherwise
 	*/
-	bool RTPAvailable(short rtpPort);
+	bool RTPAvailable(unsigned rtpPort);
 
 	/**
 		Fand an entry by its handover reference.
@@ -660,12 +657,9 @@ class NewTransactionTable {
 		@param wID The transaction ID to search.
 		@return True if the ID was really in the table and deleted.
 	*/
-	bool ttRemove(unsigned wID); // this marks the completion time
+	bool ttRemove(unsigned wID);
 
-	// Use this ONLY when deleting from the Stale table in the main process
-	void ttErase(NewTransactionMap::iterator itr);
-
-	bool ttTerminate(TranEntryId tid);
+	bool ttTerminate(TranEntryId tid, L3Cause::BSSCause cause);
 
 
 	//bool remove(TranEntry* transaction) { return remove(transaction->tranID()); }
@@ -743,19 +737,20 @@ class NewTransactionTable {
 	/** Count the number of transactions using a particular channel. */
 	//unsigned countChan(const L3LogicalChannel*);
 
-	size_t size() { size_t iSize; rwLock.rlock(); iSize = mTable.size(); rwLock.unlock(); return iSize; }
+	size_t size() { ScopedLock lock(mttLock); return mTable.size(); }
 
-	// old style dump (calls command)
 	size_t dump(std::ostream& os, bool showAll=false) const;
-
-	// new style dump (trans command)
-	size_t dumpTable(std::ostream& os) const;
 
 	/** Generate a unique handover reference. */
 	//unsigned generateInboundHandoverReference(TranEntry* transaction);
 
 	private:
 
+
+#if EXTERNAL_TRANSACTION_TABLE
+	/** Accessor to database connection. */
+	sqlite3* getDB() { return mDB; }
+#endif
 
 	/**
 		Remove "dead" entries from the table.
@@ -782,105 +777,9 @@ class NewTransactionTable {
 	//}
 };
 
-/**
-	A table for tracking the states of stale transactions.
-*/
-class StaleTransactionTable {
-	private:
 
-	StaleTransactionMap mTable;
-	mutable RWLock rwLock;
+extern void TranInit();
 
-	public:
-
-	/**
-		Insert a new entry into the table; deleted by the table later.
-		@param value The entry to insert into the table; will be deleted by the table later.
-	*/
-	void ttAdd(StaleTranEntry* value);
-
-	// Use this ONLY when deleting from the Stale table in the main process
-	void ttErase(StaleTransactionMap::iterator itr);
-
-	size_t size() { size_t iSize; rwLock.rlock(); iSize = mTable.size(); rwLock.unlock(); return iSize; }
-
-	// new style dump (trans command)
-	size_t dumpTable(std::ostream& os) const;
-	void clearTable();
-
-	public: // these are needed for the main event loop, and should be used
-		    // with extreme caution.
-	StaleTransactionMap *ttMap(void) { return &mTable; };
-	void ttLock(void) { rwLock.wlock(); }
-	void ttUnlock(void) { rwLock.unlock(); }
-};
-
-
-}	// namespace Control
-
-/**@addtogroup Globals */
-//@{
-/** A single global transaction table in the global namespace. */
-extern Control::NewTransactionTable gNewTransactionTable;
-//@}
-
-//@{
-/** Transactions that have been deleted are cloned into here. */
-extern Control::StaleTransactionTable gStaleTransactionTable;
-//@}
-
-
-namespace Control
-{
-class StaleTranEntry
-{
-	private:
-	// From TranEntryProtected
-	Timeval mStateTimer;		///< timestamp of last state change.
-	public:
-	unsigned stateAge() const { /*ScopedLock lock(mLock);*/ return mStateTimer.elapsed(); }
-	void stateText(ostream &os) const;
-	void stateText(unsigned &state, std::string &deleted) const;
-
-	private:
-	TranEntryId mID;					///< the internal transaction ID, assigned by a TransactionTable
-	GSM::L3CMServiceType mService;		///< the associated service type
-
-	// 24.007 11.2.3.1.3: The TI [Transaction Identifier] is 3 bits plus a flag.
-	// The flag is 0 when it belongs to a transaction initiated by its sender, else 1.
-	// The same TI can be used simultaneously in both direction, distinguished by the flag.
-	// The TI 7 is reserved for an extension mechanism which only applies to certain protocols (ie, Call Control)
-	// and is an error otherwise, but we should not use that value.
-	// The value of the flag we store here is 0 if we initiated the transaction, 1 if MS initiated.
-	unsigned mL3TI;							///< the L3 short transaction ID, the version we *send* to the MS
-	static const unsigned cL3TIInvalid = 16;	// valid values are 0-7
-
-	GSM::L3CalledPartyBCDNumber mCalled;	///< the associated called party number, if known
-	GSM::L3CallingPartyBCDNumber mCalling;	///< the associated calling party number, if known
-
-	std::string mMessage;					///< text message payload
-
-	public:
-	StaleTranEntry(TranEntry &old);
-	~StaleTranEntry();
-
-	public:
-	unsigned getL3TI() const;
-
-	TranEntryId tranID() const { return mID; }
-
-	/** Dump information as text for debugging. */
-	void textTable(std::ostream&) const;
-	static void header(std::ostream&);
-
-	// The following block is used to contain the fields from the TRANSACTION_TABLE that are useful for statistics
-	private:
-	time_t startTime, endTime; // "call" start and end time
-
-	public:
-	inline void setEndTime(time_t t) { endTime = t; }
-	inline time_t getEndTime(void) { return endTime; }
-};
 }; // Control namespace
 
 
@@ -888,3 +787,5 @@ class StaleTranEntry
 #endif
 
 // vim: ts=4 sw=4
+
+

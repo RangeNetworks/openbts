@@ -1,10 +1,9 @@
 /*
-* Copyright 2011 Range Networks, Inc.
-* All Rights Reserved.
+* Copyright 2011, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -216,19 +215,7 @@ class USFList
 	void usfDump(std::ostream&os);
 };
 
-struct RachInfo
-{
-	unsigned mRA;
-	const GSM::Time mWhen;
-	RadData mRadData;
-
-	// Gotta love this language.
-	RachInfo(unsigned wRA, const GSM::Time &wWhen, RadData wRD)
-		: mRA(wRA), mWhen(wWhen), mRadData(wRD)
-		{ RN_MEMCHKNEW(RachInfo) }
-	~RachInfo() { RN_MEMCHKDEL(RachInfo) }
-	void serviceRach();
-};
+extern void serviceRach();
 
 
 // There is only one of these.
@@ -251,7 +238,7 @@ class L2MAC
 	// are in use for RR connections, the as-yet-unserviced RACHs may queue up here.
 	// When GPRS service resumes, we should disard RACHs that are too old.
 	// Note that there could be multiple RACH for the same MS, a case we cannot detect.
-	InterthreadQueue<RachInfo> macRachQ;
+	InterthreadQueue<GSM::RachInfo> macRachQ;
 
 	// We are doing a linear search through these lists, but there should only be a few of them.
 	PDCHL1FECList_t macPDCHs;	// channels assigned to GPRS.
@@ -390,7 +377,7 @@ struct RLCBlockReservation : public Text2Str {
 	RLCBSN_t mrBSN;		// The block number that has been reserved.
 	TBF *mrTBF;			// tbf if applicable.  (Not known for MS initiated RACH.)
 	// TODO: Is it stupid to save mrRadData?  We will get new data when the MS responds.
-	RadData mrRadData;		// Saved from a RACH to be put in MS when it responds.
+	GSM::RadData mrRadData;		// Saved from a RACH to be put in MS when it responds.
 	static const char *name(RLCBlockReservation::type type);
 	void text(std::ostream&) const;
 };
@@ -478,13 +465,12 @@ class L1UplinkReservation
 
 	L1UplinkReservation();
 
-	private:
-	RLCBSN_t makeReservationInt(RLCBlockReservation::type restype, RLCBSN_t afterBSN,
-		TBF *tbf, RadData *rd, int *prrbp, MsgTransactionType mttype);
-
 	public:
+	RLCBSN_t makeReservationInt(RLCBlockReservation::type restype, RLCBSN_t afterBSN,
+		TBF *tbf, GSM::RadData *rd, int *prrbp, MsgTransactionType mttype);
+
 	RLCBSN_t makeCCCHReservation(GSM::CCCHLogicalChannel *AGCH,
-		RLCBlockReservation::type type, TBF *tbf, RadData *rd, bool forDRX, MsgTransactionType mttype);
+		RLCBlockReservation::type type, TBF *tbf, GSM::RadData *rd, bool forDRX, MsgTransactionType mttype);
 	RLCBSN_t makeRRBPReservation(TBF *tbf, int *prrbp, MsgTransactionType ttype);
 
 	// Get the reservation for the specified block timeslot.
@@ -493,7 +479,7 @@ class L1UplinkReservation
 	RLCBlockReservation *getReservation(RLCBSN_t bsn);
 	
 	void clearReservation(RLCBSN_t bsn, TBF *tbf);
-	RLCBlockReservation::type recvReservation(RLCBSN_t bsn, TBF**restbf, RadData *prd,PDCHL1FEC *ch);
+	RLCBlockReservation::type recvReservation(RLCBSN_t bsn, TBF**restbf, GSM::RadData *prd,PDCHL1FEC *ch);
 	void dumpReservations(std::ostream&os);
 };
 

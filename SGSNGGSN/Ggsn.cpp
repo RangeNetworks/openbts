@@ -1,10 +1,9 @@
 /*
-* Copyright 2011 Range Networks, Inc.
-* All Rights Reserved.
+* Copyright 2011, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -22,6 +21,7 @@
 #include "Sgsn.h"
 #include "Ggsn.h"
 #include "miniggsn.h"
+#include <GSMConfig.h>
 //#include "MSInfo.h"	// To dump MSInfo
 #include "GPRSL3Messages.h"
 #define CASENAME(x) case x: return #x;
@@ -111,15 +111,15 @@ void *miniGgsnReadServiceLoop(void *arg)
 {
 	Ggsn *ggsn = (Ggsn*)arg;
 	sethighpri();
-	while (ggsn->active()) {
+	while (ggsn->active() && !gBTS.btsShutdown()) {
 		struct pollfd fds[1];
 		fds[0].fd = tun_fd;
 		fds[0].events = POLLIN;
 		fds[0].revents = 0;		// being cautious
 		// We time out occassionally to check if the user wants to shut the sgsn down.
 		if (-1 == poll(fds,1,ggsn->mStopTimeout)) {
-			SGSNERROR("ggsn: poll failure");
-			return 0;
+			SGSNERROR("ggsn: poll failure, errno="<<strerror(errno));
+			continue;
 		}
 		if (fds[0].revents & POLLIN) {
 			miniggsn_handle_read();
@@ -132,7 +132,7 @@ void *miniGgsnWriteServiceLoop(void *arg)
 {
 	sethighpri();
 	Ggsn *ggsn = (Ggsn*)arg;
-	while (ggsn->active()) {
+	while (ggsn->active() && !gBTS.btsShutdown()) {
 		// 8-6-2012 This interthreadqueue is clumping things up.  Try taking out the timeout.
 		//PdpPdu *npdu = ggsn->mTxQ.read(ggsn->mStopTimeout);
 		PdpPdu *npdu = ggsn->mTxQ.read();
@@ -172,9 +172,11 @@ void *miniGgsnShellServiceLoop(void *arg)
 {
 	Ggsn *ggsn = (Ggsn*)arg;
 	std::string shname = gConfig.getStr(SQL_SHELLSCRIPT);
-	while (ggsn->active()) {
+	while (ggsn->active() && !gBTS.btsShutdown()) {
 		ShellRequest *req = ggsn->mShellQ.read(ggsn->mStopTimeout);
 		if (! req) continue;
+		// (pat added 3-2014) Dont try to exec a shell script that does not exist; prevents a warning.
+		if (0 != access(shname.c_str(),R_OK)) continue;
 		runcmd("/bin/sh","sh",shname.c_str(), req->msrCommand.c_str(), req->msrArg1.c_str(),
 			req->msrArg2.c_str(),req->msrArg3.c_str());
 		delete req;

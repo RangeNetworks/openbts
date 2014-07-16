@@ -2,10 +2,6 @@
 	path = CommonLibs
 	url = git@github.com:RangeNetworks/CommonLibs.git
 	branch = master
-[submodule "sqlite3"]
-	path = sqlite3
-	url = git@github.com:RangeNetworks/sqlite3.git
-	branch = master
 [submodule "NodeManager"]
 	path = NodeManager
 	url = git@github.com:RangeNetworks/NodeManager.git

@@ -1,8 +1,9 @@
-/* Copyright 2013, 2014 Range Networks, Inc.
+/* 
+* Copyright 2013, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -10,10 +11,13 @@
     This program is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
 */
 
-#define LOG_GROUP LogGroup::Control
+// Written by Pat Thompson
 
+#define LOG_GROUP LogGroup::Control
+#include <GSML3CCElements.h>
 #include "ControlCommon.h"
 #include "L3CallControl.h"
 #include "L3StateMachine.h"
@@ -44,9 +48,9 @@ class CCBase : public SSDBase {
 	MachineStatus defaultMessages(int state, const GSM::L3Message*);
 	bool isVeryEarly();
 	CCBase(TranEntry *wTran) : SSDBase(wTran) {}
-	MachineStatus closeCall(GSM::L3Cause cause);
-	MachineStatus sendReleaseComplete(GSM::L3Cause cause);
-	MachineStatus sendRelease(GSM::L3Cause cause);
+	MachineStatus closeCall(TermCause cause);
+	MachineStatus sendReleaseComplete(TermCause cause, bool sendCause);
+	MachineStatus sendRelease(TermCause cause, bool sendCause);
 	void handleTerminationRequest();
 };
 
@@ -57,7 +61,7 @@ class MOCMachine : public CCBase {
 		stateAssignTCHFSuccess,
 	};
 	bool mIdentifyResult;
-	MachineStatus sendCMServiceReject(MMRejectCause rejectCause);
+	MachineStatus sendCMServiceReject(MMRejectCause rejectCause,bool fatal);
 	MachineStatus handleSetupMsg(const GSM::L3Setup *setup);
 	MachineStatus serviceAccept();
 
@@ -113,6 +117,7 @@ class MTCMachine : public CCBase {
 	const char *debugName() const { return "MTCMachine"; }
 };
 
+
 class InboundHandoverMachine : public CCBase {
 	bool mReceivedHandoverComplete;
 	enum State {
@@ -155,39 +160,49 @@ void startMOC(const GSM::L3MMMessage *l3msg, MMContext *dcch, CMServiceTypeCode 
 }
 
 #if UNUSED
-MachineStatus ProcedureDetach::machineRunState(int state, const GSM::L3Message* l3msg, const SIP::DialogMessage *sipmsg) 
-{
-	PROCLOG2(DEBUG,state)<<LOGVAR(l3msg)<<LOGVAR(sipmsg)<<LOGVAR2("imsi",tran()->subscriber());
-	getDialog()->dialogCancel();  // reudundant, chanLost would do it.  Does nothing if dialog not yet started.
-	setGSMState(CCState::NullState);	// redundant, we are deleting this transaction.
-	channel()->l3sendm(L3ChannelRelease());
-	channel()->chanRelease(HARDRELEASE);
-	//channel()->l3sendp(HARDRELEASE);
-	//channel()->chanLost();
-	return MachineStatusOK;
-}
+//MachineStatus ProcedureDetach::machineRunState(int state, const GSM::L3Message* l3msg, const SIP::DialogMessage *sipmsg) 
+//{
+//	PROCLOG2(DEBUG,state)<<LOGVAR(l3msg)<<LOGVAR(sipmsg)<<LOGVAR2("imsi",tran()->subscriber());
+//	getDialog()->dialogCancel();  // reudundant, chanLost would do it.  Does nothing if dialog not yet started.
+//	setGSMState(CCState::NullState);	// redundant, we are deleting this transaction.
+//	channel()->l3sendm(L3ChannelRelease());
+//	channel()->chanRelease(HARDRELEASE);
+//	//channel()->l3sendp(HARDRELEASE);
+//	//channel()->chanLost();
+//	return MachineStatusOK;
+//}
 #endif
 
+
 // Identical to teCloseCallNow.
-MachineStatus CCBase::sendReleaseComplete(L3Cause l3cause)
+MachineStatus CCBase::sendReleaseComplete(TermCause cause, bool sendCause)
 {
-	tran()->teCloseCallNow(l3cause);
-	return MachineStatusQuitTran;
+	LOG(INFO) << "SIP term info sendReleaseComplete"<<LOGVAR(cause); // SVGDBG&pat
+	tran()->teCloseCallNow(cause,sendCause);
+	return MachineStatus::QuitTran(cause);
 }
 
-MachineStatus CCBase::sendRelease(L3Cause l3cause)
+MachineStatus CCBase::sendRelease(TermCause cause, bool sendCause)
 {
-	tran()->teCloseDialog();		// redundant, would happen soon anyway.
+	LOG(INFO) << "SIP term info sendRelease cause: " << cause; // SVGDBG
+	tran()->teCloseDialog(cause);		// redundant, would happen soon anyway.
 	if (isL3TIValid()) {
 		unsigned l3ti = getL3TI();
 		if (tran()->clearingGSM()) {
 			// Oops!  Something went wrong.  Clear immediately.
-			tran()->teCloseCallNow(l3cause);
-			return MachineStatusQuitTran;
+			LOG(INFO) << "SIP term info call teCloseCallNow  cause: " << cause;
+			tran()->teCloseCallNow(cause,sendCause);
+			return MachineStatus::QuitTran(cause);
 		} else {
 			// This tells the phone that the network intends to release the TI.
 			// The handset is supposed to respond with ReleaseComplete.
-			channel()->l3sendm(GSM::L3Release(l3ti,l3cause));
+			if (sendCause) {
+				// If BTS initiates release, we must include the cause element.
+				channel()->l3sendm(GSM::L3Release(l3ti,cause.tcGetCCCause()));
+			} else {
+				// Handset sent disconnect; our reply L3Release does not include a Cause Element.  GSM 4.08 9.3.18.1.1
+				channel()->l3sendm(GSM::L3Release(l3ti));
+			}
 			setGSMState(CCState::ReleaseRequest);
 			timerStart(T308,T308ms,TimerAbortTran);
 			LOG(DEBUG) << gMMLayer.printMMInfo();
@@ -196,7 +211,7 @@ MachineStatus CCBase::sendRelease(L3Cause l3cause)
 	} else {
 		// The transaction is already dead.  Kill the state machine and the next layer will send the RR Release.
 		LOG(DEBUG) << gMMLayer.printMMInfo();
-		return MachineStatusQuitTran;
+		return MachineStatus::QuitTran(cause);
 	}
 }
 
@@ -204,10 +219,11 @@ MachineStatus CCBase::sendRelease(L3Cause l3cause)
 // or if things have gone wrong, send a ReleaseRequest and kill the transaction.  We used to do that all the time
 // but some handsets (BLU phone) report "Network Failure" if you dont go through the disconnect procedure.
 // We dont send the RR releaes at this level - the MM layer does that after this transaction dies.
-MachineStatus CCBase::closeCall(L3Cause l3cause)
+MachineStatus CCBase::closeCall(TermCause cause)
 {
-	WATCHINFO("closeCall"<<LOGVAR2("cause",l3cause.cause()) <<" "<<channel()->descriptiveString());
-	tran()->teCloseDialog();	// Make sure; this is redundant because the call will be repeated when the transaction is killed,
+	LOG(INFO) << "SIP term info closeCall"<<LOGVAR(cause); // SVGDBG&pat
+	WATCHINFO("closeCall"<<LOGVAR(cause) <<" "<<channel()->descriptiveString());
+	tran()->teCloseDialog(cause);	// Make sure; this is redundant because the call will be repeated when the transaction is killed,
 	// We could assert this if we dont call this until after an L3Setup.
 	if (isL3TIValid()) {
 		unsigned l3ti = getL3TI();
@@ -215,23 +231,23 @@ MachineStatus CCBase::closeCall(L3Cause l3cause)
 		CallState ccstate = tran()->getGSMState();
 		if (ccstate == CCState::Active) {
 			if (1) {
-				channel()->l3sendm(GSM::L3Disconnect(l3ti,l3cause));
+				channel()->l3sendm(GSM::L3Disconnect(l3ti,cause.tcGetCCCause()));
 				setGSMState(CCState::DisconnectIndication);
 			} else {
 				// (pat 10-24-2013) As an option per 24.008 5.4.2: we could send a Release message and start T308
-				channel()->l3sendm(GSM::L3Release(l3ti,l3cause));
+				channel()->l3sendm(GSM::L3Release(l3ti,cause.tcGetCCCause()));
 				setGSMState(CCState::ReleaseRequest);
 			}
 			timerStart(T308,T308ms,TimerAbortTran);
 			return MachineStatusOK;	// Wait for ReleaseComplete.
 		} else if (ccstate != CCState::NullState && ccstate != CCState::ReleaseRequest) {
-			channel()->l3sendm(GSM::L3ReleaseComplete(l3ti,l3cause));	// This is a CC message that releases this Transaction.
+			channel()->l3sendm(GSM::L3ReleaseComplete(l3ti,cause.tcGetCCCause()));	// This is a CC message that releases this Transaction.
 		}
 	} else {
 		// If no TI we cant send any CC release messages, just kill the transaction and if nothing is happening
 		// the MM layer will send an RR release on the channel.
 	}
-	WATCH("CLOSE CALL:"<<l3cause <<gMMLayer.printMMInfo());
+	WATCH("CLOSE CALL:"<<cause <<gMMLayer.printMMInfo());
 
 	setGSMState(CCState::NullState);	// redundant, we are deleting this transaction.
 	LOG(DEBUG) << gMMLayer.printMMInfo();
@@ -240,14 +256,20 @@ MachineStatus CCBase::closeCall(L3Cause l3cause)
 	// The caller is a state machine.  We cannot remove the transaction yet because the state machine is still using it.
 	// The state machine caller should return MachineStatusQuitTran which causes handleMachineStatus()
 	// to call teRemove to finish transaction destruction.
-	return MachineStatusQuitTran;
+	return MachineStatus::QuitTran(cause);
 }
 
 // This is called outside the normal procedure handling, so we dont return a MachineStatus.
 // On return the caller will release the RR channel preemptively.
+// TODO: Get rid of this.  The terminator should Send a message to the MMLayer indicating type of termination (operator intervention
+// or emergency call) which should be copied out to all the transactions in the MMContext.
 void CCBase::handleTerminationRequest()
 {
-	tran()->teCloseCallNow(L3Cause::Preemption);
+	LOG(INFO) "SIP term info handleTerminationRequest call closeCallNow Preemption";
+	// TODO: It may be pre-emption by emergency call.
+	//tran()->teCloseCallNow(TermCause::Local(TermCodeOperatorIntervention));
+	//tran()->teCloseCallNow(TermCause::Local((L3Cause::AnyCause)L3Cause::Operator_Intervention));
+	tran()->teCloseCallNow(TermCause::Local(L3Cause::Operator_Intervention),true);
 }
 
 
@@ -257,11 +279,11 @@ void CCBase::handleTerminationRequest()
 MachineStatus CCBase::defaultMessages(int state, const GSM::L3Message *l3msg)
 {
 	if (!l3msg) { return unexpectedState(state,l3msg); }	// Maybe unhandled dialog message.
-	switch (state) { // L3CASE_RAW(l3msg->PD(),l3msg->MTI())) {
+	switch (state) { // L3CASE_RAW(l3msg->PD(),l3msg->MTI()) {
 		case L3CASE_CC(Hold): {
 			const L3Hold *hold = dynamic_cast<typeof(hold)>(l3msg);
 			PROCLOG(NOTICE) << "rejecting hold request from " << tran()->subscriber();
-			channel()->l3sendm(GSM::L3HoldReject(getL3TI(),L3Cause::ServiceOrOptionNotAvailable));
+			channel()->l3sendm(GSM::L3HoldReject(getL3TI(),L3Cause::Service_Or_Option_Not_Available));
 			return MachineStatusOK;	// ignore bad message otherwise.
 		}
 		case L3CASE_MM(CMServiceAbort): {
@@ -269,46 +291,61 @@ MachineStatus CCBase::defaultMessages(int state, const GSM::L3Message *l3msg)
 			// 4.08 5.2.1 and 4.5.1.7: If the MS wants to cancel before we get farther it should send a CMServiceAbort.
 			PROCLOG(INFO) << "received CMServiceAbort, closing channel and clearing";
 			timerStopAll();
-			return closeCall(L3Cause::NormalCallClearing);	// normal event.
+			// 603 is only supposed to be used if we know there is no second choice like voice mail.
+			return closeCall(TermCause::Local(L3Cause::Call_Rejected));	// normal event.
 		}
 		case L3CASE_CC(Disconnect): { // MOD
 			// 4.08 5.4.3 says we must be prepared to receive a DISCONNECT any time.
-			//const L3Disconnect *dmsg = dynamic_cast<typeof(dmsg)>(l3msg);		Unused.
-			//changed 10-24-13: return closeCall(L3Cause::NormalCallClearing);	// normal event.
 			timerStopAll();
-			return sendRelease(L3Cause::NormalCallClearing);
+			const L3Disconnect *dmsg = dynamic_cast<typeof(dmsg)>(l3msg);
+			return sendRelease(TermCause::Local(dmsg->cause().cause()),false);	// (pat) Preserve the cause the handset sent us.
+			//return sendRelease(TermCause::Local(L3Cause::Normal_Call_Clearing));  //svg change from CallRejected to NormalCallClearing 05/29/14
 		}
 		case L3CASE_CC(Release): {
 			// 24.008 5.4.3.3: In any state except ReleaseRequest send a ReleaseComplete, then kill the transaction,
+			timerStopAll();
 			const L3Release *dmsg = dynamic_cast<typeof(dmsg)>(l3msg);
 			if (dmsg->mFacility.mExtant) WATCH(dmsg);	// USSD DEBUG!
-			timerStopAll();
-			return sendReleaseComplete(L3Cause::NormalCallClearing);
+			// (pat) The cause is optional; only included if the Release message is used to initiate call clearing.
+			L3Cause::CCCause cccause;
+			if (dmsg->haveCause()) {
+				cccause = dmsg->cause().cause();
+			} else {
+				cccause = L3Cause::Normal_Call_Clearing;
+			}
+			return sendReleaseComplete(TermCause::Local(cccause),false);
 		}
 		case L3CASE_CC(ReleaseComplete): {
 			// 24.008 5.4.3.3: Just kill the transaction immediately..
 			const L3ReleaseComplete *dmsg = dynamic_cast<typeof(dmsg)>(l3msg);
 			if (dmsg->mFacility.mExtant) WATCH(dmsg);	// USSD DEBUG!
 			timerStopAll();
-			//changed 10-24-13: return closeCall(L3Cause::NormalCallClearing);	// normal event.
-			// tran()->teCloseDialog(); // Redundant.
+			//changed 10-24-13: return closeCall(L3Cause::Normal_Call_Clearing);	// normal event.
+			// tran()->teCloseDialog(TermCause::Local(TermCodeNormalDisconnect)); // Redundant, and we dont know what initiated it so this error is not correct
 			setGSMState(CCState::NullState);	// redundant, we are deleting this transaction.
-			return MachineStatusQuitTran;
+			// (pat) The ReleaseComplete message may be sent by handset in response to our request for Release,
+			// in which case we dont want to change the termination cause from what it was previously,
+			// or it could be the handset informing us for the first time that it wants to delete this transaction.
+			TermCause cause = tran()->mFinalDisposition;
+			if (cause.tcIsEmpty()) { cause = TermCause::Local(L3Cause::Normal_Call_Clearing); }
+			return MachineStatus::QuitTran(cause);
 		}
 		case L3CASE_MM(IMSIDetachIndication): {
 			const GSM::L3IMSIDetachIndication* detach = dynamic_cast<typeof(detach)>(l3msg);
 			timerStopAll();
 			// The IMSI detach procedure will release the LCH.
 			PROCLOG(INFO)  << "GSM IMSI Detach " << *tran();
-
-			// FIXME: Must unregister.
-			// TODO: IMSIDetachController(detach,LCH);
+			LOG(INFO) << "SIP term info IMSIDetachIndication text: " << l3msg->text();
+			// Must unregister.  FIXME: We're going to do that first because the stupid layer2 may hang in l3sendm.
+			L3MobileIdentity mobid = detach->mobileID();
+			imsiDetach(mobid,channel());
 
 			channel()->l3sendm(L3ChannelRelease());
 			// Many handsets never complete the transaction.
 			// So force a shutdown of the channel.
-			channel()->chanRelease(HARDRELEASE);
-			return MachineStatusQuitChannel;
+			// (pat 5-2014) Changed from HARDRELEASE to RELEASE - we need to let the LAPDm shut down normally.
+			channel()->chanRelease(L3_RELEASE_REQUEST,TermCause::Local(L3Cause::IMSI_Detached));
+			return MachineStatus::QuitChannel(TermCause::Local(L3Cause::IMSI_Detached));
 		}
 		case L3CASE_RR(ApplicationInformation): {
 			const GSM::L3ApplicationInformation *aimsg = dynamic_cast<typeof(aimsg)>(l3msg);
@@ -341,15 +378,25 @@ MachineStatus CCBase::handleIncallCMServiceRequest(const GSM::L3Message *l3msg)
 	// For now, we are rejecting anything else.
 	PROCLOG(NOTICE) << "cannot accept additional CM Service Request from " << tran()->subscriber();
 	// Can never be too verbose.
-	channel()->l3sendm(GSM::L3CMServiceReject(L3RejectCause(L3RejectCause::ServiceOptionNotSupported)));
+	// (pat) There is no termcause here because there is nothing to terminate.
+	channel()->l3sendm(GSM::L3CMServiceReject(L3RejectCause::Service_Option_Not_Supported));
 	return MachineStatusOK;
 }
 
 // The reject cause is 4.08 10.5.3.6.  It has values similar to L3Cause 10.5.4.11
-MachineStatus MOCMachine::sendCMServiceReject(MMRejectCause rejectCause)
+MachineStatus MOCMachine::sendCMServiceReject(MMRejectCause rejectCause, bool fatal)
 {
-	channel()->l3sendm(L3CMServiceReject(L3RejectCause(rejectCause)));
-	return closeChannel(L3RRCause::NormalEvent,RELEASE);
+	channel()->l3sendm(L3CMServiceReject(rejectCause));
+	LOG(INFO) << "SIP term info closeChannel called in sendCMServiceReject";
+	if (fatal) {
+		// Authorization failure.  It is an MM level failure, but a "normal event" at the RR level.
+		return closeChannel(L3RRCause::Normal_Event,L3_RELEASE_REQUEST,TermCause::Local(rejectCause));
+	} else {
+		// This would happen if the user is not authorized for the particular service requested.
+		// This case does not currently occur.
+		tran()->teCloseDialog(TermCause::Local(rejectCause));
+		return MachineStatus::QuitTran(TermCause::Local(rejectCause));
+	}
 }
 
 bool CCBase::isVeryEarly() { return (channel()->chtype()==GSM::FACCHType); }
@@ -379,26 +426,14 @@ MachineStatus MOCMachine::handleSetupMsg(const L3Setup *setup)
 			// FIXME -- This is quick-and-dirty, not following GSM 04.08 5.
 			// (pat) I disagree: this exactly follows GSM 4.08 5.4.2
 			PROCLOG(WARNING) << "MOC setup with no number";
-			return closeCall(L3Cause::InvalidMandatoryInformation);
+			// It is MOC, so we should not be sending an error to any dialogs, but we will fill in a SIP error anyway.
+			return closeCall(TermCause::Local(L3Cause::Missing_Called_Party_Number));
 		}
 		const L3CalledPartyBCDNumber& calledPartyIE = setup->calledPartyBCDNumber();
 		tran()->setCalled(calledPartyIE);
 		calledNumber = calledPartyIE.digits();
 	}
 
-	/* early RLLP request */
-	/* this seems to need to be sent after initial call setup
-	   -kurtis */
-	if (gConfig.getBool("Control.Call.QueryRRLP.Early")) {
-		// Query for RRLP
-#if ORIGINAL_CODE
-		if (!sendRRLP(mobileID, LCH)) {
-			PROCLOG(INFO) << "RRLP request failed";
-		}
-#else
-		// TODO: RRLPServer.start(mobileID);
-#endif
-	}
 
 
 	// Start a new SIP Dialog, which sends an INVITE.
@@ -411,7 +446,8 @@ MachineStatus MOCMachine::handleSetupMsg(const L3Setup *setup)
 	if (dialog == NULL) {
 		// We failed to create the SIP session for some reason.  I dont think this can happen, but dont crash here.
 		LOG(ERR) << "Failed to create SIP Dialog, dropping connection";
-		return closeChannel(L3RRCause::Unspecified,RELEASE);
+		LOG(INFO) << "SIP term info closeChannel called in handlesetupMessage";
+		return closeChannel(L3RRCause::Unspecified,L3_RELEASE_REQUEST,TermCause::Local(L3Cause::Sip_Internal_Error));
 	}
 	//setDialog(dialog);	Moved into newSipDialogMOC to eliminate a race.
 
@@ -441,11 +477,13 @@ MachineStatus MOCMachine::serviceAccept()
 	// TODO: This should be a function in MMContext.
 	if (!isVeryEarly()) {
 		if (! channel()->reassignAllocNextTCH()) {
-			channel()->l3sendm(GSM::L3CMServiceReject(L3RejectCause(L3RejectCause::Congestion)));
-			tran()->teCloseDialog(CancelCauseCongestion);
+			TermCause cause = TermCause::Local(L3Cause::No_Channel_Available);
+			channel()->l3sendm(GSM::L3CMServiceReject(L3RejectCause::Congestion));
+			tran()->teCloseDialog(cause);	// TODO: This will become redundant with closeChannel and should be removed later.
 			// (pat) TODO: Now what? We are supposed to go back to using SDCCH in case of an ongoing SMS,
 			// so lets just close the Transaction.
-			return closeChannel(L3RRCause::NormalEvent,RELEASE);
+			LOG(INFO) << "SIP term info closeChannel called in serviceAccept";
+			return closeChannel(L3RRCause::Normal_Event,L3_RELEASE_REQUEST,cause);
 		}
 	}
 
@@ -489,7 +527,7 @@ MachineStatus MOCMachine::machineRunState(int state, const GSM::L3Message *l3msg
 				// we must return cause CM Service Reject Cause 4,
 				// which will cause the MS to do a new Location Update, and the Location Update code
 				// will either pass it or determine an appropriate reject code.
-				return sendCMServiceReject(L3RejectCause::IMSIUnknownInVLR);
+				return sendCMServiceReject(L3RejectCause::IMSI_Unknown_In_VLR,true);
 			}
 		}
 
@@ -526,7 +564,7 @@ MachineStatus MOCMachine::machineRunState(int state, const GSM::L3Message *l3msg
 				string imsi(mobileID.digits());
 				tran()->setSubscriberImsi(string(mobileID.digits()),true);
 				if (!gTMSITable.tmsiTabCheckAuthorization(imsi)) {
-					return sendCMServiceReject(L3RejectCause::RequestedServiceOptionNotSubscribed);
+					return sendCMServiceReject(L3RejectCause::Requested_Service_Option_Not_Subscribed,true);
 				}
 				return serviceAccept();
 			}
@@ -540,7 +578,7 @@ MachineStatus MOCMachine::machineRunState(int state, const GSM::L3Message *l3msg
 					// But for now, just accept it.
 					tran()->setSubscriberImsi(imsi,true);
 					if (!authorized) {
-						return sendCMServiceReject(L3RejectCause::RequestedServiceOptionNotSubscribed);
+						return sendCMServiceReject(L3RejectCause::Requested_Service_Option_Not_Subscribed,true);
 					}
 					return serviceAccept();
 				}
@@ -551,6 +589,7 @@ MachineStatus MOCMachine::machineRunState(int state, const GSM::L3Message *l3msg
 			// TODO: We should ask the SIP Registrar.
 			// (pat) This is not possible if the MS is compliant (unless the TMSI table has been lost) -
 			// the MS should have done a LocationUpdate first, which provides us with the IMSI.
+			// Or maybe the tmsi table was deleted.
 			PROCLOG(NOTICE) << "MOC with no IMSI or valid TMSI.  Reqesting IMSI.";
 			timerStart(T3270,T3270ms,TimerAbortChan); // start IdentityRequest sent; stop IdentityResponse received.
 			channel()->l3sendm(L3IdentityRequest(IMSIType));
@@ -566,7 +605,7 @@ MachineStatus MOCMachine::machineRunState(int state, const GSM::L3Message *l3msg
 				string imsi(mobileID.digits());
 				tran()->setSubscriberImsi(imsi,true);
 				if (!gTMSITable.tmsiTabCheckAuthorization(imsi)) {
-					return sendCMServiceReject(L3RejectCause::RequestedServiceOptionNotSubscribed);
+					return sendCMServiceReject(L3RejectCause::Requested_Service_Option_Not_Subscribed,true);
 				}
 				return serviceAccept();
 			} else {
@@ -574,7 +613,7 @@ MachineStatus MOCMachine::machineRunState(int state, const GSM::L3Message *l3msg
 				PROCLOG(WARNING) << "MOC setup with no IMSI";	// (pat) It is used for MO-SMS, not MOC.
 				// Reject cause in 10.5.3.6.
 				// Cause 0x62 means "message type not not compatible with protocol state".
-				return sendCMServiceReject(L3RejectCause::MessageTypeNotCompatibleWithProtocolState);
+				return sendCMServiceReject(L3RejectCause::Message_Type_Not_Compatible_With_Protocol_State,false);
 			}
 			return something
 		}
@@ -614,12 +653,15 @@ MachineStatus MOCMachine::machineRunState(int state, const GSM::L3Message *l3msg
 			return MachineStatusOK;
 		}
 		case L3CASE_SIP(dialogRinging): {
+#define ATTEMPT_TO_FIX_ZTE_PHONE 1
 #if ATTEMPT_TO_FIX_ZTE_PHONE
 			// pat 2-2014: The ZTE phone does not play in audio ringing during the Alerting.
 			// Looks like a bug in the phone.  To try work around it add a Progress Indicator IE.
 			// If you set in-band audio it will play whatever you send it, but it will just not generate its own ring tone in any case.
 			//L3ProgressIndicator progressIE(L3ProgressIndicator::ReturnedToISDN);  This one tells it to not use in-band audio, but did not help.
-			L3ProgressIndicator progressIE(L3ProgressIndicator::InBandAvailable);
+			//L3ProgressIndicator progressIE(L3ProgressIndicator::InBandAvailable);
+			// To make the ZTE work I tried: Progress=Unspecified, NotISDN and Queuing.
+			L3ProgressIndicator progressIE(L3ProgressIndicator::Queuing,L3ProgressIndicator::User);
 			channel()->l3sendm(L3Alerting(getL3TI(),progressIE));
 #else
 			channel()->l3sendm(L3Alerting(getL3TI()));
@@ -629,6 +671,7 @@ MachineStatus MOCMachine::machineRunState(int state, const GSM::L3Message *l3msg
 		}
 		case L3CASE_SIP(dialogActive): {
 			// Success!  The call is connected.
+			tran()->mConnectTime = time(NULL);
 
 			if (gConfig.getBool("GSM.Cipher.Encrypt")) {
 				int encryptionAlgorithm = gTMSITable.tmsiTabGetPreferredA5Algorithm(tran()->subscriberIMSI().c_str());
@@ -658,7 +701,8 @@ MachineStatus MOCMachine::machineRunState(int state, const GSM::L3Message *l3msg
 				return callMachStart(new InCallMachine(tran()));
 			} else if (getDialog()->isFinished()) {
 				// The SIP side hung up on us!
-				return closeCall(L3Cause::NormalCallClearing);
+				TermCause cause = dialog2TermCause(getDialog());
+				return closeCall(cause);
 			} else {
 				// Not possible.
 				PROCLOG(ERR) << "Connect Acknowledge received in incorrect SIP Dialog state:"<< getDialog()->getDialogState();
@@ -677,18 +721,16 @@ MachineStatus MOCMachine::machineRunState(int state, const GSM::L3Message *l3msg
 
 		case L3CASE_SIP(dialogBye): {
 			// The other user hung up before we could finish.
-			return closeCall(L3Cause::NormalCallClearing);
+			return closeCall(dialog2ByeCause(getDialog()));
 		}
 		case L3CASE_SIP(dialogFail): {
 			// 0x11: "User Busy";  0x7f "Interworking unspecified"
-			int sipcode = getDialog()->getLastResponseCode();
-			// This is where we should translate SIP codes into more meaningful L3Cause returns.
-			switch (sipcode) {
-				case 486: case 600: case 603:
-					return closeCall(L3Cause::UserBusy);
-				default:
-					return closeCall(L3Cause::InterworkingUnspecified);
-			}
+			// (pat) Since this is MOC, the SIP code supplied in the cause should not be used,
+			// but we will be ultra cautious and preserve it.
+			TermCause cause = dialog2TermCause(getDialog());
+			LOG(INFO) << "SIP dialogFail"<<LOGVAR(cause);
+			return closeCall(cause);
+			break;
 		}
 
 #if TODO // TODO: What to do about this?
@@ -768,7 +810,7 @@ MachineStatus AssignTCHMachine::machineRunState(int state, const GSM::L3Message 
 		// (pat) TODO: Why is this todo here?  network send 'ChannelUnacceptable'?
 		// Since we already started sip, if the channel is unacceptable the only recovery to close the call.
 		//tran()->mSipDialogMessagesBlocked = false;
-		if (!modeOK) return closeCall(L3Cause::ChannelUnacceptable);
+		if (!modeOK) return closeCall(TermCause::Local(L3Cause::Channel_Unacceptable));
 		return MachineStatusPopMachine;
 	}
 
@@ -786,7 +828,7 @@ MachineStatus AssignTCHMachine::machineRunState(int state, const GSM::L3Message 
 		channel()->reassignComplete();
 		PROCLOG(INFO) << "successful assignment";
 		PROCLOG(DEBUG) << gMMLayer.printMMInfo();
-		if (IS_LOG_LEVEL(DEBUG)) {
+		if (IS_WATCH_LEVEL(DEBUG)) {
 			cout << "AssignmentComplete:\n";
 			CommandLine::printChansV4(cout,false);
 		}
@@ -804,8 +846,24 @@ MachineStatus AssignTCHMachine::machineRunState(int state, const GSM::L3Message 
 			sendReassignment();
 			return MachineStatusOK;
 		} else {
+			// (pat) redundant: chanFreeContext(TermCause::Local(L3Cause::Channel_Assignment_Failure));
 			goto caseAssignTimeout;
 		}
+	}
+
+	case stateAssignTimeout: {
+		// This is the case where we received neither AssignmentComplete nor AssignmentFailure - it is loss of radio contact.
+		LOG(INFO) << "SIP term info stateAssignTimeout NoUserResponding";
+		caseAssignTimeout:
+		channel()->reassignFailure();
+		// TODO: This is not optimal - we should drop back to the MMLayer to see if it wants to do something else.
+		// Determine and pass cause	SVGDBG
+		LOG(INFO) << "SIP term info dialogCancel called in AssignTCHMachine::machineRunState";
+		TermCause cause = TermCause::Local(L3Cause::Channel_Assignment_Failure);
+		if (getDialog()) { getDialog()->dialogCancel(cause); }	// Should never be NULL, but dont crash.
+		// We dont call closeCall because we already sent the specific RR message required for this situation.
+		LOG(INFO) << "SIP term info closeChannel called in AssignTCHMachine::machineRunState 1";
+		return closeChannel(L3RRCause::No_Activity_On_The_Radio,L3_RELEASE_REQUEST,cause);
 	}
 
 	// This would be a new CMServiceRequest, eg, for SMS message.
@@ -816,15 +874,9 @@ MachineStatus AssignTCHMachine::machineRunState(int state, const GSM::L3Message 
 		sendReassignment();	// duplicates old code, but is this really necessary?
 	}
 
-	case stateAssignTimeout:
-		caseAssignTimeout:
-		channel()->reassignFailure();
-		// TODO: This is not optimal - we should drop back to the MMLayer to see if it wants to do something else.
-		if (getDialog()) { getDialog()->dialogCancel(); }	// Should never be NULL, but dont crash.
-		// We dont call closeCall because we already sent the specific RR message required for this situation.
-		return closeChannel(L3RRCause::NoActivityOnTheRadio,RELEASE);
-
 	case L3CASE_CC(Setup):
+		LOG(DEBUG) << "ignoring duplicate L3Setup";
+		return MachineStatusOK;
 
 	default:
 		if (sipmsg) {
@@ -843,20 +895,25 @@ MachineStatus MTCMachine::machineRunState(int state, const GSM::L3Message* l3msg
 	PROCLOG2(DEBUG,state)<<LOGVAR(state)<<LOGVAR(l3msg)<<LOGVAR(sipmsg)<<LOGVAR2("imsi",tran()->subscriber());
 	switch(state) {
 		case stateStart: {
-			//MachineStatus stat = checkForSipFailure(getDialog()->getDialogState());
-			//if (stat != MachineStatusOK) { return stat; }
 			if (getDialog()->isFinished()) {
 				// SIP side closed already.
-				return closeCall(L3Cause::InterworkingUnspecified);
+				//formerly: return closeCall(L3Cause::Interworking_Unspecified);
+				return closeCall(dialog2TermCause(getDialog()));
 			}
 
 			// Allocate channel now, to be sure there is one.
-			if (!isVeryEarly()) {
+			// Formerly all we had to do was check the VEA flag, since that controlled the channel type,
+			// but it is better to test for TCHF directly - this works for testcall where the channel type was
+			// specified by the user, and also handles the rare case where the VEA option changed on us.
+			//if (!isVeryEarly())
+			if (! channel()->isTCHF()) {
 				if (! channel()->reassignAllocNextTCH()) {
-					channel()->l3sendm(GSM::L3CMServiceReject(L3RejectCause(L3RejectCause::Congestion)));
-					tran()->teCloseDialog(CancelCauseCongestion);
+					channel()->l3sendm(GSM::L3CMServiceReject(L3RejectCause::Congestion));
+					TermCause cause = TermCause::Local(L3Cause::No_Channel_Available);
+					tran()->teCloseDialog(cause);
 					// (pat) TODO: We are supposed to go back to using SDCCH in case of an ongoing SMS.
-					return closeChannel(L3RRCause::NormalEvent,RELEASE);
+					LOG(INFO) << "SIP term info closeChannel called in AssignTCHMachine::machineRunState 2";
+					return closeChannel(L3RRCause::Normal_Event,L3_RELEASE_REQUEST,cause);
 				}
 			}
 
@@ -876,7 +933,7 @@ MachineStatus MTCMachine::machineRunState(int state, const GSM::L3Message* l3msg
 			timerStart(T303,T303ms,TimerAbortTran);	// Time state "Call Present"; start CMServiceRequest recv; stop CallProceeding recv.
 
 			// And send trying message to SIP
-			getDialog()->MTCSendTrying();
+			if (getDialog()) { getDialog()->MTCSendTrying(); }
 
 			return MachineStatusOK; // Wait for L3CallConfirmed message.
 		}
@@ -920,7 +977,7 @@ MachineStatus MTCMachine::machineRunState(int state, const GSM::L3Message* l3msg
 			if (msg->mFacility.mExtant) WATCH(msg);	// USSD DEBUG!
 			timerStart(T301,T301ms,TimerAbortTran);		// Time state "Call Received"; start Alert recv; stop Connect recv.
 			setGSMState(CCState::CallReceived);
-			getDialog()->MTCSendRinging();
+			if (getDialog()) { getDialog()->MTCSendRinging(); }
 			return MachineStatusOK;		// Waiting for L3Connect.
 		}
 
@@ -942,12 +999,13 @@ MachineStatus MTCMachine::machineRunState(int state, const GSM::L3Message* l3msg
 			// Setting state Active later is probably more technically correct too.
 			//old: setGSMState(CCState::Active);
 			setGSMState(CCState::ConnectIndication);	// Note: This may technically be an MOC only defined state.
-			getDialog()->MTCSendOK(tran()->chooseCodec(),channel());
+			if (getDialog()) { getDialog()->MTCSendOK(tran()->chooseCodec(),channel()); }
 			return MachineStatusOK;		// Wait for SIP OK-ACK
 		}
 
 		case L3CASE_SIP(dialogActive): {		// SIP Dialog received SIP ACK to 200 OK.
 			// Success!  The call is connected.
+			tran()->mConnectTime = time(NULL);
 
 			// (pat) To doug: The place to move cipher starting is probably InCallMachine::machineRunState case stateStart.
 			if (gConfig.getBool("GSM.Cipher.Encrypt")) {
@@ -980,17 +1038,21 @@ MachineStatus MTCMachine::machineRunState(int state, const GSM::L3Message* l3msg
 		// SIP Dialog failure cases.
 		case L3CASE_SIP(dialogBye): {
 			// The other user hung up before we could finish.
-			return closeCall(L3Cause::NormalCallClearing);
+			return closeCall(dialog2ByeCause(getDialog()));
 		}
 		case L3CASE_SIP(dialogFail): {
 			// It cannot be busy because it is a MTC.
-			return closeCall(L3Cause::InterworkingUnspecified);
+			// This most likely a CANCEL, ie, it is a Mobile Terminated Disconnect before the SIP dialog ACK.
+			TermCause cause = dialog2TermCause(getDialog());
+			LOG(INFO) << "SIP dialogFail"<<LOGVAR(cause);
+			return closeCall(cause);	// formerly: (L3Cause::Interworking_Unspecified,500,"Dialog failure"));
 		}
 
 		default:
 			return defaultMessages(state,l3msg);
 	}
 }
+
 
 MachineStatus InboundHandoverMachine::machineRunState(int state, const GSM::L3Message *l3msg, const SIP::DialogMessage *sipmsg)
 {
@@ -1017,8 +1079,10 @@ MachineStatus InboundHandoverMachine::machineRunState(int state, const GSM::L3Me
 			if (dialog == NULL) {
 				// We cannot abort the handover - it is too late.  All we can do is drop the call.
 				LOG(ERR) << "handover failure due to failure to create dialog for " << tran();	// Will probably never happen.
-				closeCall(L3Cause::InterworkingUnspecified);
-				return closeChannel(L3RRCause::NormalEvent,RELEASE);
+				TermCause cause = TermCause::Local(L3Cause::Invalid_Handover_Message);
+				closeCall(cause);
+				LOG(INFO) << "SIP term info closeChannel called in InboundHandoverMachine::machineRunState 1";
+				return closeChannel(L3RRCause::Normal_Event,L3_RELEASE_REQUEST,cause);
 			}
 			setDialog(dialog);
 			setGSMState(CCState::HandoverProgress);
@@ -1028,15 +1092,19 @@ MachineStatus InboundHandoverMachine::machineRunState(int state, const GSM::L3Me
 
 		case L3CASE_SIP(dialogFail):
 			// TODO: We should send a CC message to the phone based on the SIP fail code.
-			return closeChannel(L3RRCause::NormalEvent,RELEASE);
+			LOG(INFO) << "SIP term info closeChannel called in InboundHandoverMachine::machineRunState 2";
+			return closeCall(dialog2TermCause(getDialog()));
+			//return closeChannel(L3RRCause::Normal_Event,L3_RELEASE_REQUEST);
 
 		case L3CASE_SIP(dialogBye):
 			// SIP end hung up.  Just hang up the MS.
-			closeCall(L3Cause::NormalCallClearing);
-			return closeChannel(L3RRCause::NormalEvent,RELEASE);
+			LOG(INFO) << "SIP term info closeChannel called in InboundHandoverMachine::machineRunState 3";
+			return closeCall(dialog2ByeCause(getDialog()));
+			//return closeChannel(L3RRCause::Normal_Event,L3_RELEASE_REQUEST);
 
 		case L3CASE_SIP(dialogActive): {
 			// Success!  SIP side is active.
+			tran()->mConnectTime = time(NULL);
 			timerStop(TSipHandover);
 			getDialog()->MOCSendACK();
 
@@ -1071,7 +1139,8 @@ MachineStatus InboundHandoverMachine::machineRunState(int state, const GSM::L3Me
 			// If we get any other message before receiving the HandoverComplete, it is unrecoverable.
 			if (!mReceivedHandoverComplete) {
 				machineErrorMessage(LOG_NOTICE,state,l3msg,sipmsg,"waiting for Handover Complete");
-				return closeChannel(L3RRCause::MessageTypeNotCompapatibleWithProtocolState,RELEASE);
+				TermCause cause = TermCause::Local(L3Cause::Invalid_Handover_Message);
+				return closeChannel(L3RRCause::Message_Type_Not_Compapatible_With_Protocol_State,L3_RELEASE_REQUEST,cause);
 			} else {
 				// This state machine may need to be modified to handle this message, whatever it is:
 				machineErrorMessage(LOG_NOTICE,state,l3msg,sipmsg,"waiting for SIP Handover Complete");
@@ -1094,7 +1163,7 @@ void InCallMachine::acknowledgeDtmf()
 		 channel()->l3sendm(GSM::L3StartDTMFAcknowledge(tran()->getL3TI(),thekey));
 	} else {
 		LOG (CRIT) << "DTMF sending attempt failed; is any DTMF method defined?";
-		channel()->l3sendm(GSM::L3StartDTMFReject(tran()->getL3TI(),L3Cause::ServiceOrOptionNotAvailable));
+		channel()->l3sendm(GSM::L3StartDTMFReject(tran()->getL3TI(),L3Cause::Service_Or_Option_Not_Available));
 	}
 }
 
@@ -1202,17 +1271,19 @@ MachineStatus InCallMachine::machineRunState(int state, const GSM::L3Message *l3
 			return MachineStatusOK;
 		}
 		case L3CASE_SIP(dialogBye): {
-			return closeCall(L3Cause::NormalCallClearing);
+			return closeCall(dialog2ByeCause(getDialog()));
 		}
 		case L3CASE_SIP(dialogFail): {
 			// This is MTD - Mobile Terminated Disconnect.  SIP sends a CANCEL which translates to this Fail.
 			// It cant be busy at this point because we already connected.
 			//devassert(! sipmsg->isBusy());
-			return closeCall(L3Cause::InterworkingUnspecified);
+			TermCause cause = dialog2TermCause(getDialog());
+			LOG(INFO) << "SIP dialogFail"<<LOGVAR(cause);
+			return closeCall(cause);
 		}
 		case L3CASE_SIP(dialogStarted):
 			devassert(0);
-			return MachineStatusQuitTran;		// Shouldnt happen, but dont crash.
+			return MachineStatus::QuitTran(TermCause::Local(L3Cause::Sip_Internal_Error));		// Shouldnt happen, but dont crash.
 
 		default:
 			// Note: CMServiceRequest is handled at a higher layer, see handleCommonMessages.

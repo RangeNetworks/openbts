@@ -2,7 +2,19 @@
 
 /*
 * Copyright 2008, 2009 Free Software Foundation, Inc.
-* Copyright 2011 Range Networks, Inc.
+* Copyright 2011, 2014 Range Networks, Inc.
+
+* This software is distributed under multiple licenses;
+* see the COPYING file in the main directory for licensing
+* information for this specific distribution.
+*
+* This use of this software may be subject to additional restrictions.
+* See the LEGAL file in the main directory for details.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
 */
 
 
@@ -206,13 +218,13 @@ struct L3SupServReleaseCompleteMessage : public L3SupServMessage {
 
 	L3SupServFacilityIE mFacility;
 
-	L3Cause mCause;		// It is an L3 Cause as described in 24.008 10.5.4.11
+	L3CauseElement mCause;		// It is an L3 Cause as described in 24.008 10.5.4.11
 	bool mHaveCause;
 
 	L3SupServReleaseCompleteMessage() : mHaveCause(false) {}
 	L3SupServReleaseCompleteMessage(unsigned wTranId) :
 		L3SupServMessage(wTranId), mHaveCause(false) {}
-	L3SupServReleaseCompleteMessage(unsigned wTranId, L3Cause wCause) :
+	L3SupServReleaseCompleteMessage(unsigned wTranId, CCCause wCause) :
 		L3SupServMessage(wTranId), mCause(wCause), mHaveCause(true) {}
 	L3SupServReleaseCompleteMessage(unsigned wTranId, L3SupServFacilityIE &wFacility) :
 		L3SupServMessage(wTranId), mFacility(wFacility), mHaveCause(false) {}

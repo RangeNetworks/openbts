@@ -1,10 +1,9 @@
 /*
-* Copyright 2011 Range Networks, Inc.
-* All Rights Reserved.
+* Copyright 2011, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -13,6 +12,8 @@
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 */
+
+#define LOG_GROUP LogGroup::GPRS		// Can set Log.Level.GPRS for debugging
 
 #include "GPRSInternal.h"
 #include "RLCMessages.h"
@@ -278,7 +279,7 @@ void PDCHL1Downlink::send1Frame(BitVector& frame,ChannelCodingType encoding, boo
 
 
 // Return true if we send a block on the downlink.
-bool PDCHL1Downlink::send1DataFrame(
+bool PDCHL1Downlink::send1DataFrame(  //SVGDBG
 	RLCDownEngine *engdown,
 	RLCDownlinkDataBlock *block,	// block to send.
 	int makeres,					// 0 = no res, 1 = optional res, 2 = required res.
@@ -751,7 +752,7 @@ void PDCHL1Downlink::dlService()
 	static int debugCntTotal = 0, debugCntDummy = 0;
 	debugCntTotal++;
 	if ((GPRSDebug&512) || debugCntTotal % 1024 == 0) {
-		GPRSLOG(2) << "dlService sent total="<<debugCntTotal<<" dummy="<<debugCntDummy <<this->parent();
+		GPRSLOG(2) << "dlService sent total="<<debugCntTotal<<" dummy="<<debugCntDummy <<" "<<this->parent();
 	}
 
 	// If gFixIdleFrame only send blocks on the even BSNs,

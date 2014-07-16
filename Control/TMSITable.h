@@ -1,10 +1,11 @@
 /*
 * Copyright 2008, 2009, 2010 Free Software Foundation, Inc.
 * Copyright 2010 Kestrel Signal Processing, Inc.
+* Copyright 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -14,8 +15,6 @@
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
-
-
 
 #ifndef TMSITABLE_H
 #define TMSITABLE_H
@@ -160,7 +159,7 @@ class TMSITable {
 
 	std::vector< std::vector<std::string> > tmsiTabView(int verbosity, bool rawFlag, unsigned maxrows) const;
 	/** Write entries as text to a stream. */
-	void tmsiTabDump(int verbosity,bool rawFlag,std::ostream&, bool ShowAll = false) const;
+	void tmsiTabDump(int verbosity,bool rawFlag,std::ostream&, bool ShowAll = false, bool taboption = false) const;
 	
 	/** Clear the table completely. */
 	void tmsiTabClear();

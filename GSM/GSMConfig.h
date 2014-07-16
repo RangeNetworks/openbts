@@ -1,11 +1,11 @@
 /*
 * Copyright 2008-2010 Free Software Foundation, Inc.
 * Copyright 2010 Kestrel Signal Processing, Inc.
-* Copyright 2012 Range Networks, Inc.
+* Copyright 2012, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -24,11 +24,8 @@
 #include "Defines.h"
 #include <vector>
 #include <Interthread.h>
-
-//#include <ControlCommon.h>
-#include <RadioResource.h>
 #include <PowerManager.h>
-
+#include "GSMRadioResource.h"
 #include "GSML3RRElements.h"
 #include "GSML3CommonElements.h"
 #include "GSML3RRMessages.h"
@@ -40,6 +37,7 @@ namespace GSM {
 
 // From GSM 05.02 6.5.
 const unsigned sMax_BS_PA_MFRMS = 9;
+
 
 
 class CCCHLogicalChannel;
@@ -61,9 +59,7 @@ class GSMConfig {
 	private:
 
 	/** The paging mechanism is built-in. */
-	Control::Pager mPager;
-
-	PowerManager mPowerManager;
+	//Control::Pager mPager;
 
 	mutable Mutex mLock;						///< multithread access control
 
@@ -114,36 +110,29 @@ class GSMConfig {
 	L3SystemInformationType4* mSI4;
 	L3SystemInformationType5* mSI5;
 	L3SystemInformationType6* mSI6;
+	L3SystemInformationType13* mSI13;
 	//@}
-
-	int mT3122;
 
 	time_t mStartTime;
 
 	L3LocationAreaIdentity mLAI;
 
 	bool mHold;		///< If true, do not respond to RACH bursts.
-
-	InterthreadQueue<Control::ChannelRequestRecord> mChannelRequestQueue;
-	Thread mAccessGrantThread;
+	Bool_z mShutdown;
 
 	unsigned mChangemark;
 
-
-
-	void crackPagingFromImsi(unsigned imsiMod1000,unsigned &ccch_group,unsigned &paging_Index);;
+	void crackPagingFromImsi(unsigned imsiMod1000,unsigned &ccch_group,unsigned &paging_Index);
 
 	public:
 	
-	
-
 	GSMConfig();
 
 	/** Initialize with parameters from gConfig.  */
-	void init();
+	void gsmInit();
 
 	/** Start the internal control loops. */
-	void start();
+	void gsmStart();
 	
 	/**@name Get references to L2 frames for BCCH SI messages. */
 	//@{
@@ -166,14 +155,15 @@ class GSMConfig {
 	const L3SystemInformationType4* SI4() const { return mSI4; }
 	const L3SystemInformationType5* SI5() const { return mSI5; }
 	const L3SystemInformationType6* SI6() const { return mSI6; }
+	const L3SystemInformationType13* SI13() const { return mSI13; }
 	//@}
 
 	/** Get the current master clock value. */
-	Time time() const { return mClock.get(); }
+	Time time() const { return mClock.clockGet(); }
 
 	/**@name Accessors. */
 	//@{
-	Control::Pager& pager() { return mPager; }
+	//Control::Pager& pager() { return mPager; }
 	GSMBand band() const { return mBand; }
 	unsigned BCC() const { return mBCC; }
 	unsigned NCC() const { return mNCC; }
@@ -201,12 +191,14 @@ class GSMConfig {
 		Hold off on channel allocations; don't answer RACH.
 		@param val true to hold, false to clear hold
 	*/
-	void hold(bool val);
+	void setBtsHold(bool val);
 
 	/**
 		Return true if we are holding off channel allocation.
 	*/
-	bool hold() const;
+	bool btsHold() const;
+	bool btsShutdown() const { return mShutdown; }
+	void setBtsShutdown() { mShutdown = true; }
 
 	protected:
 
@@ -218,63 +210,8 @@ class GSMConfig {
 
 	public:
 
-	size_t AGCHLoad() { return totalLoad(mAGCHPool); }
-	size_t PCHLoad() { return totalLoad(mPCHPool); }
-
-	/**@name Manage CCCH subchannels. */
-	//@{
-
-	/** The add method is not mutex protected and should only be used during initialization. */
-	void addAGCH(CCCHLogicalChannel* wCCCH) { mAGCHPool.push_back(wCCCH); }
-
-	/** The add method is not mutex protected and should only be used during initialization. */
-	void addPCH(CCCHLogicalChannel* wCCCH) { mPCHPool.push_back(wCCCH); }
-
-	/** Return a minimum-load AGCH. */
-	// (pat) TODO: This strategy needs to change.
-	// There needs to be a common message queue for all CCCH timeslots from which the
-	// FEC can pull the next AGCH message if there is no paging message at that paging slot.
-	// And if someone besides pat works on this, note that gprs also wants
-	// to be able cancel messages after sending them in case conditions have changed,
-	// and also needs to know, a-priori, the exact frame number when the message
-	// is going to be sent, none of which works properly at the moment.
-	CCCHLogicalChannel* getAGCH() { return minimumLoad(mAGCHPool); }
-
-#if ENABLE_PAGING_CHANNELS
-	///< (pat) Send a paging message for the specified imsi.
-	// This function should be used instead of getPCH(), etc. which should then be made private.
-	void sendPCH(const L3RRMessage& msg,unsigned imsiMod1000);
-
-	///< (pat) Return the approximate time of the next PCH message for this imsi.
-	// This routine should be elided after DRX mode in GPRS is fixed.
-	Time getPchSendTime(imsiMod1000);
-
-	///< (pat) Send a message on the avail AGCH.
-	void sendAGCH(const L3RRMessage& msg);
-#endif
-
-	/** Return a minimum-load PCH. */
-	CCCHLogicalChannel* getPCH() { return minimumLoad(mPCHPool); }
-
-	/** Return a specific PCH. */
-	CCCHLogicalChannel* getPCH(size_t index)
-	{
-		assert(index<mPCHPool.size());
-		return mPCHPool[index];
-	}
-
-	/** Return the number of configured AGCHs */
-	unsigned numAGCHs() const { return mAGCHPool.size(); }
-
-	/** Enqueue a RACH channel request; to be deleted when dequeued later. */
-	void channelRequest(Control::ChannelRequestRecord *req)
-		{ mChannelRequestQueue.write(req); }
-
-	Control::ChannelRequestRecord* nextChannelRequest()
-		{ return mChannelRequestQueue.read(); }
-
-	void flushChannelRequests()
-		{ mChannelRequestQueue.clear(); }
+	size_t AGCHLoad();
+	size_t PCHLoad();
 
 	//@}
 
@@ -323,13 +260,6 @@ class GSMConfig {
 	const TCHList& TCHPool() const { return mTCHPool; }
 	//@}
 
-	/**@name T3122 management */
-	//@{
-	unsigned T3122() const;
-	unsigned growT3122();
-	unsigned shrinkT3122();
-	//@}
-
 	/**@name Methods to create channel combinations. */
 	//@{
 	/** Combination 0 is a idle slot, as opposed to a non-transmitting one. */
@@ -338,19 +268,21 @@ class GSMConfig {
 	void createCombinationI(TransceiverManager &TRX, unsigned CN, unsigned TN);
 	/** Combination VII is 8 SDCCHs. */
 	void createCombinationVII(TransceiverManager &TRX, unsigned CN, unsigned TN);
+	void createBeacon(ARFCNManager *radio);
 	/** Combination XIII is a GPRS PDTCH: PDTCH/F+PACCH/F+PTCCH/F */
 	// pat todo: This does not exist yet.
-	void createCombinationXIII(TransceiverManager &TRX, unsigned CN, unsigned TN);
+	//void createCombinationXIII(TransceiverManager &TRX, unsigned CN, unsigned TN);
 	//@}
 
 	/** Return number of seconds since starting. */
 	time_t uptime() const { return ::time(NULL)-mStartTime; }
 
 	/** Get a handle to the power manager. */
-	PowerManager& powerManager() { return mPowerManager; }
 	void getChanVector(std::vector<L2LogicalChannel*> &result);
 };
 
+
+extern int gNumC7s, gNumC1s;
 
 
 };	// GSM

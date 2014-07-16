@@ -1,10 +1,10 @@
 /**@file Declarations for Circuit Switched State Machine and related classes. */
 /*
-* Copyright 2013 Range Networks, Inc.
+* Copyright 2013, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -36,6 +36,7 @@
 #include <GSMTransfer.h>
 #include "ControlCommon.h"
 #include "L3Utils.h"
+#include "L3TermCause.h"
 //#include <GSML3CommonElements.h>
 //#include <GSML3MMElements.h>
 //#include <GSML3CCElements.h>
@@ -68,29 +69,34 @@ struct MachineStatus {
 	enum MachineStatusCode {
 		MachineCodeOK,			// continue the procedure, meaning return to L3 message handler and wait for the next message.
 		MachineCodePopMachine,	// return to previous procedure on stack
-		MachineCodeQuitTran,		// Pop all machines from stack and remove the transaction.  This is the normal exit from a completed procedure.
-		// NOTE: MachineCodeQuitChannel does not close the channel - The user must call closeChannel or equivalent first.
-		MachineCodeQuitChannel,		// Drop the channel, which kills all transactions on this channel.
-		// All these others are error conditions.  They all terminate like MachineCodeQuit, but they are different
-		// so we can print a more informative diagnostic message.
-		//MachineCodeUnexpectedMessage,	// The MS sent a message that was not anticipated by the state machine running the Transaction.
-		//MachineCodeUnexpectedPrimitive,	/** Thrown when the control layer gets the wrong primitive */	// Not sure this happens.
+		MachineCodeQuitTran,	// Pop all machines from stack and remove the transaction.  This is the normal exit from a completed procedure.
+		MachineCodeQuitChannel,	// Drop the channel, which kills all transactions on this channel.
 		MachineCodeUnexpectedState,		// Unexpected message or state was not handled by the current state machine.
-		//MachineCodeAuthorizationFail,	// Self explanatory.
 	};
-	MachineStatusCode mCode;
-	//GSM::RRCause mRRCause;
-	//string mSomeMessage;
-	bool operator==(MachineStatus &other) { return mCode == other.mCode; }
-	bool operator!=(MachineStatus &other) { return mCode != other.mCode; }
-	MachineStatus(MachineStatusCode code) { mCode = code; /*mRRCause = GSM::L3RRCause::NormalEvent;*/ }
+	MachineStatusCode msCode;
+	TermCause msCause;	// If it is QuitTran or QuitChannel.
+	bool operator==(MachineStatus &other) { return msCode == other.msCode; }
+	bool operator!=(MachineStatus &other) { return msCode != other.msCode; }
+	MachineStatus(MachineStatusCode code) { msCode = code; }
+	static MachineStatus QuitTran(TermCause wCause) {
+		MachineStatus result(MachineCodeQuitTran);
+		result.msCause = wCause;
+		return result;
+	}
+	static MachineStatus QuitChannel(TermCause wCause) {
+		MachineStatus result(MachineCodeQuitChannel);
+		result.msCause = wCause;
+		return result;
+	}
 
 };
 std::ostream& operator<<(std::ostream& os, MachineStatus::MachineStatusCode state);
 
 // These ones have no arguments so they might as well be constants.
-extern MachineStatus MachineStatusOK, MachineStatusPopMachine, MachineStatusQuitTran, MachineStatusQuitChannel, MachineStatusAuthorizationFail;
+extern MachineStatus MachineStatusOK, MachineStatusPopMachine, MachineStatusAuthorizationFail;
 extern MachineStatus MachineStatusAuthorizationFail, MachineStatusUnexpectedState;
+//extern MachineStatus MachineStatusQuitChannel;
+//extern MachineStatus MachineStatusQuitTran;
 
 
 struct MachineStatusQuitTran : MachineStatus {
@@ -148,7 +154,7 @@ class MachineBase : public MemCheckMachineBase
 	bool isL3TIValid() const;
 	virtual const char *debugName() const = 0;
 	MachineStatus unexpectedState(int state, const L3Message*l3msg);
-	MachineStatus closeChannel(L3RRCause cause,Primitive prim);
+	MachineStatus closeChannel(RRCause rrcause,Primitive prim,TermCause cause);
 	void machineErrorMessage(int level, int state, const L3Message *l3msg, const SIP::DialogMessage *sipmsg, const char *format);
 
 	virtual void handleTerminationRequest() {}	// Procedure can over-ride this to do nicer cleanup.

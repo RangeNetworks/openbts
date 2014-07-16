@@ -1,10 +1,11 @@
 /*
 * Copyright 2008, 2009, 2010 Free Software Foundation, Inc.
 * Copyright 2010 Kestrel Signal Processing, Inc.
+* Copyright 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -14,7 +15,6 @@
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
-
 
 #define LOG_GROUP LogGroup::Control
 #include <Logger.h>
@@ -284,7 +284,9 @@ int TMSITable::tmsiTabOpen(const char* wPath)
 		LOG(EMERG) << "Cannot enable WAL mode on database at " << wPath << ", error message: " << sqlite3_errmsg(mTmsiDB);
 	}
 	LOG(INFO) << "Opened TMSI table version "<<TmsiTableDefinition::tmsiTableVersion<< ":"<<wPath;
-	LOG(DEBUG) << "TEST sqlite3_db_filename:"<< sqlite3_db_filename(mTmsiDB,"main");
+	// (mike) 2014-06: to free ourselves of the in-tree sqlite3 code, the system library must be used.
+	//        However, sqlite3_db_filename is not available in Ubuntu 12.04. Removing dependence for now.
+	LOG(DEBUG) << "TEST sqlite3_db_filename:"<< wPath;//sqlite3_db_filename(mTmsiDB,"main");
 	tmsiTabInit();
     return 0;
 }
@@ -320,7 +322,7 @@ void TMSITable::tmsiTabSetAuthAndAssign(string imsi,int auth, int assigned)
 }
 #endif
 
-// This does nothing if the IMSI is not found inthe table.
+// This does nothing if the IMSI is not found in the table.
 void TMSITable::tmsiTabSetRejected(string imsi,int rejectCode)
 {
 	char query[100];
@@ -444,7 +446,7 @@ unsigned TMSITable::allocateTmsi()
 
 void TMSITable::tmsiTabUpdate(string imsi, TmsiTableStore *store)
 {
-	LOG(NOTICE) << "update entry for"<<LOGVAR(imsi) <<LOGVAR(store->auth_changed)<<LOGVAR(store->auth)<<LOGVAR(store->assigned_changed)<<LOGVAR(store->assigned);
+	LOG(INFO) << "update entry for"<<LOGVAR(imsi) <<LOGVAR(store->auth_changed)<<LOGVAR(store->auth)<<LOGVAR(store->assigned_changed)<<LOGVAR(store->assigned);
 
 	ScopedLock lock(sTmsiMutex,__FILE__,__LINE__); // This lock should be redundant - sql serializes access, but it may prevent sql retry failures.
 	TSqlUpdate q1;
@@ -534,7 +536,7 @@ uint32_t TMSITable::tmsiTabCreateOrUpdate(
 		LOG(ALERT) << "TMSI creation failed for"<<LOGVAR(imsi)<<" query:"<<*queryp;
 		return 0;
 	}
-	LOG(NOTICE) << (isNewRecord ? "new" : "updated") <<" entry for"<<LOGVAR(imsi)<<LOGHEX(tmsi);
+	LOG(INFO) << (isNewRecord ? "new" : "updated") <<" entry for"<<LOGVAR(imsi)<<LOGHEX(tmsi);
 
 	if (sendTmsis) {	// double check to make sure the database entry made it.
 		unsigned tmsicheck;
@@ -560,7 +562,7 @@ uint32_t TMSITable::tmsiTabAssign(const string imsi, const GSM::L3LocationAreaId
 	uint32_t tmsi = 0;
 
 	// Create a new record.
-	LOG(NOTICE) << "new entry for"<<LOGVAR(imsi)<<LOGVAR(tmsi);
+	LOG(INFO) << "new entry for"<<LOGVAR(imsi)<<LOGVAR(tmsi);
 	unsigned now = (unsigned)time(NULL);
 	TSqlInsert query; query.reserve(150);
 	bool sendTmsis = configSendTmsis();
@@ -619,7 +621,7 @@ uint32_t TMSITable::assign(const string imsi, const GSM::L3LocationAreaIdentity 
 	uint32_t tmsi = 0;
 
 	// Create a new record.
-	LOG(NOTICE) << "new entry for"<<LOGVAR(imsi)<<LOGVAR(tmsi);
+	LOG(INFO) << "new entry for"<<LOGVAR(imsi)<<LOGVAR(tmsi);
 	string query;
 	query.append("INSERT INTO TMSI_TABLE (");
 	bool sendTmsis = configSendTmsis();
@@ -835,7 +837,7 @@ vector< vector<string> > TMSITable::tmsiTabView(int verbosity, bool rawFlag, uns
 }
 
 
-void TMSITable::tmsiTabDump(int verbosity,bool rawFlag, ostream& os, bool showAll) const
+void TMSITable::tmsiTabDump(int verbosity,bool rawFlag, ostream& os, bool showAll, bool taboption) const
 {
 	// Dump the TMSI table.
 	unsigned maxrows = showAll ? 2^31 : 100;
@@ -861,7 +863,7 @@ void TMSITable::tmsiTabDump(int verbosity,bool rawFlag, ostream& os, bool showAl
 		view.push_back(tmp);
 	}
 
-	printPrettyTable(view,os);
+	printPrettyTable(view,os,taboption);
 
 #if 0	// previous tmsi table dumping code.
 	sqlite3_stmt *stmt;

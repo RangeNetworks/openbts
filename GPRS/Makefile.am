@@ -1,5 +1,6 @@
 #
 # Copyright 2008 Free Software Foundation, Inc.
+# Copyright 2014 Range Networks, Inc.
 #
 # This software is distributed under the terms of the GNU Public License.
 # See the COPYING file in the main directory for details.
@@ -23,7 +24,7 @@ include $(top_srcdir)/Makefile.common
 AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES)
 
 #AM_CXXFLAGS = -O0 -g
-CXXFLAGS = -g -O0
+CXXFLAGS = -g -O2
 
 noinst_LTLIBRARIES = libGPRS.la
 

@@ -1,6 +1,6 @@
 #
 # Copyright 2008 Free Software Foundation, Inc.
-# Copyright 2011 Range Networks, Inc.
+# Copyright 2011, 2014 Range Networks, Inc.
 #
 # This software is distributed under the terms of the GNU Public License.
 # See the COPYING file in the main directory for details.
@@ -28,8 +28,8 @@ DESTDIR :=
 # AM_CXXFLAGS = -Wall -ldl -pthread
 
 noinst_PROGRAMS = \
+	JSONEventsClient \
 	OpenBTS \
-	OpenBTSDo \
 	OpenBTSCLI
 
 OpenBTS_SOURCES = OpenBTS.cpp GetConfigurationKeys.cpp
@@ -46,17 +46,26 @@ ourlibs = \
 	$(GLOBALS_LA) \
 	$(CONTROL_LA) \
 	$(COMMON_LA) \
-	$(SQLITE_LA) \
 	$(SMS_LA) \
 	$(PEERING_LA) \
 	$(NODEMANAGER_LA) \
 	$(ORTP_LIBS)
 
-OpenBTS_LDADD = $(ourlibs) -ldl -lortp -la53
+clilibs= \
+	$(GLOBALS_LA)
+
+OpenBTS_LDADD = $(ourlibs) -lcrypto -lssl -ldl -lortp -la53 -lcoredumper 
+OpenBTS_LDFLAGS = $(GPROF_OPTIONS) -rdynamic
+noinst_HEADERS = \
+	OpenBTSConfig.h
 
 OpenBTSCLI_SOURCES = OpenBTSCLI.cpp
-OpenBTSCLI_LDADD = -lreadline
-OpenBTSDo_SOURCES = OpenBTSDo.cpp
+OpenBTSCLI_LDADD = $(clilibs) -lreadline
+OpenBTSCLI_CXXFLAGS = -DBUILD_CLI
+
+JSONEventsClient_SOURCES = JSONEventsClient.cpp
+JSONEventsClient_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES)
+JSONEventsClient_LDADD = $(NODEMANAGER_LA)
 
 EXTRA_DIST = \
 	OpenBTS.example.sql \
@@ -64,15 +73,13 @@ EXTRA_DIST = \
 	openbts.conf \
 	generateConfigTable.sh \
 	exportConfigTable.sh \
-	importConfigTable.sh \
-	generateKeys.sh \
-	verifyKey.sh
+	importConfigTable.sh
 
-install: OpenBTS OpenBTSCLI OpenBTSDo
+install: OpenBTS OpenBTSCLI
 	mkdir -p "$(DESTDIR)/OpenBTS/"
 	install OpenBTS "$(DESTDIR)/OpenBTS/"
 	install OpenBTSCLI "$(DESTDIR)/OpenBTS/"
-	install OpenBTSDo "$(DESTDIR)/OpenBTS/"
+	install .gdbinit "$(DESTDIR)/OpenBTS/"
 	mkdir -p "$(DESTDIR)/etc/init/"
 	install openbts.conf "$(DESTDIR)/etc/init/"
 	mkdir -p "$(DESTDIR)/etc/OpenBTS/"
@@ -83,5 +90,4 @@ install: OpenBTS OpenBTSCLI OpenBTSDo
 	install rsyslogd.OpenBTS.conf "$(DESTDIR)/etc/rsyslog.d/OpenBTS.conf"
 	install OpenBTS.logrotate "$(DESTDIR)/etc/logrotate.d/OpenBTS"
 	mkdir -p "$(DESTDIR)/home/openbts/"
-	install CLI "$(DESTDIR)/home/openbts/"
 	install openbtsconfig "$(DESTDIR)/home/openbts/"

@@ -1,10 +1,10 @@
 /*
 * Copyright 2008 Free Software Foundation, Inc.
-* Copyright 2011, 2013 Range Networks, Inc.
+* Copyright 2011, 2013, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -15,8 +15,10 @@
 
 */
 
+#define LOG_GROUP LogGroup::GSM		// Can set Log.Level.GSM for debugging
 
-#include <Globals.h>
+#include <OpenBTSConfig.h>
+#include <math.h>
 #include "GSMCommon.h"
 
 using namespace GSM;
@@ -46,6 +48,13 @@ const BitVector2 GSM::gTrainingSequence[] = {
     BitVector2("11101111000100101110111100"),
 };
 
+// (pat) Dummy Burst defined in GSM 5.02 5.2.6
+// From 5.02 6.5.1: A base transceiver station must transmit a burst in every timeslot of every TDMA frame in the downlink of
+// radio frequency channel C0 of the cell allocation (to allow mobiles to make power measurements of the radio
+// frequency channels supporting the BCCH, see GSM 05.08). In order to achieve this requirement a dummy
+// burst is defined in clause 5.2.6 which shall be transmitted by the base transceiver station on all timeslots of all
+// TDMA frames of radio frequency channel C0 for which no other channel requires a burst to be transmitted.
+// (pat) But this is probably not correct for an idle SACCH, where we should be delivering L2 idle frames.
 const BitVector2 GSM::gDummyBurst("0001111101101110110000010100100111000001001000100000001111100011100010111000101110001010111010010100011001100111001111010011111000100101111101010000");
 
 const BitVector2 GSM::gRACHSynchSequence("01001011011111111001100110101010001111000");
@@ -149,7 +158,8 @@ unsigned GSM::downlinkFreqKHz(GSMBand band, unsigned ARFCN)
 
 
 
-// See GSM 04.08 Table 10.5.68.
+// Number of slots used to spread RACH transmission as a function of broadcast Tx-integer.
+// See GSM 04.08 Table 10.5.68 in section 10.5.2.29.
 const unsigned GSM::RACHSpreadSlots[16] =
 {
 	3,4,5,6,
@@ -159,6 +169,7 @@ const unsigned GSM::RACHSpreadSlots[16] =
 };
 
 // See GSM 04.08 Table 3.1
+// Value of parameter S as a function of broadcast Tx-integer for non-combined CCCH.
 const unsigned GSM::RACHWaitSParam[16] =
 {
 	55,76,109,163,217,
@@ -167,9 +178,19 @@ const unsigned GSM::RACHWaitSParam[16] =
 	55
 };
 
+// See GSM 04.08 Table 3.1.  S parameter used in 3.3.1.1.2
+// Value of parameter S as a function of broadcast Tx-integer for combined CCCH, ie, any type except combination V.
+const unsigned GSM::RACHWaitSParamCombined[16] =
+{
+	41,52,58,86,115,
+	41,52,58,86,115,
+	41,52,58,86,115,
+	41
+};
 
 
 
+/** Get a clock difference, within the modulus, v1-v2. */
 int32_t GSM::FNDelta(int32_t v1, int32_t v2)
 {
 	static const int32_t halfModulus = gHyperframe/2;
@@ -199,25 +220,24 @@ ostream& GSM::operator<<(ostream& os, const Time& t)
 
 
 
-void Clock::set(const Time& when)
+void Clock::clockSet(const Time& when)
 {
-	mLock.lock();
+	ScopedLock lock(mLock);
 	mBaseTime = Timeval(0);
 	mBaseFN = when.FN();
-	mLock.unlock();
+	isValid = true;
 }
 
 
 int32_t Clock::FN() const
 {
-	mLock.lock();
+	ScopedLock lock(mLock);
 	Timeval now;
 	int32_t deltaSec = now.sec() - mBaseTime.sec();
 	int32_t deltaUSec = now.usec() - mBaseTime.usec();
 	int64_t elapsedUSec = 1000000LL*deltaSec + deltaUSec;
 	int64_t elapsedFrames = elapsedUSec / gFrameMicroseconds;
 	int32_t currentFN = (mBaseFN + elapsedFrames) % gHyperframe;
-	mLock.unlock();
 	return currentFN;
 }
 
@@ -232,6 +252,14 @@ double Clock::systime(const GSM::Time& when) const
 	double baseSeconds = mBaseTime.sec() + mBaseTime.usec()*1e-6;
 	double st = baseSeconds + 1e-6*elapsedUSec;
 	return st;
+}
+
+Timeval Clock::systime2(const GSM::Time& when) const
+{
+	double ftime = systime(when);
+	unsigned sec = floor(ftime);
+	unsigned usec = (ftime - sec) * 1e6;
+	return Timeval(sec,usec);
 }
 
 
@@ -371,6 +399,17 @@ void Z100Timer::set()
 	mEndTime = Timeval(mLimitTime);
 	mActive=true;
 } 
+
+void Z100Timer::addTime(int msecs)	// Can be positive or negative
+{
+	mLimitTime += msecs;
+	if (mLimitTime < 0) { mLimitTime = 0; }
+	if (mActive) {
+		long remaining = mEndTime.remaining() + msecs;
+		if (remaining < 0) { remaining = 0; }
+		mEndTime.future(remaining);
+	}
+}
 
 void Z100Timer::expire()
 {

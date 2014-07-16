@@ -1,9 +1,10 @@
 /*
 * Copyright 2008 Free Software Foundation, Inc.
+* Copyright 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -19,11 +20,11 @@
 #ifndef SIP2INTERFACE_H
 #define SIP2INTERFACE_H
 
-#include <Globals.h>
 #include <Interthread.h>
 #include <Sockets.h>
 
 #include <string>
+#include <GSML3CCElements.h>
 #include "SIPMessage.h"
 #include "SIPDialog.h"
 #include "SIPTransaction.h"
@@ -48,18 +49,18 @@ typedef std::map<std::string,SipTransaction*> TUMap_t;
 // For reply matching we use SipTUMap, cf.
 class SipDialogMap {
 	//Mutex mDialogMapLock;
-	typedef InterthreadMap<string,SipDialog> DialogMap_t;
+	typedef InterthreadMap1<string,SipDialogRef> DialogMap_t;
 	DialogMap_t mDialogMap;
 	string makeTagKey(string callid, string localTag);
 	public:
-	SipDialog *findDialogByMsg(SipMessage *msg);
+	SipDialogRef findDialogByMsg(SipMessage *msg);
 	void dmAddCallDialog(SipDialog*dialog);
 	void dmAddLocalTag(SipDialog*dialog);
 	void printDialogs(ostream&os);
 	void dmPeriodicService();
 	bool dmRemoveDialog(SipBase *dialog);
-	SipBase *dmFindDialogById(unsigned id);
-	SipBase *dmFindDialogByRtp(RtpSession *session);
+	//SipBase *dmFindDialogById(unsigned id);
+	SipDialogRef dmFindDialogByRtp(RtpSession *session);
 };
 
 // Match incoming replies to the TU that made the outgoing request.
@@ -94,10 +95,8 @@ class SipTUMap {
 };
 
 
-class SipInterface  : public SipDialogMap, public SipTUMap
+class SipInterface
 {
-private:
-
 	char mReadBuffer[MAX_UDP_LENGTH+500];		///< buffer for UDP reads.  The +500 is way overkill.
 
 	UDPSocket *mSIPSocket;
@@ -108,6 +107,30 @@ private:
 	unsigned mMessageCSeqNum;
 	unsigned mInfoCSeqNum;	// This is for INFO messages outside a dialog.  Inside a dialog they must use dsNextCSeq()
 	unsigned mInviteCSeqNum;	// For the initial invite, then in-invite numbers advance from there.
+
+	public:
+	SipInterface() {
+		// sipauthserve appears to have a bug that it does not properly differentiate messages
+		// from different BTS, possibly only if they have the same IP address, but in any case,
+		// using random numbers to init makes encountering that bug quite rare.
+		mMessageCSeqNum = random() & 0xfffff;
+		mInfoCSeqNum = random() & 0xfffff;	// Any old number will do.
+		mInviteCSeqNum = random() & 0xfffff;	// Any old number will do.
+	}
+
+	void siWrite(const struct sockaddr_in*, SipMessage *);	// new
+	/** Start the SIP drive loop. */
+	void siDrive2();
+	void siInit();
+	virtual void newDriveIncoming(char *content) = 0;
+
+	unsigned nextMessageCSeqNum() { return ++mMessageCSeqNum; }
+	unsigned nextInfoCSeqNum() { return ++mInfoCSeqNum; }
+	unsigned nextInviteCSeqNum() { return ++mInviteCSeqNum; }
+};
+
+class MySipInterface  : public SipDialogMap, public SipTUMap, public SipInterface
+{
 
 public:
 	Thread mDriveThread;	
@@ -129,31 +152,23 @@ public:
 
 	// DialogMap maps the SIP callid to the SipDialog state machine that runs the state machine.
 	// The SIPEngine class doesnt contain a state machine, but SipDialog does.
-	typedef ThreadSafeList<SipDialog*> DeadDialogListType;
+	typedef ThreadSafeList<SipDialogRef> DeadDialogListType;
 	DeadDialogListType mDeadDialogs;
 
 	/**
 		Create the SIP interface to watch for incoming SIP messages.
 	*/
-	SipInterface()
+	MySipInterface()
 		// (pat) Dont do this! There is a constructor race between SIPInterface and ConfigurationTable needed by gConfig.
 		// :mSIPSocket(gConfig.getNum("SIP.Local.Port"))
 	{
-		// sipauthserve appears to have a bug that it does not properly differentiate messages
-		// from different BTS, possibly only if they have the same IP address, but in any case,
-		// using random numbers to init makes encountering that bug quite rare.
-		mMessageCSeqNum = random() & 0xfffff;
-		mInfoCSeqNum = random() & 0xfffff;	// Any old number will do.
-		mInviteCSeqNum = random() & 0xfffff;	// Any old number will do.
 	}
 
 	
-	void siInit();
-	/** Start the SIP drive loop. */
-	void siDrive2();
+	void msiInit();
 
 	/** Receive, parse and dispatch a single SIP message. */
-	void newDriveIncoming(char *readBuffer);
+	void newDriveIncoming(char *content);
 	void purgeDeadDialogs();
 
 	/**
@@ -169,19 +184,13 @@ public:
 		Send an error response before a transaction is even created.
 	*/
 	void newSendEarlyError(SipMessage *cause, int code, const char * reason);
-
-	void siWrite(const struct sockaddr_in*, SipMessage *);	// new
-
-	unsigned nextMessageCSeqNum() { return ++mMessageCSeqNum; }
-	unsigned nextInfoCSeqNum() { return ++mInfoCSeqNum; }
-	unsigned nextInviteCSeqNum() { return ++mInviteCSeqNum; }
 };
 
 
 /*@addtogroup Globals */
 //@{
 /** A single global SIPInterface in the global namespace. */
-extern SipInterface gSipInterface;
+extern MySipInterface gSipInterface;
 //@}
 
 }; // namespace SIP.

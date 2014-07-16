@@ -1,10 +1,9 @@
 /*
-* Copyright 2011 Range Networks, Inc.
-* All Rights Reserved.
+* Copyright 2011, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -274,6 +273,7 @@ class MsgTransaction
 {	private:
 	BitSet mtMsgAckBits; 		// Type of acks received.
 	BitSet mtMsgExpectedBits;	// The types messages we are waiting for.
+	Mutex mtLock;	// The CCCH handler calls mtSetAckExpected from another thread, so we have to lock appropriately.
 
 	public:
 	RLCBSN_t mtExpectedAckBSN[MsgTransMax];	// When we expect to get the acknowledgement from the MS.
@@ -289,9 +289,11 @@ class MsgTransaction
 
 	// Wait for the next message.
 	void mtMsgSetWait(MsgTransactionType mttype) {
-		devassert(mtExpectedAckBSN[mttype].valid());
-		mtMsgAckBits.clearBit(mttype);
-		mtMsgExpectedBits.setBit(mttype);
+		{	ScopedLock lock(mtLock);
+			devassert(mtExpectedAckBSN[mttype].valid());
+			mtMsgAckBits.clearBit(mttype);
+			mtMsgExpectedBits.setBit(mttype);
+		}
 		GPRSLOG(4) << "mtMsgSetWait"<<LOGVAR(mttype)<<LOGVAR(mtMsgExpectedBits);
 	}
 	void text(std::ostream &os) const;
@@ -300,6 +302,7 @@ class MsgTransaction
 	// MS may send uplink data blocks before this time.
 	void mtSetAckExpected(RLCBSN_t when, MsgTransactionType mttype) {
 		GPRSLOG(4) << "mtSetAckExpected"<<LOGVAR(when)<<LOGVAR(mttype);
+		ScopedLock lock(mtLock);
 		mtExpectedAckBSN[mttype] = when;
 		mtMsgSetWait(mttype);
 	}
@@ -307,18 +310,22 @@ class MsgTransaction
 	// Called to indicate that a message for this TBF arrived.
 	void mtRecvAck(MsgTransactionType mttype) {
 		GPRSLOG(4) << "mtRecvAck"<<LOGVAR(mttype)<<LOGVAR(mtMsgExpectedBits);
+		ScopedLock lock(mtLock);
 		mtMsgAckBits.setBit(mttype);
 		mtMsgExpectedBits.clearBit(mttype);
 		mtN3105 = 0;	// Not all of these are for mtN3105, but doesnt hurt to always reset it.
 	}
 
 	bool mtGotAck(MsgTransactionType mttype, bool clear) {
-		bool result = mtMsgAckBits.isSet(mttype);
-		GPRSLOG(4) << "mtGotAck "<<(result?"yes":"no")<<LOGVAR(mttype)<<LOGVAR(mtMsgExpectedBits);
-		if (result && clear) {
-			mtMsgExpectedBits.clearBit(mttype);
-			mtExpectedAckBSN[mttype] = -1;
+		bool result;
+		{	ScopedLock lock(mtLock);
+			result = mtMsgAckBits.isSet(mttype);
+			if (result && clear) {
+				mtMsgExpectedBits.clearBit(mttype);
+				mtExpectedAckBSN[mttype] = -1;
+			}
 		}
+		GPRSLOG(4) << "mtGotAck "<<(result?"yes":"no")<<LOGVAR(mttype)<<LOGVAR(mtMsgExpectedBits);
 		return result;
 	}
 

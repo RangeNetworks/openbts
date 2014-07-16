@@ -1,9 +1,9 @@
 /*
-* Copyright 2013 Range Networks, Inc.
+* Copyright 2013, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -13,6 +13,9 @@
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
+
+// Written by Pat Thompson
+
 #define LOG_GROUP LogGroup::Control		// Can set Log.Level.Control for debugging
 #include "L3Utils.h"
 #include "L3StateMachine.h"

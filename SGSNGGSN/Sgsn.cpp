@@ -1,10 +1,9 @@
 /*
-* Copyright 2011 Range Networks, Inc.
-* All Rights Reserved.
+* Copyright 2011, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -1342,6 +1341,18 @@ bool MSUEAdapter::sgsnGetGeranFeaturePackI(uint32_t mshandle)
 }
 #endif
 
+// If the MS is registered return the IMSI, otherwise return an empty string.
+string MSUEAdapter::sgsnFindImsiByHandle(uint32_t handle)
+{
+	ScopedLock lock(sSgsnListMutex); // Will be locked again recursively in findSgsnInfoByHandle.
+	if (SgsnInfo *si = findSgsnInfoByHandle(handle,false)) {
+		GmmInfo *gmm = si->getGmm();
+		if (gmm) return gmm->mImsi.hexstr();
+	}
+	return string("");
+}
+
+
 GmmState::state MSUEAdapter::sgsnGetRegistrationState(uint32_t mshandle)
 {
 	SgsnInfo *si = sgsnGetSgsnInfoByHandle(mshandle,false);
@@ -1584,7 +1595,7 @@ SgsnInfo * SgsnInfo::changeTlli(bool now)
 	SgsnInfo *othersi = findSgsnInfoByHandle(newTlli,true);
 	// We will use the new tlli for downlink l3 messages, eg, pdp context messages,
 	// unless they use some other SI specifically, like AttachAccept
-	// must be sent on the SI tha the AttachRequest arrived on.
+	// must be sent on the SI that the AttachRequest arrived on.
 	othersi->setGmm(gmm);
 	if (now) { gmm->msi = othersi; }
 	return othersi;

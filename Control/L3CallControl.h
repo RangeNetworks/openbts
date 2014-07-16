@@ -1,9 +1,9 @@
-
-/* Copyright 2013 Range Networks, Inc.
+/* 
+* Copyright 2013, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -12,6 +12,7 @@
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 */
+
 #ifndef _L3CALLCONTROL_H_
 #define _L3CALLCONTROL_H_ 1
 

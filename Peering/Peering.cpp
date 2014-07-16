@@ -1,9 +1,21 @@
 /**@file Messages for peer-to-peer protocol */
 /*
- * Copright 2011, 2014 Range Networks, Inc.
- * All rights reserved.
+* Copyright 2011, 2014 Range Networks, Inc.
+
+* This software is distributed under multiple licenses;
+* see the COPYING file in the main directory for licensing
+* information for this specific distribution.
+*
+* This use of this software may be subject to additional restrictions.
+* See the LEGAL file in the main directory for details.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
 */
 
+#define LOG_GROUP LogGroup::Control
 
 #include "Peering.h"
 #include "NeighborTable.h"
@@ -24,6 +36,12 @@ using namespace Control;
 
 // Original Diagram courtesy Doug:
 // MS                                         BS1                                       BS2                       switch
+//                                                NeighborTable Refresh every N seconds:
+//                                             X --- REQ NEIGHBOR_PARAMS -------------> X
+//                                             X <-- RSP NEIGHBOR_PARAMS C0 BSIC ------ X
+//                                             X --- REQ NEIGHBOR_PARAMS v=2 ---------> X
+//                                             X <-- RSP NEIGHBOR_PARAMS key=value... - X
+//
 // 
 //                                             A ------------- REQ HANDOVER -----------> a
 //                                                   (BS1tranid, L3TI, IMSI, called/caller, SIP REFER message)
@@ -31,7 +49,7 @@ using namespace Control;
 //                                                   (BS1tranid, cause, L3HandoverCommand)
 // <------------- L3HandoverCommand ---------- D
 // -------------------------------- handover access -----------------------------------> b
-// <------------------------------- physical information ------------------------------- c
+// <------------------------- physical information (with TA) --------------------------- c
 // -------------------------------- handover complete ---------------------------------> d
 //                                                                                       e ----- re-INVITE ------>
 //                                                                                       f <-------- OK ----------
@@ -58,6 +76,17 @@ using namespace Control;
 // E = processHandoverComplete in BS1
 
 
+string sockaddr2string(const struct sockaddr_in* peer, bool noempty)
+{
+	// Get a string for the sockaddr_in.
+	char addrString[256];
+	const char *ret = inet_ntop(AF_INET,&(peer->sin_addr),addrString,255);
+	if (!ret) {
+		LOG(ERR) << "cannot parse peer socket address";
+	 	return string(noempty ? "<error: cannot parse peer socket address>" : "");
+	}
+	return format("%s:%d",addrString,(int)ntohs(peer->sin_port));
+}
 
 void PeerMessageFIFOMap::addFIFO(unsigned transactionID)
 {
@@ -102,14 +131,14 @@ PeerInterface::PeerInterface()
 }
 
 
-void* foo(void*)
+static void* foo(void*)
 {
 	gPeerInterface.serviceLoop1(NULL);
 	return NULL;
 }
 
 
-void* bar(void*)
+static void* bar(void*)
 {
 	gPeerInterface.serviceLoop2(NULL);
 	return NULL;
@@ -129,9 +158,14 @@ void* PeerInterface::serviceLoop1(void*)
 {
 	// gTRX.C0() needs some time to get ready
 	sleep(8);
-	while (1) {
-		gNeighborTable.refresh();
-		sleep(1);	// (pat) Every second?  Give me a break.
+	while (!gBTS.btsShutdown()) {
+		gNeighborTable.ntRefresh();
+		// (pat) This sleep is how often we look through the neighbor table, not how often we ping the peers;
+		// that is determined inside the neighbor table loop by searching for peers who have not been refreshed
+		// in the Peering.Neighbor.RefreshAge.
+		// We do not need 1 second granularity here, and querying that quickly may be interfering with the ability
+		// of gNeighborTable.getAddress() to access the NeighborTable.
+		sleep(10);
 	}
 	return NULL;
 }
@@ -142,7 +176,7 @@ void* PeerInterface::serviceLoop2(void*)
 {
 	// gTRX.C0() needs some time to get ready
 	sleep(8);
-	while (1) {
+	while (!gBTS.btsShutdown()) {
 		drive();
 		usleep(10000);
 	}
@@ -226,49 +260,105 @@ static void logAlert(string message)
 // but dont worry about now it because the whole thing should move to SR imho.
 void PeerInterface::processNeighborParams(const struct sockaddr_in* peer, const char* message)
 {
-	static const char rspFormat[] = "RSP NEIGHBOR_PARAMS %u %u";
+	try {
+
+	// Create a unique id so we can tell if we send a message to ourself.
+	static uint32_t btsid = 0;
+	while (btsid == 0) { btsid = (uint32_t) random(); }
+
+	// (pat) This is the original format, which I now call version 1.
+	static const char rspFormatV1[] = "RSP NEIGHBOR_PARAMS %u %u";      // C0 BSIC
+	// (pat) This is the 3-2014 format.  Extra args are ignored by older versions of OpenBTS.
+	//static const char rspFormat[] = "RSP NEIGHBOR_PARAMS %u %u %u %d %u %u %u";  // C0 BSIC uniqueID noise numArfcns tchavail tchtotal
 
 	LOG(DEBUG) << "got message " << message;
 	if (0 == strncmp(message,"REQ ",4)) {
 		// REQ?  Send a RSP.
-		char rsp[100];
-		sprintf(rsp, rspFormat, gTRX.C0(), gBTS.BSIC());
-		sendMessage(peer,rsp);
+		char rsp[150];
+		if (! strchr(message,'=')) {
+			// Send version 1.
+			snprintf(rsp, sizeof(rsp), rspFormatV1, gTRX.C0(), gBTS.BSIC());
+		} else {
+			// Send version 2.
+			int myNoise = gTRX.ARFCN(0)->getNoiseLevel();
+			unsigned tchTotal = gBTS.TCHTotal();
+			unsigned tchAvail = tchTotal - gBTS.TCHActive();
+			snprintf(rsp, sizeof(rsp), "RSP NEIGHBOR_PARAMS V=2 C0=%u BSIC=%u btsid=%u noise=%d arfcns=%d TchAvail=%u TchTotal=%u",
+					gTRX.C0(), gBTS.BSIC(), btsid, myNoise, (int)gConfig.getNum("GSM.Radio.ARFCNs"), tchAvail, tchTotal);
+			sendMessage(peer,rsp);
+		}
 		return;
 	}
 
 	if (0 == strncmp(message,"RSP ",4)) {
 		// RSP?  Digest it.
-		// (pat) ARFCN-C0 (the one carrying BCCH) and BSIC consisting of NCC (Network Color Code) and BCC. (Base station Color Code)
-		unsigned neighborC0, neighborBSIC;
-		int r = sscanf(message, rspFormat, &neighborC0, &neighborBSIC);
-		if (r!=2) {
-			logAlert(format("badly formatted peering message: %s",message));
+		NeighborEntry newentry;
+
+		if (! strchr(message,'=')) {
+			// Version 1 message.
+			int r = sscanf(message, rspFormatV1, &newentry.mC0, &newentry.mBSIC);
+			if (r != 2) {
+				logAlert(format("badly formatted peering message: %s",message));
+				return;
+			}
+		} else {
+			SimpleKeyValue keys;
+			keys.addItems(message + sizeof("RSP NEIGHBOR_PARAMS"));	// sizeof is +1 which is ok - we are skipping the initial space.
+
+			{	bool valid;
+				unsigned neighborID = keys.getNum("btsid",valid);
+				if (valid && neighborID == btsid) {
+					LOG(ERR) << "BTS is in its own GSM.Neighbors list.";
+					return;
+				}
+			}
+
+			newentry.mC0 = keys.getNumOrBust("C0");
+			newentry.mBSIC = keys.getNumOrBust("BSIC");
+			newentry.mNoise = keys.getNumOrBust("noise");
+			newentry.mNumArfcns = keys.getNumOrBust("arfcns");
+			newentry.mTchAvail = keys.getNumOrBust("TchAvail");
+			newentry.mTchTotal = keys.getNumOrBust("TchTotal");
+		}
+
+		newentry.mIPAddress = sockaddr2string(peer, false);
+		if (newentry.mIPAddress.size() == 0) {
+			LOG(ERR) << "cannot parse peer socket address for"<<LOGVAR2("C0",newentry.mC0)<<LOGVAR2("BSIC",newentry.mBSIC);
 			return;
 		}
+
+
 		// Did the neighbor list change?
-		bool change = gNeighborTable.addInfo(peer,(unsigned)time(NULL),neighborC0,neighborBSIC);
+		bool change = gNeighborTable.ntAddInfo(newentry);
 		// no change includes unsolicited RSP NEIGHBOR_PARAMS.  drop it.
 		if (!change) return;
+
 		// It there a BCC conflict?
-		unsigned ourBSIC = gBTS.BSIC();
-		//int neighborBCC = neighborBSIC & 0x07;
-		//int ourBCC = ourBSIC & 0x07;
-		// (pat) 5-2013: This message was incorrect, because the BTS uniquifying information is not just the BCC,
-		// it is the full C0+BSIC, so fixed it.
-		// Note that this message also comes out over and over again.
-		// if (BCC == ourBCC) { LOG(ALERT) << "neighbor with matching BCC " << ourBCC; }
-		if (neighborC0 == gTRX.C0()) {
-			if (neighborBSIC == ourBSIC) {
-				logAlert(format("neighbor with matching ARFCN.C0 + BSIC [Base Station Identifier] codes: C0=%u BSIC=%u",neighborC0,neighborBSIC));
+		int ourBSIC = gBTS.BSIC();
+		if (newentry.mC0 == (int)gTRX.C0()) {
+			if (newentry.mBSIC == ourBSIC) {
+				logAlert(format("neighbor with matching ARFCN.C0 + BSIC [Base Station Identifier] codes: C0=%d BSIC=%u",newentry.mC0,newentry.mBSIC));
 			} else {
-				// (pat) This seems like a bad idea too, with two BTS on the same ARFCN close enough to be neighbors,
-				// but I dont know if it is worth an ALERT?
-				LOG(WARNING) << format("neighbor with matching ARFCN.C0 but different BSIC [Base Station Identifier] code: C0=%u, BSIC=%u, my BSIC=%u",neighborC0,neighborBSIC,gTRX.C0());
+				// Two BTS on the same ARFCN close enough to be neighbors, which is probably a bad idea, but legal.
+				// Is it worth an ALERT?
+				LOG(WARNING) << format("neighbor with matching ARFCN.C0 but different BSIC [Base Station Identifier] code: C0=%d, BSIC=%u, my BSIC=%u",
+						newentry.mC0,newentry.mBSIC,gTRX.C0());
 			}
 		}
+
+		// 3-2014: Warn for overlapping ARFCN use.  Fixes ticket #857
+		int myC0 = gTRX.C0();
+		int myCEnd = myC0 + gConfig.getNum("GSM.Radio.ARFCNs") - 1;
+		int neighborCEnd = newentry.mC0 + newentry.mNumArfcns - 1;
+		bool overlap = myC0 <= neighborCEnd && myCEnd >= (int) newentry.mC0;
+		if (overlap) {
+			LOG(WARNING) << format("neighbor IP=%s BSIC=%d ARFCNs=%u to %d overlaps with this BTS ARFCNs=%d to %d",
+					newentry.mIPAddress.c_str(), newentry.mBSIC, newentry.mC0, neighborCEnd, myC0, myCEnd);
+		}
+
 		// Is there an NCC conflict?
-		int neighborNCC = neighborBSIC >> 3;
+		// (pat) ARFCN-C0 (the one carrying BCCH) and BSIC consisting of NCC (Network Color Code) and BCC. (Base station Color Code)
+		int neighborNCC = newentry.mBSIC >> 3;
 		int NCCMaskBit = 1 << neighborNCC;
 		int ourNCCMask = gConfig.getNum("GSM.CellSelection.NCCsPermitted");
 		ourNCCMask |= 1 << gConfig.getNum("GSM.Identity.BSIC.NCC");
@@ -281,13 +371,16 @@ void PeerInterface::processNeighborParams(const struct sockaddr_in* peer, const 
 		return;
 	}
 
-	LOG(ALERT) << "unrecognized message: " << message;
-}
+	LOG(ALERT) << "unrecognized Peering message: " << message;
 
+	} catch (SimpleKeyValueException &e) {
+		LOG(ERR) << format("invalid message (%s) from peer %s: %s",e.what(),sockaddr2string(peer,true),message);
+	}
+}
 
 void PeerInterface::sendNeighborParamsRequest(const struct sockaddr_in* peer)
 {
-	sendMessage(peer,"REQ NEIGHBOR_PARAMS");
+	sendMessage(peer,"REQ NEIGHBOR_PARAMS V=2");	// (pat) The v=2 requests version 2 of the response.
 	// Get a string for the sockaddr_in.
 	char addrString[256];
 	const char *ret = inet_ntop(AF_INET,&(peer->sin_addr),addrString,255);
@@ -298,6 +391,22 @@ void PeerInterface::sendNeighborParamsRequest(const struct sockaddr_in* peer)
 	LOG(DEBUG) << "requested parameters from " << addrString << ":" << ntohs(peer->sin_port);
 }
 
+static void addHandoverPenalty(GSM::L2LogicalChannel *chan,NeighborEntry &nentry, const char *cause)
+{
+	if (chan == NULL) { return; }	// Huh?
+	if (cause == NULL) {
+		LOG(WARNING)<<"Empty cause in handover record, handover penalty ignored";
+		return;
+	}
+
+	int penaltyTime = 30;	// 30 seconds.
+
+	NeighborPenalty npenalty;
+	npenalty.mARFCN = nentry.mC0;
+	npenalty.mBSIC = nentry.mBSIC;
+	npenalty.mPenaltyTime.future(penaltyTime * 1000);
+	chan->chanSetHandoverPenalty(npenalty);
+}
 
 // (pat) This is BS2 which has received a request from BS1 to transfer the MS from BS1 to BS2.
 // Manufacture a TransactionEntry and SIPEngine from the peering message.
@@ -321,6 +430,14 @@ void PeerInterface::processHandoverRequest(const struct sockaddr_in* peer, const
 	// find existing transaction record if this is a duplicate REQ HANDOVER
 	Control::TranEntry* transaction = gNewTransactionTable.ttFindHandoverOther(mobileID, oldTransID);
 
+	// (pat 3-2014) This is a new test: look for the peer address.  Previously we just looked for the transaction.
+	// I didnt really want to test this, I just needed the ARFCN.  Could get it by looking up the peer in the transaction too.
+	NeighborEntry nentry;
+	if (! gNeighborTable.ntFindByPeerAddr(peer, &nentry)) {
+		LOG(WARNING)<<"Could not find handover neighbor from peer address:"<< sockaddr2string(peer, true);
+		return;	// The transaction will die a death by expiry.
+	}
+
 	// and the channel that goes with it
 	GSM::L2LogicalChannel* chan = NULL;
 	unsigned horef;
@@ -335,22 +452,24 @@ void PeerInterface::processHandoverRequest(const struct sockaddr_in* peer, const
 		// For now, we are assuming a full-rate channel.
 		// And check gBTS.hold()
 		time_t start = time(NULL);
-		if (!gBTS.hold()) { chan = gBTS.getTCH(); }	// (pat) Starts T3101.  Better finish before it expires.
+		if (!gBTS.btsHold()) {
+			chan = gBTS.getTCH(); 	// (pat) Starts T3101.  Better finish before it expires.
+			if (!chan) { LOG(CRIT) << "congestion, incoming handover request denied"; }
+		}
 		LOG(DEBUG) << "getTCH took " << (time(NULL) - start) << " seconds";
 
-		// FIXME -- Somehow, getting from getTCH above to the test below can take several seconds.
-		// FIXME -- #797.
+		// (doug) FIXME -- Somehow, getting from getTCH above to the test below can take several seconds.
+		// (doug) FIXME -- #797.
 
 		// If getTCH took so long that there's too little time left in T3101, ignore this REQ and get the next one.
-		if (chan && chan->SACCH()->debugGetL1()->decoder()->debug3101remaining() < 1000) {
+		if (chan && chan->debug3101remaining() < 1000) {
 			LOG(NOTICE) << "handover TCH allocation took too long; risk of T3101 timeout; trying again";
-			chan->l2sendp(HARDRELEASE);	// (pat) added 9-6-2013
+			chan->l2sendp(L3_HARDRELEASE_REQUEST);	// (pat) added 9-6-2013
 			return;
 		}
 
 		// If there's no channel available, send failure.
 		if (!chan) {
-			LOG(CRIT) << "congestion, incoming handover request denied";
 			char rsp[50];
 			// RR Cause 101 "cell allocation not available"
 			// GSM 04.08 10.5.2.31
@@ -368,6 +487,9 @@ void PeerInterface::processHandoverRequest(const struct sockaddr_in* peer, const
 		mFIFOMap.addFIFO(transaction->tranID());
 		LOG(INFO) "creating new transaction " << *transaction;
 
+		// This prevents a reverse handover from BTS2->BTS1 after a successful handover from BTS1->BTS2.
+		addHandoverPenalty(chan,nentry,params.get("cause"));
+
 		// Set the channel state.
 		// This starts T3103.
 		chan->handoverPending(true,horef);
@@ -376,6 +498,10 @@ void PeerInterface::processHandoverRequest(const struct sockaddr_in* peer, const
 		horef = transaction->getHandoverEntry(true)->mInboundReference;
 		LOG(DEBUG) << *transaction;
 	}
+
+	// (pat 6-2014) FIXME We dont have TA yet, so we are just starting the channel with 0 TA.
+	// What is the correct procedure?  Should we not start SACCH until we receive the HandoverReference?
+	chan->lcstart();
 
 	// Send accept.
 	// FIXME TODO_NOW: Get rid of this sleepFrames...
@@ -455,7 +581,7 @@ void PeerInterface::processHandoverFailure(const struct sockaddr_in* peer, const
 	// Set holdoff on this BTS.
 
 	// FIXME -- We need to decide what else to do here.  See #817.
-	gNeighborTable.holdOff(peer,holdoff);
+	gNeighborTable.setHoldOff(peer,holdoff);
 
 	char rsp[50];
 	sprintf(rsp,"ACK HANDOVER_FAILURE %u", transactionID);
@@ -575,7 +701,6 @@ bool PeerInterface::sendUntilAck(const Control::HandoverEntry* hop, const char* 
 
 	// FIXME -- Check to be sure it's the right host acking the right message.
 	// See #832.
-	// (pat) Any such above problems will go away when we switch peering to the sip interface.
 	if (strncmp(ack,"ACK ",4)==0) {
 		free(ack);
 		return true;
@@ -602,9 +727,10 @@ void PeerInterface::sendHandoverFailure(const Control::HandoverEntry *hop, GSM::
 	gPeerInterface.sendUntilAck(hop,ind);
 }
 
-bool PeerInterface::sendHandoverRequest(string peer, const RefCntPointer<TranEntry> tran)
+bool PeerInterface::sendHandoverRequest(string peer, const RefCntPointer<TranEntry> tran, string cause)
 {
 	string msg = string("REQ HANDOVER ") + tran->handoverString(peer);
+	if (cause.size()) msg += " cause=" + cause;
 	struct sockaddr_in peerAddr;
 	if (!resolveAddress(&peerAddr,peer.c_str())) {
 		LOG(ALERT) << "cannot resolve peer address " << peer;

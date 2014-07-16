@@ -3,7 +3,7 @@
 /*
 * Copyright 2008, 2009, 2010 Free Software Foundation, Inc.
 * Copyright 2010 Kestrel Signal Processing, Inc.
-* Copyright 2011, 2012, 2013 Range Networks, Inc.
+* Copyright 2011, 2012, 2013, 2014 Range Networks, Inc.
 *
 
     This program is distributed in the hope that it will be useful,
@@ -12,7 +12,7 @@
 
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -22,15 +22,18 @@
 #include <stdlib.h>
 #include <list>
 
+#define LOG_GROUP LogGroup::Control
 #include <Defines.h>
 #include "ControlCommon.h"
-#include "RadioResource.h"
+#include "L3Handover.h"
 #include "L3CallControl.h"
 #include "L3MMLayer.h"
 
 #include <GSMLogicalChannel.h>
 #include <GSMConfig.h>
 #include "../GPRS/GPRSExport.h"
+#include <GSML3RRElements.h>
+#include <L3Enums.h>
 
 #include <NeighborTable.h>
 #include <Peering.h>
@@ -52,165 +55,9 @@ static void abortInboundHandover(RefCntPointer<TranEntry> transaction, RRCause c
 	LOG(DEBUG) << "aborting inbound handover " << *transaction;
 	unsigned holdoff = gConfig.getNum("GSM.Handover.FailureHoldoff");
 	gPeerInterface.sendHandoverFailure(transaction->getHandoverEntry(true),cause,holdoff);
-	//gTransactionTable.remove(transaction);
 }
 
 
-
-#if UNUSED
-bool SaveHandoverAccess(unsigned handoverReference, float RSSI, float timingError, const GSM::Time& timestamp)
-{
-	assert(! l3rewrite());	// Not used in l3rewrite.  See TCHFACCHL1Decoder::writeLowSideRx
-	// In this function, we are "BS2" in the ladder diagram.
-	// This is called from L1 when a handover burst arrives.
-
-	// We will need to use the transaction record to carry the parameters.
-	// We put this here to avoid dealing with the transaction table in L1.
-	TransactionEntry *transaction = gTransactionTable.ttFindByInboundHandoverRef(handoverReference);
-	if (!transaction) {
-		LOG(ERR) << "no inbound handover with reference " << handoverReference;
-		return false;
-	}
-
-	if (timingError > gConfig.getNum("GSM.MS.TA.Max")) {
-		// Handover failure.
-		LOG(NOTICE) << "handover failure on due to TA=" << timingError << " for " << *transaction;
-		// RR cause 8: Handover impossible, timing advance out of range
-		OldAbortInboundHandover(transaction,L3RRCause::HandoverImpossible,dynamic_cast<L2LogicalChannel*>(transaction->channel()));
-		return false;
-	}
-
-	LOG(INFO) << "saving handover access for " << *transaction;
-	transaction->setInboundHandover(RSSI,timingError,gBTS.clock().systime(timestamp));
-	return true;
-}
-#endif
-
-
-
-//void ProcessHandoverAccess(GSM::TCHFACCHLogicalChannel *TCH)
-//{
-//	// In this function, we are "BS2" in the ladder diagram.
-//	// This is called from the DCCH dispatcher when it gets a HANDOVER_ACCESS primtive.
-//	// The information it needs was saved in the transaction table by SaveHandoverAccess.
-//
-//
-//	assert(TCH);
-//	LOG(DEBUG) << *TCH;
-//
-//	TransactionEntry *transaction = gTransactionTable.ttFindByInboundHandoverChan(TCH);
-//	if (!transaction) {
-//		LOG(WARNING) << "handover access with no inbound transaction on " << *TCH;
-//		TCH->l2sendp(HARDRELEASE);
-//		return;
-//	}
-//
-//	// clear handover in transceiver
-//	LOG(DEBUG) << *transaction;
-//	transaction->getL2Channel()->handoverPending(false);
-//	
-//	// Respond to handset with physical information until we get Handover Complete.
-//	int TA = (int)(transaction->inboundTimingError() + 0.5F);
-//	if (TA<0) TA=0;
-//	if (TA>62) TA=62;
-//	unsigned repeatTimeout = gConfig.getNum("GSM.Timer.T3105");
-//	unsigned sendCount = gConfig.getNum("GSM.Ny1");
-//	L3Frame* frame = NULL;
-//	while (!frame && sendCount) {
-//		TCH->l2sendm(L3PhysicalInformation(L3TimingAdvance(TA)),GSM::UNIT_DATA);
-//		sendCount--;
-//		frame = TCH->l2recv(repeatTimeout);
-//		if (frame && frame->primitive() == HANDOVER_ACCESS) {
-//			LOG(NOTICE) << "flushing HANDOVER_ACCESS while waiting for Handover Complete";
-//			delete frame;
-//			frame = NULL;
-//		}
-//	}
-//
-//	// Timed out?
-//	if (!frame) {
-//		LOG(NOTICE) << "timed out waiting for Handover Complete on " << *TCH << " for " << *transaction;
-//		// RR cause 4: Abnormal release, no activity on the radio path
-//		OldAbortInboundHandover(transaction,4,TCH);
-//		return;
-//	}
-//
-//	// Screwed up channel?
-//	if (frame->primitive()!=ESTABLISH) {
-//		LOG(NOTICE) << "unexpected primitive waiting for Handover Complete on "
-//			<< *TCH << ": " << *frame << " for " << *transaction;
-//		delete frame;
-//		// RR cause 0x62: Message not compatible with protocol state
-//		OldAbortInboundHandover(transaction,0x62,TCH);
-//		return;
-//	}
-//
-//	// Get the next frame, should be HandoverComplete.
-//	delete frame;
-//	frame = TCH->l2recv();
-//	L3Message* msg = parseL3(*frame);
-//	if (!msg) {
-//		LOG(NOTICE) << "unparsable message waiting for Handover Complete on "
-//			<< *TCH << ": " << *frame << " for " << *transaction;
-//		delete frame;
-//		// RR cause 0x62: Message not compatible with protocol state
-//		TCH->l2sendm(L3ChannelRelease(L3RRCause::MessageTypeNotCompapatibleWithProtocolState));
-//		OldAbortInboundHandover(transaction,0x62,TCH);
-//		return;
-//	}
-//	delete frame;
-//
-//	L3HandoverComplete* complete = dynamic_cast<L3HandoverComplete*>(msg);
-//	if (!complete) {
-//		LOG(NOTICE) << "expecting for Handover Complete on "
-//			<< *TCH << "but got: " << *msg << " for " << *transaction;
-//		delete frame;
-//		// RR cause 0x62: Message not compatible with protocol state
-//		TCH->l2sendm(L3ChannelRelease(L3RRCause::MessageTypeNotCompapatibleWithProtocolState));
-//		OldAbortInboundHandover(transaction,0x62,TCH);
-//	}
-//	delete msg;
-//
-//	// Send re-INVITE to the remote party.
-//	unsigned RTPPort = allocateRTPPorts();
-//	SIP::SIPState st = transaction->inboundHandoverSendINVITE(RTPPort);
-//	if (st == SIP::Fail) {
-//		OldAbortInboundHandover(transaction,4,TCH);
-//		return;
-//	}
-//
-//	transaction->GSMState(CCState::HandoverProgress);
-//
-//	while (1) {
-//		// FIXME - the sip engine should be doing this
-//		// FIXME - and checking for timeout
-//		// FIXME - and checking for proceeding (stop sending the resends)
-//		st = transaction->inboundHandoverCheckForOK();
-//		if (st == SIP::Active) break;
-//		if (st == SIP::Fail) {
-//			LOG(NOTICE) << "received Fail while waiting for OK";
-//			OldAbortInboundHandover(transaction,4,TCH);
-//			return;
-//		}
-//	}
-//	st = transaction->inboundHandoverSendACK();
-//	LOG(DEBUG) << "status of inboundHandoverSendACK: " << st << " for " << *transaction;
-//
-//	// Send completion to peer BTS.
-//	char ind[100];
-//	sprintf(ind,"IND HANDOVER_COMPLETE %u", transaction->tranID());
-//	gPeerInterface.sendUntilAck(transaction,ind);
-//
-//	// Update subscriber registry to reflect new registration.
-//	if (transaction->SRIMSI().length() && transaction->SRCALLID().length()) {
-//		gSubscriberRegistry.addUser(transaction->SRIMSI().c_str(), transaction->SRCALLID().c_str());
-//	}
-//
-//	// The call is running.
-//	LOG(INFO) << "succesful inbound handover " << *transaction;
-//	transaction->GSMState(CCState::Active);
-//	callManagementLoop(transaction,TCH);
-//}
 
 // How did we get here you ask?  Peering received a handover request on BTS2 (us), allocated a channel and set the handoverPending flag,
 // created a transaction with the specified IMSI, returned an L3 handover command which BTS1 sent to the MS, which then
@@ -226,14 +73,14 @@ void ProcessHandoverAccess(L3LogicalChannel *chan)
 	RefCntPointer<TranEntry> tran = chan->chanGetVoiceTran();
 	if (tran == NULL) {
 		LOG(WARNING) << "handover access with no inbound transaction on " << chan;
-		chan->chanRelease(HARDRELEASE);
+		chan->chanRelease(L3_HARDRELEASE_REQUEST,TermCause::Local(L3Cause::Handover_Error));
 		return;
 	}
 	LOG(DEBUG) << *tran;
 
 	if (!tran->getHandoverEntry(false)) {
 		LOG(WARNING) << "handover access with no inbound handover on " << *chan;
-		chan->chanRelease(HARDRELEASE);
+		chan->chanRelease(L3_HARDRELEASE_REQUEST,TermCause::Local(L3Cause::Handover_Error));
 		return;
 	}
 
@@ -249,12 +96,12 @@ void ProcessHandoverAccess(L3LogicalChannel *chan)
 		// Handover failure.
 		LOG(NOTICE) << "handover failure on due to TA=" << hr.mhrTimingError << " for " << *tran;
 		// RR cause 8: Handover impossible, timing advance out of range
-		abortInboundHandover(tran,L3RRCause::HandoverImpossible,dynamic_cast<L2LogicalChannel*>(tran->channel()));
-		chan->chanRelease(HARDRELEASE);	// TODO: Is this right?  Will the channel be immediately re-available?
+		abortInboundHandover(tran,L3RRCause::Handover_Impossible,dynamic_cast<L2LogicalChannel*>(tran->channel()));
+		chan->chanRelease(L3_HARDRELEASE_REQUEST,TermCause::Local(L3Cause::Distance));	// TODO: Is this right?  Will the channel be immediately re-available?
 		return;
 	}
 
-	chan->getL2Channel()->setPhy(hr.mhrRSSI,hr.mhrTimingError,hr.mhrTimestamp);
+	chan->getL2Channel()->l1InitPhy(hr.mhrRSSI,hr.mhrTimingError,hr.mhrTimestamp);
 	
 	// Respond to handset with physical information until we get Handover Complete.
 	int TA = (int)(hr.mhrTimingError + 0.5F);
@@ -262,17 +109,17 @@ void ProcessHandoverAccess(L3LogicalChannel *chan)
 	if (TA>62) TA=62;
 
 	// We want to do this loop carefully so we exit as soon as we get a frame that is not HANDOVER_ACCESS.
-	Z100Timer T3105(gConfig.getNum("GSM.Timer.T3105"));	// It defaults to only 50ms.
+	Z100Timer T3105(gConfig.GSM.Timer.T3105);	// It defaults to only 50ms.
 
 	// 4.08 11.1.3 "Ny1: The maximum number of repetitions for the PHYSICAL INFORMATION message during a handover."
-	for (unsigned sendCount = gConfig.getNum("GSM.Ny1"); sendCount > 0; sendCount--) {
+	for (unsigned sendCount = gConfig.getNum("GSM.Handover.Ny1"); sendCount > 0; sendCount--) {
 		T3105.set();
 		// (pat) It is UNIT_DATA because the channel is not established yet.
 		// (pat) WARNING: This l3sendm call is not blocking because it is sent on FACCH which has a queue.
 		// Rather than modifying the whole LogicalChannel stack to have a blocking mode,
 		// we are just going to wait afterwards.  The message should take about 20ms to transmit,
 		// and GSM uses roughly 4 out of every 5 frames, so 20-25ms would transmit the message continuously.
-		chan->l3sendm(L3PhysicalInformation(L3TimingAdvance(TA)),GSM::UNIT_DATA);
+		chan->l3sendm(L3PhysicalInformation(L3TimingAdvance(TA)),GSM::L3_UNIT_DATA);
 
 		// (pat) Throw away all the HANDOVER_ACCESS that arrive while we were waiting.
 		// They are not messages that take 4 bursts; they can arrive on every burst, so there
@@ -286,7 +133,7 @@ void ProcessHandoverAccess(L3LogicalChannel *chan)
 					LOG(INFO) << "flushing HANDOVER_ACCESS while waiting for Handover Complete";
 					delete frame;
 					continue;
-				case ESTABLISH:
+				case L3_ESTABLISH_INDICATION:
 					delete frame;
 					// Channel is established, so the MS is there.  Finish up with a state machine.
 					startInboundHandoverMachine(tran.self());
@@ -296,8 +143,8 @@ void ProcessHandoverAccess(L3LogicalChannel *chan)
 					LOG(NOTICE) << "unexpected primitive waiting for Handover Complete on "
 						<< *chan << ": " << *frame << " for " << *tran;
 					delete frame;
-					abortInboundHandover(tran,L3RRCause::MessageTypeNotCompapatibleWithProtocolState,chan);
-					chan->chanRelease(HARDRELEASE);	// TODO: Is this right?  Will the channel be immediately re-available?
+					abortInboundHandover(tran,L3RRCause::Message_Type_Not_Compapatible_With_Protocol_State,chan);
+					chan->chanRelease(L3_HARDRELEASE_REQUEST,TermCause::Local(L3Cause::Handover_Error));	// TODO: Is this right?  Will the channel be immediately re-available?
 					return;
 			}
 		}
@@ -306,199 +153,90 @@ void ProcessHandoverAccess(L3LogicalChannel *chan)
 	// Failure.
 	LOG(NOTICE) << "timed out waiting for Handover Complete on " << *chan << " for " << *tran;
 	// RR cause 4: Abnormal release, no activity on the radio path
-	abortInboundHandover(tran,L3RRCause::NoActivityOnTheRadio,chan);
-	chan->chanRelease(HARDRELEASE);	// TODO: Is this right?  Will the channel be immediately re-available?
+	abortInboundHandover(tran,L3RRCause::No_Activity_On_The_Radio,chan);
+	chan->chanRelease(L3_HARDRELEASE_REQUEST,TermCause::Local(L3Cause::Radio_Interface_Failure));	// TODO: Is this right?  Will the channel be immediately re-available?
 	return;
+}
 
+static BestNeighbor NoHandover(BestNeighbor np)
+{
+	np.mValid = false;
+	return np;
+}
 
-#if 0
-	//	// Get the next frame, should be HandoverComplete.
-	//	delete frame;
-	//	frame = chan->l2recv();
-	//	L3Message* msg = parseL3(*frame);
-	//	if (!msg) {
-	//		LOG(NOTICE) << "unparsable message waiting for Handover Complete on "
-	//			<< *chan << ": " << *frame << " for " << *tran;
-	//		delete frame;
-	//		// The MS is listening to us now, so we have to send it something if we abort.
-	//		// TODO: Should be a state machine from here on.
-	//		// RR cause 0x62: Message not compatible with protocol state
-	//		chan->chanClose(L3RRCause::MessageTypeNotCompapatibleWithProtocolState,HARDRELEASE);
-	//		abortInboundHandover(tran,L3RRCause::MessageTypeNotCompapatibleWithProtocolState,chan);
-	//		return;
-	//	}
-	//	delete frame;
-	//
-	//	L3HandoverComplete* complete = dynamic_cast<L3HandoverComplete*>(msg);
-	//	if (!complete) {
-	//		LOG(NOTICE) << "expecting for Handover Complete on "
-	//			<< *chan << "but got: " << *msg << " for " << *tran;
-	//		delete frame;
-	//		// RR cause 0x62: Message not compatible with protocol state
-	//		chan->chanClose(L3RRCause::MessageTypeNotCompapatibleWithProtocolState,HARDRELEASE);
-	//		abortInboundHandover(tran,L3RRCause::MessageTypeNotCompapatibleWithProtocolState,chan);
-	//	}
-	//	delete msg;
-	//
-	//	// MS has successfully arrived on BS2.  Open the SIPDialog and attempt to transfer the SIP session.
-	//
-	//	// Send re-INVITE to the remote party.
-	//	//unsigned RTPPort = allocateRTPPorts();
-	//	SIP::SIPDialog *dialog = SIP::SIPDialog::newSIPDialogHandover(tran);
-	//	if (dialog == NULL) {
-	//		// TODO: Can we abort at this point?  It is too late.
-	//		// But this only fails if the address is wrong.
-	//		//abortInboundHandover(tran,L3RRCause::NoActivityOnTheRadio,chan);
-	//		LOG(NOTICE) << "handover failure due to failure to create dialog for " << *tran;	// Will probably never happen.
-	//		tran->teCloseCall(L3Cause::InterworkingUnspecified);
-	//		chan->chanClose(L3RRCause::Unspecified,RELEASE);
-	//		return;
-	//	}
-	//	tran->setDialog(dialog);
-	//	tran->setGSMState(CCState::HandoverProgress);
-	//
-	//	while (DialogMessage*dmsg = dialog->dialogRead()) {
-	//		switch (dmsg->dialogState()) {
-	//			case SIPDialog::dialogActive:
-	//				// We're good to go.
-	//				tran->setGSMState(CCState::Active);
-	//				break;
-	//			case SIPDialog::dialogBye:
-	//				// Other end hung up.  Just hang up.
-	//				tran->teCloseCall(L3Cause::NormalCallClearing);
-	//				chan->chanClose(L3RRCause::NormalEvent,RELEASE);
-	//				return;
-	//			default:
-	//				LOG(ERR) << "unrecognized SIP Dialog state while waiting for handover re-invite OK"<<tran;
-	//				goto oops;
-	//			case SIPDialog::dialogFail:			// busy, cancel or fail for any reason.
-	//				LOG(NOTICE) << "handover received SIP Dialog Fail while waiting for OK"<<tran;
-	//				oops:
-	//				//abortInboundHandover(tran,L3RRCause::Unspecified,chan);	// TODO: Can we still do this now?
-	//				tran->teCloseCall(L3Cause::InterworkingUnspecified);
-	//				chan->chanClose(L3RRCause::Unspecified,RELEASE);
-	//				return;
-	//		}
-	//		delete dmsg;
-	//		if (tran->getGSMState() == CCState::Active) { break; }
-	//	}
-	//	SIP::SIPState st = dialog->inboundHandoverSendACK();
-	//	LOG(DEBUG) << "status of inboundHandoverSendACK: " << st << " for " << *tran;
-	//
-	//	// Send completion to peer BTS.
-	//	char ind[100];
-	//	sprintf(ind,"IND HANDOVER_COMPLETE %u", tran->tranID());
-	//	gPeerInterface.sendUntilAck(tran->getHandoverEntry(true),ind);
-	//
-	//	// Update subscriber registry to reflect new registration.
-	//	/*** Pat thinks these are not used.
-	//	if (transaction->SRIMSI().length() && transaction->SRCALLID().length()) {
-	//		gSubscriberRegistry.addUser(transaction->SRIMSI().c_str(), transaction->SRCALLID().c_str());
-	//	}
-	//	***/
-	//
-	//	// The call is running.
-	//	LOG(INFO) << "succesful inbound handover " << *tran;
-	//	//callManagementLoop(transaction,TCH);
-#endif
+static BestNeighbor YesHandover(BestNeighbor &np, L3Cause::BSSCause why)
+{
+	assert(np.mValid);
+	np.mHandoverCause = string(L3Cause::BSSCause2Str(why));
+	return np;
 }
 
 
-// Warning: This runs in a separate thread.
-void HandoverDetermination(const L3MeasurementResults& measurements, float myRxLevel, SACCHLogicalChannel* SACCH)
+static BestNeighbor HandoverDecision(const L3MeasurementResults* measurements, SACCHLogicalChannel* sacch)
 {
-	// This is called from the SACCH service loop.
-
-	// Valid measurements?
-	if (measurements.MEAS_VALID()) return;
-
-	// Got neighbors?
-	// (pat) I am deliberately not aging the neighbor list if the measurement report is empty because
-	// I am afraid it may be empty because the MS did not have time to make measurements during this time
-	// period, rather than really indicating that there are no neighbors.
-	unsigned N = measurements.NO_NCELL();
-	if (N==0) { return; }
-
-	if (N == 7) {
-		LOG(DEBUG) << "neighbor cell information not available";
-		return;
+	ChannelHistory *chp = sacch->getChannelHistory();
+	int myRXLEV_DL = chp->getAvgRxlev();
+	NeighborPenalty penalty;
+	if (MMContext *mmc = sacch->hostChan()->chanGetContext(false)) {
+		penalty = mmc->mmcHandoverPenalty;
 	}
+	LOG(DEBUG) << LOGVAR(penalty);
+
+	BestNeighbor bestn = chp->neighborFindBest(penalty);
+	if (! bestn.mValid) { return NoHandover(bestn); }
+
+	int margin = gConfig.GSM.Handover.Margin;
+
+	Peering::NeighborEntry nentry;
+	if (!gNeighborTable.ntFindByArfcn(bestn.mARFCN, bestn.mBSIC, &nentry)) {
+		LOG(ERR) << "Could not find best neighbor entry from :"<<LOGVAR2("ARFCN",bestn.mARFCN)<<LOGVAR2("BSIC",bestn.mBSIC);
+		return NoHandover(bestn);
+	}
+
+	if (bestn.mRxlev - myRXLEV_DL >= margin) { return YesHandover(bestn,L3Cause::Downlink_Strength); }
+
+	return NoHandover(bestn);
+}
+
+// Warning: This runs in a separate thread.
+void HandoverDetermination(const L3MeasurementResults* measurements, SACCHLogicalChannel* sacch)
+{
+	//LOG(DEBUG) <<measurements->text();
+	// This is called from the SACCH service loop.
+	if (! sacch->neighborAddMeasurements(sacch,measurements)) return;
 
 	// (pat) TODO: If you add your own IP address to the sql neighbor list, the MS will return info on yourself,
 	// which will attempt a handover to yourself unless you throw those measurement reports away here.
 	// We should detect this and throw them out.
 	// Currently processNeighborParams() detects this condition when it gets a Peer report (but not at startup!)
 	// but we dont save the BSIC in memory so we dont have that information here where we need it.
-	
-	// Look at neighbor cell rx levels
-	SACCH->neighborStartMeasurements();
-	int best = 0;
-	int bestRxLevel = -1000;
-	for (unsigned int i=0; i<N; i++) {
-		int thisRxLevel = measurements.RXLEV_NCELL_dBm(i);
-		int thisFreq = measurements.BCCH_FREQ_NCELL(i);
-		if (thisFreq == 31) {
-			// (pat) This is reserved for 3G in some weird way.
-			// We support only 31 instead of 32 neighbors to avoid any confusion here.
-			continue;
-		}
-		int thisBSCI = measurements.BSIC_NCELL(i);
-		// Average thisRxLevel over several neighbor reports.
-		thisRxLevel = SACCH->neighborAddMeasurement(thisFreq,thisBSCI,thisRxLevel);
-		if (thisRxLevel>bestRxLevel) {
-			best = i;
-			bestRxLevel = thisRxLevel;
-		}
-	}
-	int bestBCCH_FREQ_NCELL = measurements.BCCH_FREQ_NCELL(best);	// (pat) This is an index into the neighborlist, not a frequency.
-	int bestBSIC = measurements.BSIC_NCELL(best);
 
-	// Is our current signal OK?
-	//int myRxLevel = measurements.RXLEV_SUB_SERVING_CELL_dBm();
-	int localRSSIMin = gConfig.getNum("GSM.Handover.LocalRSSIMin");
-	int threshold = gConfig.getNum("GSM.Handover.ThresholdDelta");
-	int gprsRSSI = gConfig.getNum("GPRS.ChannelCodingControl.RSSI");
-	// LOG(DEBUG) << "myRxLevel=" << myRxLevel << " dBm localRSSIMin=" << localRSSIMin << " dBm";
-	LOG(DEBUG) <<LOGVAR(myRxLevel)<<LOGVAR(localRSSIMin)<<LOGVAR(bestRxLevel) <<LOGVAR(threshold) <<" "<<SACCH->neighborText();
-	// Does the best exceed the current by more than the threshold?  If not dont handover.
-	if (bestRxLevel < (myRxLevel + threshold)) { return; }
-
-	const char *what;
-	if (myRxLevel > localRSSIMin) {
-		// The current signal is ok; see if we want to do a discretionery handover.
-		if (!(
-			(gBTS.TCHTotal() == gBTS.TCHActive()) ||				// Is the current BTS full?
-			(myRxLevel < gprsRSSI && bestRxLevel > gprsRSSI) ||		// Would a handover let GPRS use a better codec?
-			(bestRxLevel > myRxLevel + 3 * threshold)				// Is the other BTS *much* better?
-			)) { return; }											// If not, dont handover.
-		what = "discretionary";
-	} else {
-		// Mandatory handover because the signal is poor and the neighbor BTS is threshold better.
-		//LOG(DEBUG) << "myRxLevel=" << myRxLevel << " dBm, best neighbor=" << bestRxLevel << " dBm, threshold=" << threshold << " dB";
-		what = "mandatory";
-	}
-
-	// OK.  So we will initiate a handover.  Woo hoo!
-	LOG(DEBUG) <<what <<" handover " <<measurements.text();
-
-	string peer = gNeighborTable.getAddress(bestBCCH_FREQ_NCELL,bestBSIC);
-	if (peer.empty()) {
-		LOG(INFO) << "measurement for unknown neighbor BCCH_FREQ_NCELL " << bestBCCH_FREQ_NCELL << " BSIC " << bestBSIC;
+	BestNeighbor bestn = HandoverDecision(measurements, sacch);
+	LOG(DEBUG) << bestn;
+	if (! bestn.mValid) {
+		// No handover for now.
 		return;
 	}
-	if (gNeighborTable.holdingOff(peer.c_str())) {
-		LOG(NOTICE) << "skipping "<<what<< " handover to " << peer << " due to holdoff";
+
+	string whatswrong;	// pass by reference to getAddress()
+	string peerstr = gNeighborTable.getAddress(bestn.mARFCN, bestn.mBSIC,whatswrong);
+	if (peerstr.empty()) {
+		LOG(INFO) << "measurement for unknown neighbor"<<LOGVAR2("ARFCN",bestn.mARFCN)<<LOGVAR2("BSIC",bestn.mBSIC) <<" "<<whatswrong;
+		return;
+	}
+	if (gNeighborTable.holdingOff(peerstr.c_str())) {
+		LOG(NOTICE) << "skipping "<<bestn.mHandoverCause<< " handover to " << peerstr << " due to holdoff";
 		return;
 	}
 
 	// Find the transaction record.
 
-	const L3LogicalChannel *mainChanConst = dynamic_cast<typeof(mainChanConst)>(SACCH->hostChan());
+	const L3LogicalChannel *mainChanConst = dynamic_cast<typeof(mainChanConst)>(sacch->hostChan());
 	L3LogicalChannel *mainChan = const_cast<typeof(mainChan)>(mainChanConst);	// idiotic language
 	// The RefCntPointer prevents the tran from being deleted while we are working here, as unlikely as that would be.
 	const RefCntPointer<TranEntry> tran = mainChan->chanGetVoiceTran();
 	if (tran == NULL) {
-		LOG(ERR) << "active SACCH with no transaction record: " << *SACCH;
+		LOG(ERR) << "active SACCH with no transaction record: " << *sacch;
 		return;
 	}
 	if (tran->getGSMState() != CCState::Active) {
@@ -526,8 +264,8 @@ void HandoverDetermination(const L3MeasurementResults& measurements, float myRxL
 		LOG(DEBUG) << "skipping handover for transaction " << tran->tranID() << " because age "<<age<<"<"<<holdoff;
 		return;
 	}
-	LOG(INFO) << "preparing "<<what<<" handover of " << tran->tranID()
-		<< " to " << peer << " with downlink RSSI " << bestRxLevel << " dbm";
+	LOG(INFO) << "preparing "<<bestn.mHandoverCause<<" handover of " << tran->tranID()
+		<< " to " << peerstr << " with downlink RXLEV=" << bestn.mRxlev << " dbm";
 
 	// The handover reference will be generated by the other BTS.
 	// We don't set the handover reference or state until we get RSP HANDOVER.
@@ -535,7 +273,7 @@ void HandoverDetermination(const L3MeasurementResults& measurements, float myRxL
 	// TODO: Check for handover request to our own BTS and avoid it.  Dont forget to check the port too. 
 #if 0  // This did not work for some reason.
 	struct sockaddr_in peerAddr;
-	if (resolveAddress(&peerAddr,peer.c_str())) {
+	if (resolveAddress(&peerAddr,peerstr.c_str())) {
 		LOG(ALERT) "handover"<<LOGHEX(peerAddr.sin_addr.s_addr)<<LOGHEX(inet_addr("127.0.0.1"))<<LOGVAR(peerAddr.sin_port)<<LOGVAR(gConfig.getNum("Peering.Port"));
 		if (peerAddr.sin_addr.s_addr == inet_addr("127.0.0.1") &&
 			peerAddr.sin_port == gConfig.getNum("Peering.Port")) {
@@ -548,7 +286,7 @@ void HandoverDetermination(const L3MeasurementResults& measurements, float myRxL
 	// Form and send the message.
 	// This message is re-sent every 0.5s (the periodicity of measurement reports) until the peer answers.
 	// pats TODO: we could surely do this a better way.
-	gPeerInterface.sendHandoverRequest(peer,tran);
+	gPeerInterface.sendHandoverRequest(peerstr,tran,bestn.mHandoverCause);
 }
 
 // (pat) TODO: This should be merged into the InCallProcedure state machine, but lets just get it working first.
@@ -570,13 +308,6 @@ bool outboundHandoverTransfer(TranEntry* transaction, L3LogicalChannel *TCH)
 	L3Frame HandoverCommand(hop->mHexEncodedL3HandoverCommand.c_str());
 	LOG(INFO) <<TCH<<" sending handover command";
 	TCH->l3sendf(HandoverCommand);
-	//TCH->l3sendm(GSM::L3HandoverCommand(
-	//	hep->mOutboundCell,
-	//	hep->mOutboundChannel,
-	//	hep->mOutboundReference,
-	//	hep->mOutboundPowerCmd,
-	//	hep->mOutboundSynch
-	//	));
 
 	// Start a timer for T3103, the handover failure timer.
 	// This T3103 timer is for the outbound leg of the handover on BS1.
@@ -596,13 +327,16 @@ bool outboundHandoverTransfer(TranEntry* transaction, L3LogicalChannel *TCH)
 	// audio packets as long as we can.
 
 	// Get the response.
-	// This is supposed to time out on successful handover, similar to the early assignment channel transfer..
+	// This is supposed to time out on successful handover, similar to the early assignment channel transfer.
 	GSM::L3Frame *result = TCH->l2recv(outboundT3103.remaining());
 	if (result) {
 		// If we got here, the handover failed and we just keep running the call.
-		L3Message *msg = parseL3(*result);
-		LOG(NOTICE) << "failed handover, received " << *result << msg;
-		if (msg) { delete msg; }
+		if (IS_LOG_LEVEL(NOTICE)) {
+			L3Message *msg = parseL3(*result);
+			// It is ok to pass a NULL L3Message pointer here.
+			LOG(NOTICE) << "failed handover, "<<TCH <<" received " << *result << msg;
+			if (msg) { delete msg; }
+		}
 		delete result;
 		// Restore the call state.
 		transaction->setGSMState(CCState::Active);
@@ -618,12 +352,10 @@ bool outboundHandoverTransfer(TranEntry* transaction, L3LogicalChannel *TCH)
 	// (mike) TODO: disabled as there no longer local vs upstream caches
 	//gSubscriberRegistry.removeUser(imsi.c_str());
 
-	transaction->teCancel();	// We need to do this immediately in case a reverse handover comes back soon.
+	TermCause cause = TermCause::Local(L3Cause::Handover_Outbound);	// There is no SIP code.  The dialog was moved to another BTS via a SIP REFER.
+	transaction->teCancel(cause);	// We need to do this immediately in case a reverse handover comes back soon.  This destroys the dialog too.
 
-	// We need to immediately destroy the dialog.
-
-	LOG(INFO) "timeout following outbound handover; exiting normally";
-	//TCH->l2sendp(GSM::HARDRELEASE);	now done by caller.
+	LOG(INFO) <<"timeout following outbound handover; exiting normally";
 	return true;
 }
 

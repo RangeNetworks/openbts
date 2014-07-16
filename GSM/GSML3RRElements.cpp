@@ -3,8 +3,9 @@
 /*
 * Copyright 2008, 2009 Free Software Foundation, Inc.
 * Copyright 2010, 2013 Kestrel Signal Processing, Inc.
+* Copyright 2014 Range Networks, Inc.
 *
-* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
+* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -14,6 +15,8 @@
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
+
+#define LOG_GROUP LogGroup::GSM		// Can set Log.Level.GSM for debugging
 
 #include <iterator> // for L3APDUData::text
 
@@ -26,9 +29,10 @@
 
 
 using namespace std;
-using namespace GSM;
+namespace GSM {
 
 
+L3ControlChannelDescription *gControlChannelDescription = NULL;
 
 
 void L3CellOptionsBCCH::writeV(L3Frame& dest, size_t &wp) const
@@ -91,23 +95,60 @@ void L3CellSelectionParameters::text(ostream& os) const
 }
 
 
-
-
-
-
-unsigned L3ControlChannelDescription::getBS_PA_MFRMS()
+L3ControlChannelDescription::L3ControlChannelDescription()
+	: L3ProtocolElement()
 {
-	unsigned bs_pa_mfrms = mBS_PA_MFRMS + 2;
-	if (bs_pa_mfrms != RN_BOUND(bs_pa_mfrms,2,sMax_BS_PA_MFRMS)) {
-		static bool printed_msg = false;
-		if (!printed_msg) {
-			LOG(ERR) << "Invalid BS_PA_MFRMS value, must be 2.."<<sMax_BS_PA_MFRMS;
-			printed_msg = true;
+	mCCCH_CONF=gConfig.getNum("GSM.CCCH.CCCH-CONF");
+	string bs_ag_blks_res = gConfig.getStr("GSM.CCCH.BS_AG_BLKS_RES");
+	if (bs_ag_blks_res == "auto") {
+		if (mCCCH_CONF == 1) {
+			mBS_AG_BLKS_RES=2;			// reserve 2 CCCHs for access grant (meaning 1 for paging)
+		} else {
+			mBS_AG_BLKS_RES=7;			// reserve 7 CCCHs for access grant (meaning 2 for paging)
 		}
-		bs_pa_mfrms = 2;	// If invalid, it is ok as long as we use the same value all the time.
+	} else {
+		mBS_AG_BLKS_RES = atoi(bs_ag_blks_res.c_str());
 	}
-	return bs_pa_mfrms;
+	mBS_PA_MFRMS = gConfig.getNum("GSM.CCCH.BS_PA_MFRMS");	// Number of paging multiframes.  Default is 2, the minimum allowed value.
+	// Configurable values.
+	mATT=(unsigned)gConfig.getBool("Control.LUR.AttachDetach");
+	mT3212=gConfig.getNum("GSM.Timer.T3212")/6;
 }
+
+
+void L3ControlChannelDescription::validate()
+{
+	if (mBS_PA_MFRMS != RN_BOUND(mBS_PA_MFRMS,2,9)) {
+		LOG(ERR) << "Invalid BS_PA_MFRMS value, must be 2..9";
+		mBS_PA_MFRMS = 2;	// If invalid, it is ok as long as we use the same value all the time.
+	}
+
+	switch (mCCCH_CONF) {
+	// Type 1 is the original beacon config used by Range.
+	case 1: 		// Timeslot C0 with 3 CCCH and 4 SDCCH.
+		if (mBS_AG_BLKS_RES != RN_BOUND(mBS_AG_BLKS_RES,0,2)) {
+			LOG(ERR) << "Invalid BS_AG_BLKS_RES value, must be 0..2";
+			mBS_AG_BLKS_RES = 7;
+		}
+		break;
+	default:
+		LOG(ERR) << "Invalid GSM.CCCH.CCCH-CONF value:"<<mCCCH_CONF <<" GPRS will fail until fixed";
+		mCCCH_CONF = 1;	
+		break;
+	}
+}
+
+// Return the BS_CC_CHANS variable.
+unsigned countBeaconTimeslots(int ccch_conf)
+{
+	switch (ccch_conf) {
+	default: return 1;
+	case 2: return 2; 		// Timeslots C0 and C2 with 9 CCCH apiece.
+	case 4: return 3; 		// Timeslots C0, C2, C4 with 9 CCCH apiece.
+	case 6: return 4; 		// Timeslots C0, C2, C4, C6 with 9 CCCH apiece.
+	}
+}
+
 
 
 void L3ControlChannelDescription::writeV(L3Frame& dest, size_t &wp) const
@@ -117,7 +158,10 @@ void L3ControlChannelDescription::writeV(L3Frame& dest, size_t &wp) const
 	dest.writeField(wp,mBS_AG_BLKS_RES,3);
 	dest.writeField(wp,mCCCH_CONF,3);
 	dest.writeField(wp,0,5);
-	dest.writeField(wp,mBS_PA_MFRMS,3);
+	// In 5.02 6.5.2 BS_PA_MFRMS is assumed to be in the range 2..9, which are the values we use,
+	// but in 4.08 10.5.2.11 the same exact variable name (BS_PA_MFRMS) has the range 0..7.
+	// So we need to subtract 2.
+	dest.writeField(wp, mBS_PA_MFRMS-2, 3);
 	dest.writeField(wp,mT3212,8);
 }
 
@@ -402,17 +446,17 @@ void L3TimingAdvance::text(ostream& os) const
 
 
 
-void L3RRCause::writeV( L3Frame &dest, size_t &wp ) const
+void L3RRCauseElement::writeV( L3Frame &dest, size_t &wp ) const
 {
 	dest.writeField(wp, mCauseValue, 8);	
 }
 
-void L3RRCause::parseV( const L3Frame &src, size_t &rp )
+void L3RRCauseElement::parseV( const L3Frame &src, size_t &rp )
 {
 	mCauseValue = (RRCause) src.readField(rp, 8);
 }
 
-void L3RRCause::text(ostream& os) const
+void L3RRCauseElement::text(ostream& os) const
 {
 	os << "0x" << hex << mCauseValue << dec;
 }
@@ -484,7 +528,7 @@ void L3MultiRateConfiguration::text(std::ostream&os) const
 
 
 
-ostream& GSM::operator<<(ostream& os, L3ChannelMode::Mode mode)
+ostream& operator<<(ostream& os, L3ChannelMode::Mode mode)
 {
 	switch (mode) {
 		case L3ChannelMode::SignallingOnly: os << "signalling"; break;
@@ -738,6 +782,7 @@ L3SI3RestOctets::L3SI3RestOctets()
 		mHaveSelectionParameters = true;
 	}
 
+	// (pat 2-2014) We dont advertise GPRS service in the beacon until the BTS Macro state indicates that the GSM registration period is complete.
 	mHaveGPRS = GPRS::GPRSConfig::IsEnabled();
 	if (mHaveGPRS) {
 		mHaveSI3RestOctets = true;
@@ -914,9 +959,10 @@ void L3SI13RestOctets::writeV(L3Frame& dest, size_t &wp) const
 	size_t wpstart = wp;
 	dest.writeH(wp);	// Indicates Rest Octets are present.
 
-	// FIXME -- Need to implement BCCH_CHANGE_MARK
-	// If implemented, BCCH_CHANGE_MARK would be a counter
-	// that is incremented when the BCCH content changes.
+	// (pat) We support the changemark while OpenBTS is running, but on OpenBTS
+	// startup the changemark is always the same value, so if you kill OpenBTS,
+	// change something that affects the beacon, and restart, the MS does not read
+	// the changed beacon because the changemark is the same.
 	dest.writeField(wp,gBTS.changemark()%8,3);	// BCCH_CHANGE_MARK
 
 	dest.writeField(wp,0,4);	// SI13_CHANGE_FIELD
@@ -947,5 +993,6 @@ void L3SI13RestOctets::text(ostream& os) const
 	os << " powerControlParameters=(" << mPowerControlParameters << ")";
 }
 
+}	// namespace GSM
 
 // vim: ts=4 sw=4

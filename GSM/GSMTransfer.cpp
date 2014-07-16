@@ -1,7 +1,8 @@
 /*
 * Copyright 2008, 2014 Free Software Foundation, Inc.
+* Copyright 2014 Range Networks, Inc.
 *
-* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
+* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -11,6 +12,8 @@
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
+
+#define LOG_GROUP LogGroup::GSM		// Can set Log.Level.GSM for debugging
 
 
 
@@ -46,16 +49,21 @@ ostream& GSM::operator<<(ostream& os, const L2Frame* frame)
 }
 
 
-ostream& GSM::operator<<(ostream& os, const L3Frame& frame)
+void L3Frame::text(std::ostream &os) const
 {
-	os << "L3Frame(primitive=" << frame.primitive();
-	if (frame.isData()) {
-		string mtiname = mti2string(frame.PD(),frame.MTI());
-		os <<LOGVAR2("PD",frame.PD())<<LOGHEX2("MTI",frame.MTI())<<"("<<mtiname<<")"<< LOGVAR2("TI",frame.TI());
+	os << "L3Frame(" <<LOGVARM(mPrimitive)<<LOGVARM(mSapi);
+	if (isData()) {
+		string mtiname = mti2string(PD(),MTI());
+		os <<LOGVAR2("PD",PD()) <<LOGHEX2("MTI",this->MTI()) <<"("<<mtiname<<")" <<LOGVAR2("TI",TI());
 	}
 	os << " raw=(";
-	frame.hex(os);
+	this->hex(os);
 	os << "))";
+}
+
+ostream& GSM::operator<<(ostream& os, const L3Frame& frame)
+{
+	frame.text(os);
 	return os;
 }
 
@@ -270,8 +278,8 @@ void L2Frame::randomizeFiller(const L2Header& header)
 }
 
 
-L2Frame::L2Frame(const BitVector& bits, Primitive prim)
-	:BitVector(23*8),mPrimitive(prim)
+L2Frame::L2Frame(const BitVector& bits)
+	:BitVector(23*8), mPrimitive(L2_DATA)
 {
 	idleFill();
 	assert(bits.size()<=this->size());
@@ -280,7 +288,7 @@ L2Frame::L2Frame(const BitVector& bits, Primitive prim)
 
 
 L2Frame::L2Frame(const L2Header& header, const BitVector& l3, bool noran)
-	:BitVector(23*8),mPrimitive(DATA)
+	:BitVector(23*8),mPrimitive(L2_DATA)
 {
 	idleFill();
 	//printf("header.bitsNeeded=%d l3.size=%d this.size=%d\n",
@@ -294,7 +302,7 @@ L2Frame::L2Frame(const L2Header& header, const BitVector& l3, bool noran)
 
 
 L2Frame::L2Frame(const L2Header& header)
-	:BitVector(23*8),mPrimitive(DATA)
+	:BitVector(23*8),mPrimitive(L2_DATA)
 {
 	idleFill();
 	header.write(*this);
@@ -523,9 +531,25 @@ ostream& GSM::operator<<(ostream& os, L2Control::FrameType cmd)
 }
 
 
+#define CASENAME_OS(x) case x: os << #x; break;
 ostream& GSM::operator<<(ostream& os, Primitive prim)
 {
 	switch (prim) {
+		CASENAME_OS(L2_DATA)
+		CASENAME_OS(L3_DATA)
+		CASENAME_OS(L3_DATA_CONFIRM)
+		CASENAME_OS(L3_UNIT_DATA)
+		CASENAME_OS(L3_ESTABLISH_REQUEST)
+		CASENAME_OS(L3_ESTABLISH_INDICATION)
+		CASENAME_OS(L3_ESTABLISH_CONFIRM)
+		CASENAME_OS(L3_RELEASE_REQUEST)
+		CASENAME_OS(L3_RELEASE_CONFIRM)
+		CASENAME_OS(L3_HARDRELEASE_REQUEST)
+		CASENAME_OS(MDL_ERROR_INDICATION)
+		CASENAME_OS(L3_RELEASE_INDICATION)
+		CASENAME_OS(PH_CONNECT)
+		CASENAME_OS(HANDOVER_ACCESS)
+		/**
 		case ESTABLISH: os << "ESTABLISH"; break;
 		case RELEASE: os << "RELEASE"; break;
 		case DATA: os << "DATA"; break;
@@ -533,7 +557,9 @@ ostream& GSM::operator<<(ostream& os, Primitive prim)
 		case ERROR: os << "ERROR"; break;
 		case HARDRELEASE: os << "HARDRELEASE"; break;
 		case HANDOVER_ACCESS: os << "HANDOVER_ACCESS"; break;
-		default: os << "?" << (int)prim << "?";
+		**/
+		//old:os << "?" << (int)prim << "?";
+		default: os << "(unrecognized primitive:" << (int)prim << ")";
 	}
 	return os;
 }
@@ -543,6 +569,8 @@ const char *GSM::SAPI2Text(SAPI_t sapi)
 	switch (sapi) {
 		case SAPI0: return "SAPI0";
 		case SAPI3: return "SAPI3";
+		case SAPI0Sacch: return "SAPI0-Sacch";
+		case SAPI3Sacch: return "SAPI3-Sacch";
 		case SAPIUndefined: return "SAPIUndefined";
 		default: return "SAP-Invalid!";
 	}
@@ -553,20 +581,25 @@ ostream& GSM::operator<<(ostream& os, SAPI_t sapi)
 }
 
 
-
+void L3Frame::f3init()
+{
+	mTimestamp = timef();
+}
 
 L3Frame::L3Frame(const L3Message& msg, Primitive wPrimitive, SAPI_t wSapi)
 	:BitVector(msg.bitsNeeded()),mPrimitive(wPrimitive),mSapi(wSapi),
 	mL2Length(msg.l2Length())
 {
+	f3init();
 	msg.write(*this);
 }
 
 
 
 L3Frame::L3Frame(const char* hexString)
-	:mPrimitive(DATA),mSapi(SAPIUndefined)
+	:mPrimitive(L3_DATA),mSapi(SAPIUndefined)
 {
+	f3init();
 	size_t len = strlen(hexString);
 	mL2Length = len/2;
 	resize(len*4);
@@ -581,8 +614,9 @@ L3Frame::L3Frame(const char* hexString)
 
 
 L3Frame::L3Frame(const char* binary, size_t len)
-	:mPrimitive(DATA),mSapi(SAPIUndefined)
+	:mPrimitive(L3_DATA),mSapi(SAPIUndefined)
 {
+	f3init();
 	mL2Length = len;
 	resize(len*8);
 	size_t wp=0;
@@ -626,15 +660,14 @@ void L3Frame::writeL(size_t &wp)
 	writeField(wp,fillBit,1);
 }
 
-
 AudioFrameRtp::AudioFrameRtp(AMRMode wMode) : ByteVector((headerSizeBits(wMode)+GSM::gAMRKd[wMode]+7)/8), mMode(wMode)
 {
 	setAppendP(0);
 	// Fill in the RTP and AMR headers.
 	if (wMode == TCH_FS) {
-		appendField(0xd,RtpHeaderSize);	// RTP type of GSM codec.
+		appendField(0xd,RtpHeaderSize());	// RTP type of GSM codec.
 	} else {
-		appendField(wMode,RtpHeaderSize);	// The CMR field is allegedly not used by anyone yet, but lets set it to the AMR mode we are using.
+		appendField(wMode,RtpHeaderSize());	// The CMR field is allegedly not used by anyone yet, but lets set it to the AMR mode we are using.
 		appendField(0,1);		// The F bit must always be zero; we are directed to send one frame every 20ms.
 		appendField(wMode,4);	// This is the important field that must be the AMR type index.
 		appendField(1,1);		// All frames are "good" for now.

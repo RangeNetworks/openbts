@@ -21,11 +21,6 @@ before_install:
  - dpkg-buildpackage
  - cd ..
  - sudo dpkg -i liba53*.deb 
- - git clone https://github.com/RangeNetworks/libzmq.git
- - cd libzmq
- - ./build.sh
- - sudo dpkg -i *.deb
- - cd ..
  - git clone https://github.com/RangeNetworks/libcoredumper.git
  - cd libcoredumper
  - ./build.sh
@@ -33,6 +28,7 @@ before_install:
  - cd ..
  - sed -i 's/git@github.com:/git:\/\/github.com\//' .gitmodules
  - git submodule update --init --recursive
+ - sudo ./NodeManager/install_libzmq.sh
 
 #install:
 #  - sh bootstrap.sh

@@ -1,10 +1,9 @@
 /*
-* Copyright 2011 Range Networks, Inc.
-* All Rights Reserved.
+* Copyright 2011, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -29,9 +28,11 @@
 // so they must be defined first.
 namespace GSM {
 	class RxBurst;
+	class RachInfo;
 	class L3RRMessage;
 	class CCCHLogicalChannel;
 	class L3RequestReference;
+	class L3ImmediateAssignment;
 	class Time;
 };
 
@@ -84,22 +85,18 @@ extern int GetPowerGamma();
 extern unsigned GPRSDebug;
 extern void GPRSSetDebug(int value);
 extern void GPRSNotifyGsmActivity(const char *imsi);
+class TBF;
+extern bool gprsPageCcchSetTime(TBF *tbf, GSM::L3ImmediateAssignment *iap, unsigned afterFrame);
+extern GSM::L3ImmediateAssignment *makeSingleBlockImmediateAssign(GSM::RachInfo *rip, unsigned afterFrame);
 
 // Hook into CLI/CLI.cpp:Parser class for GPRS sub-command.
 CommandLine::CLIStatus gprsCLI(int,char**,std::ostream&);
 int configGprsChannelsMin();
 
 void gprsStart();	// External entry point to start gprs service.
+void gprsStop();
 
 }; // namespace GPRS
 
-// GPRSLOG is no longer used outside the GPRS directory.
-/****
- * #ifndef GPRSLOG
- * #include "Logger.h"
- * #define GPRSLOG(level) if (GPRS::GPRSDebug & (level)) \
- *	Log(LOG_DEBUG).get() <<"GPRS,"<<(level)<<":"
- * #endif
-***/
 
 #endif

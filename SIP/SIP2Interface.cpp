@@ -4,7 +4,7 @@
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -46,13 +46,15 @@
 
 #include <typeinfo>
 
+#include <GSML3CCElements.h>
 #include <GSMLogicalChannel.h>
 #include <GSMConfig.h>
-//#include <ControlTransfer.h>
+#include <Globals.h>	// For gReports.
 #include <L3TranEntry.h>
 #include <L3MMLayer.h>
 
 #include <Sockets.h>
+#include <OpenBTSConfig.h>
 
 #include "SIPUtility.h"
 #include "SIP2Interface.h"
@@ -97,13 +99,14 @@ string SipDialogMap::makeTagKey(string callid, string localTag)
 // Find a dialog from an incoming Message.
 // An outgoing INVITE has a local tag immediately, which is returned by the peer.
 // An incoming INVITE does not have a local tag yet until the ACK is received, so ACK must be handled specially.
-SipDialog *SipDialogMap::findDialogByMsg(SipMessage *msg)
+SipDialogRef SipDialogMap::findDialogByMsg(SipMessage *msg)
 {
 	// This is an incoming message, so if there is a code then it is a reply so the Dialog was outbound.
 	string callid = msg->smGetCallId(), localtag = msg->smGetLocalTag();
 	string key = makeTagKey(callid,localtag);
-	SipDialog *dialog = mDialogMap.readNoBlock(key);
-	if (! dialog && msg->isACK()) {
+	// We dont need a copy of the reference because it is still in the map and therefore cannot be destroyed.
+	SipDialogRef dialog = mDialogMap.readNoBlock(key);
+	if (! dialog.self() && msg->isACK()) {
 		// For ACK try without the local tag.
 		// The ACK and all subsequent messages from the peer include our local tag that it regurgitates.
 		key = makeTagKey(callid,"");
@@ -118,14 +121,16 @@ void SipDialogMap::dmAddLocalTag(SipDialog *dialog)
 	string callid = dialog->callId(), localtag = dialog->dsLocalTag();
 	devassert(! localtag.empty());
 	ScopedLock lock(mDialogMap.qGetLock());
-	SipDialog *fnd = mDialogMap.getNoBlock(makeTagKey(callid,""));
+	SipDialogRef fnd;
+	string oldkey = makeTagKey(callid,"");
 	string newkey = makeTagKey(callid, localtag);
-	devassert(fnd == dialog);
-	if (fnd) {
-		mDialogMap.write(newkey,dialog);
+	if (mDialogMap.getNoBlock(oldkey,fnd,true)) {	// Removes from the map.
+		devassert(fnd.self() == dialog);
+		// I am adding dialog instead of fnd in case of some bug where the old did not exist, we ignore it and keep going.
+		mDialogMap.write(newkey,SipDialogRef(dialog));
 	} else {
 		// If it is a duplicate ACK it will already be moved.
-		if (! mDialogMap.readNoBlock(newkey)) {
+		if (! mDialogMap.getNoBlock(newkey,fnd,false)) {	// Do not remove from map
 			LOG(ERR) << "Could not find dialog"<<LOGVAR(callid)<<LOGVAR(localtag);
 		}
 	}
@@ -134,19 +139,22 @@ void SipDialogMap::dmAddLocalTag(SipDialog *dialog)
 // This removes the SipDialog from the map so it will no longer receive SIP messages.
 // It moves it to the mDeadDialogs queue, whence it will be deleted when we
 // are sure there is no transaction still pointing to it.
+// TODO: There may still be transactions running though... Do they get their messages?
 bool SipDialogMap::dmRemoveDialog(SipBase *dialog)
 {
 	string callid = dialog->callId(), localtag = dialog->dsLocalTag();
-	SipDialog *dialog1 = mDialogMap.getNoBlock(makeTagKey(callid,localtag));	// Removes the element.
-	if (dialog1) {
+	SipDialogRef dialog1;
+	bool extant1 = mDialogMap.getNoBlock(makeTagKey(callid,localtag),dialog1);	// Removes the element.
+	if (extant1) {
 		gSipInterface.mDeadDialogs.push_back(dialog1);
 	}
-	SipDialog *dialog2 = mDialogMap.getNoBlock(makeTagKey(callid,""));
-	if (dialog2) {
+	SipDialogRef dialog2;
+	bool extant2 = mDialogMap.getNoBlock(makeTagKey(callid,""),dialog2);		// Removes the element.
+	if (extant2) {
 		gSipInterface.mDeadDialogs.push_back(dialog2);
 	}
-	LOG(DEBUG) << LOGVAR(callid) <<LOGVAR(localtag) <<LOGVAR(!!dialog1) <<LOGVAR(!!dialog2);
-	return !!dialog1;
+	LOG(DEBUG) << LOGVAR(callid) <<LOGVAR(localtag) <<LOGVAR(extant1) <<LOGVAR(extant2);
+	return extant1;
 }
 
 // For outgoing [client] invites the invite should have the local tag already and is put in the map using the localtag.
@@ -156,11 +164,10 @@ void SipDialogMap::dmAddCallDialog(SipDialog*dialog)
 {
 	string callid = dialog->callId();
 	string key = makeTagKey(callid, dialog->dgIsServer() ? string("") : dialog->dsLocalTag());
-	//SipDialog *previous = mDialogMap.read(key,2000);		// why was this blocking?
-	SipDialog *previous = mDialogMap.readNoBlock(key);
+	SipDialogRef previous = mDialogMap.readNoBlock(key);
 	LOG(DEBUG) <<LOGVAR(key);
-	if (previous) {
-		dmRemoveDialog(previous);
+	if (previous.self()) {
+		dmRemoveDialog(previous.self());
 		if (dialog->mIsHandover) {
 			// What happened is the dialog went to another BTS and is now coming back before
 			// the previous dialog has completely timed out.  We must destroy the old dialog immediately.
@@ -168,14 +175,16 @@ void SipDialogMap::dmAddCallDialog(SipDialog*dialog)
 			LOG(ERR) << "Adding duplicate dialog."<<LOGVAR(previous)<<LOGVAR(dialog);
 		}
 	}
-	mDialogMap.write(key,dialog);
+	// Calling SipDialogRef here 'takes over' the deallocation of the Dialog from this point on;
+	// The dialog will be deleted when the last reference to it is decremented.
+	mDialogMap.write(key,SipDialogRef(dialog));
 }
 
 
 #if UNUSED
 // Call the method on each extant SipDialog.
 // The method must be defined in class SipDialog as: void method(SipDialog *);
-void SipInterface::iterateDialogs(SipDialogMethodPointer method)
+void MySipInterface::iterateDialogs(SipDialogMethodPointer method)
 {
 	ScopedLock lock(mDialogMapLock);
 	for (SipDialogMap::iterator it1 = mDialogMap.begin(); it1 != mDialogMap.end(); it1++) {
@@ -198,10 +207,10 @@ void SipDialogMap::dmPeriodicService()
 		DialogMap_t::iterator it;
 #endif
 		for (it = mDialogMap.begin(); it != mDialogMap.end(); ) {
-			SipDialog *dialog = it->second;
+			SipDialogRef dialog = it->second;
 			it++;
 			if (dialog->dialogPeriodicService()) {
-				gSipInterface.dmRemoveDialog(dialog);
+				gSipInterface.dmRemoveDialog(dialog.self());
 			}
 		}
 	} catch(exception &e) {
@@ -264,7 +273,7 @@ bool SipTUMap::tuMapDispatch(SipMessage*msg) {
 
 // Look at all the dead dialogs and delete any that can be deleted safely.
 // They can be deleted if their SIP timers have expired and no TranEntry still points to them.
-void SipInterface::purgeDeadDialogs()
+void MySipInterface::purgeDeadDialogs()
 {
 #if USE_SCOPED_ITERATORS
 	DeadDialogListType::ScopedIterator sit(mDeadDialogs);
@@ -273,18 +282,19 @@ void SipInterface::purgeDeadDialogs()
 	DeadDialogListType::iterator sit;
 #endif
 	for (sit = mDeadDialogs.begin(); sit != mDeadDialogs.end();) {
-		SipDialog *dialog = *sit;
-		LOG(DEBUG) << "purgeDeadDialogs"<<LOGVAR2("deletable",dialog->dgIsDeletable());
+		SipDialogRef dialog = *sit;
+		LOG(DEBUG) << "purgeDeadDialogs"<<LOGVAR2("deletable",dialog->dgIsDeletable()) <<*dialog <<LOGVAR2("ttIsDeletable",gNewTransactionTable.ttIsDialogReleased(dialog->mTranId));
 		if (dialog->dgIsDeletable()) {
 			sit = mDeadDialogs.erase(sit);
-			delete dialog;
+			//delete dialog;
+			dialog.free();
 		} else {
 			sit++;
 		}
 	}
 }
 
-SipBase *SipDialogMap::dmFindDialogByRtp(RtpSession *session)
+SipDialogRef SipDialogMap::dmFindDialogByRtp(RtpSession *session)
 {
 #if USE_SCOPED_ITERATORS
 	DialogMap_t::ScopedIterator sit(mDialogMap);
@@ -293,14 +303,15 @@ SipBase *SipDialogMap::dmFindDialogByRtp(RtpSession *session)
 	DialogMap_t::iterator sit;
 #endif
 	for (sit = mDialogMap.begin(); sit != mDialogMap.end(); sit++) {
-		SipDialog *dialog = sit->second;
+		SipDialogRef dialog = sit->second;
 		if (dialog->mSession == session) {
-			return (SipBase*)dialog;
+			return dialog;
 		}
 	}
-	return NULL;
+	return SipDialogRef();	// An empty one.
 }
 
+#if UNUSED
 SipBase *SipDialogMap::dmFindDialogById(unsigned id)
 {
 #if USE_SCOPED_ITERATORS
@@ -317,6 +328,7 @@ SipBase *SipDialogMap::dmFindDialogById(unsigned id)
 	}
 	return NULL;
 }
+#endif
 
 void SipDialogMap::printDialogs(ostream&os)
 {
@@ -327,7 +339,7 @@ void SipDialogMap::printDialogs(ostream&os)
 	DialogMap_t::iterator sit;
 #endif
 	for (sit = mDialogMap.begin(); sit != mDialogMap.end(); sit++) {
-		SipDialog *dialog = sit->second;
+		SipDialogRef dialog = sit->second;
 		os << dialog->dialogText(false) << "\n";
 	}
 //	ScopedLock lock(mDialogMapLock);
@@ -348,9 +360,10 @@ void printDialogs(ostream &os)
 
 
 // This does NOT delete the msg.
+// This writes all SIP messages
 void SipInterface::siWrite(const struct sockaddr_in* dest, SipMessage *msg) 
 {
-	string msgstr = msg->smGenerate();
+	string msgstr = msg->smGenerate(OpenBTSUserAgent());
 	string firstLine = msgstr.substr(0,msgstr.find('\n'));
 
 	// For debug purposes dump the address assuming IPv4.
@@ -360,8 +373,8 @@ void SipInterface::siWrite(const struct sockaddr_in* dest, SipMessage *msg)
 	uint16_t port = ntohs(dest->sin_port);
 
 	//WATCHF("SIP write %s:%d %s to=%s\n",netbuf,port,firstLine.c_str(),msg->msmToValue.c_str());
-	WATCH("SIP write "<<msg->smGetPrecis());
-	LOG(INFO) << "write " << firstLine;
+	WATCHINFO("SIP write "<<msg->smGetPrecis());
+	//LOG(INFO) << "write " << firstLine;
 	LOG(DEBUG) << "write " <<netbuf <<":"<<port <<" " <<msgstr;
 
 	if (random()%100 < gConfig.getNum("Test.SIP.SimulatedPacketLoss")) {
@@ -383,7 +396,7 @@ void SipInterface::siWrite(const struct sockaddr_in* dest, SipMessage *msg)
 
 // If this message is handled by an existing TransactonUser return true;
 // We only create client TUs [Transaction Users] so only replies are sent to TUs.
-bool SipInterface::checkTU(SipMessage *msg)
+bool MySipInterface::checkTU(SipMessage *msg)
 {
 	if (msg->msmCode == 0) { return false; }	// This is a request and only replies go directly to TUs.
 	// 7-23-2013 Dont touch the via-branch.  Neither sipauthserve nor smqueue are compliant so in defiance
@@ -398,14 +411,14 @@ bool SipInterface::checkTU(SipMessage *msg)
 	return tuMapDispatch(msg);
 }
 
-void SipInterface::newDriveIncoming(char *content)
+void MySipInterface::newDriveIncoming(char *content)
 {
 	LOG(DEBUG) << "SIP recv:"<<content;
 
 	SipMessage *msg = sipParseBuffer(content);
 	if (!msg) { return; }
 
-	WATCH("SIP recv "<<msg->smGetPrecis());
+	WATCHINFO("SIP recv "<<msg->smGetPrecis());
 
 	try {
 		if (newCheckInvite(msg)) { delete msg; return; }
@@ -416,8 +429,8 @@ void SipInterface::newDriveIncoming(char *content)
 		if (checkTU(msg)) { delete msg; return; }
 
 		// Send message to the appropriate SipDialog.
-		SipDialog *dialog = findDialogByMsg(msg);
-		if (dialog) {
+		SipDialogRef dialog = findDialogByMsg(msg);
+		if (dialog.self()) {
 			if (msg->smGetCode()) {
 				// All replies go to the TUs, so if we did not find one above, this is an error.
 				LOG(NOTICE) << "SIP reply to non-existent SIP transaction "<<msg;
@@ -444,7 +457,7 @@ void SipInterface::newDriveIncoming(char *content)
 
 
 // Warning: This assumes the cause message is a SIP request, not a SIP response.
-void SipInterface::newSendEarlyError(SipMessage *cause, int code, const char * reason)
+void MySipInterface::newSendEarlyError(SipMessage *cause, int code, const char * reason)
 {
 	// If the message that caused the error is a 400 class error response, we must not send
 	// a response error to prevent a fast infinite message loop with the peer.
@@ -462,14 +475,14 @@ void SipInterface::newSendEarlyError(SipMessage *cause, int code, const char * r
 
 
 // Return true if the message was handled here.
-void SipInterface::handleInvite(SipMessage *msg, bool isINVITE)
+void MySipInterface::handleInvite(SipMessage *msg, bool isINVITE)
 {
 	// Get request username (IMSI) from invite request-uri, which is in the first line.
 	string toIMSIDigits = msg->smGetInviteImsi(); 	// This is just the numbers.
 	if (toIMSIDigits.length() == 0) {
 		// FIXME -- Send appropriate error (404) on SIP interface.
 		LOG(WARNING) << "Incoming INVITE/MESSAGE with no IMSI:"<<msg;
-		newSendEarlyError(msg,404,"Not Found");
+		newSendEarlyError(msg,404,"Not Found - To header is not an IMSI");
 		return; // Message has been handled as much as it ever will be.
 	}
 
@@ -493,7 +506,7 @@ void SipInterface::handleInvite(SipMessage *msg, bool isINVITE)
 	// Check SIP map.  Repeated entry?  Page again.
 	//string inboundCallIdNum = outboundCallIdNum;
 	// (pat) TODO: This must be locked so we can delete dialogs sometime.
-	SipDialog *existing = findDialogByMsg(msg);
+	SipDialogRef existing = findDialogByMsg(msg);
 #if PAT_TEST_SIP_DIRECT
 	// This is no longer needed...
 	//const char *callIdHost = osip_call_id_get_host(msg->omsg()->call_id);	
@@ -521,7 +534,7 @@ void SipInterface::handleInvite(SipMessage *msg, bool isINVITE)
 
 	// (pat) Looks for a pending invite still in the queue.  I didnt write this.
 	// Check for repeat INVITE, MESSAGE or re-INVITE.  Respond to re-INVITE saying we don't support it. 
-	if (existing) {
+	if (existing.self()) {
 		WATCH("SIP Message is repeat dialog"<<LOGVAR2("state",existing->getSipState()));
 		// sameINVITE checks if it is a duplicate INVITE.  If it is not a duplicate, it is a RE-INVITE.
 		if (existing->sameInviteOrMessage(msg)) {
@@ -587,7 +600,8 @@ void SipInterface::handleInvite(SipMessage *msg, bool isINVITE)
 			// There is already a voice transaction running on this imsi.
 			// We need to send supplementary services - see 04.80 and 04.83
 			//dialog->MTCEarlyError(486,"Busy Here");
-			dialog->dialogCancel(CancelCauseBusy);
+			LOG(INFO) << "SIP term info dialogCancel called in handleInvite";
+			dialog->dialogCancel(TermCause::Local(L3Cause::User_Busy));
 			return;
 		}
 		// Queue on MM for this IMSI.
@@ -598,12 +612,10 @@ void SipInterface::handleInvite(SipMessage *msg, bool isINVITE)
 		// Create an incipient TranEntry.  It does not have a TI yet.
 		FullMobileId msid;
 		msid.mImsi = toIMSIDigits;
+
+		// zero length is okay
 		string smsBody = msg->smGetMessageBody();
-		if (smsBody.empty()) {
-			LOG(NOTICE) << "MT-SMS discarded incoming MESSAGE method with no message body for " << msid.mImsi;
-			newSendEarlyError(msg,606,"not acceptable");
-			return;	// true because we handled the message as much as possible.
-		}
+		// Zero length message body is okay at this point
 		string smsContentType = msg->smGetMessageContentType();
 		if (smsContentType == "") {
 			LOG(NOTICE) << "MT-SMS incoming MESSAGE method with no content type (or memory error) for " << msid.mImsi;
@@ -615,7 +627,7 @@ void SipInterface::handleInvite(SipMessage *msg, bool isINVITE)
 	gMMLayer.mmAddMT(tran);
 }
 
-bool SipInterface::newCheckInvite(SipMessage *msg)
+bool MySipInterface::newCheckInvite(SipMessage *msg)
 {
 	// Check for INVITE or MESSAGE methods.
 	// Check channel availability now, too,
@@ -633,7 +645,8 @@ bool SipInterface::newCheckInvite(SipMessage *msg)
 		// Is this a message for an existing INVITE transaction, ie, that part of the INVITE before ACK?
 		// The findDialogMsg also finds a matching MESSAGE dialog or REGISTER dialog, but we are subsequently
 		// testing against the INVITE via-branch, which will find only INVITE transactions.
-		if (SipDialog *existing = findDialogByMsg(msg)) {
+		SipDialogRef existing = findDialogByMsg(msg);
+		if (existing.self()) {
 			// The ACK and CANCEL message are sent to the INVITE server transaction.
 			// Other messages (BYE, INFO, etc) would be sent to the TU created for them.
 			if (msg->smGetCode() ?  msg->smGetBranch() == existing->mInviteViaBranch : msg->isACK() || msg->isCANCEL()) {
@@ -646,9 +659,11 @@ bool SipInterface::newCheckInvite(SipMessage *msg)
 			}
 		}
 	}
+	return false;
 }
 
 
+// All inbound SIP messages go here for processing.  SVGDBG
 void SipInterface::siDrive2() 
 {
 	// All inbound SIP messages go here for processing.
@@ -672,17 +687,18 @@ void SipInterface::siDrive2()
 	newDriveIncoming(mReadBuffer);
 }
 
-static void driveLoop2( SipInterface * si)
+// This is the thread that processes all in comming SIP messages
+static void driveLoop2( MySipInterface * si)
 {
-	while (true) {
+	while (! gBTS.btsShutdown()) {
 		si->siDrive2();
 	}
 }
 
 // (pat) Every now and then check every SipDialog engine for SIP timer expiration.
-static void periodicServiceLoop(SipInterface *si)
+static void periodicServiceLoop(MySipInterface *si)
 {
-	while (true) {
+	while (! gBTS.btsShutdown()) {
 		si->tuMapPeriodicService();
 		si->dmPeriodicService();
 		si->purgeDeadDialogs();
@@ -695,11 +711,11 @@ static void periodicServiceLoop(SipInterface *si)
 	}
 }
 
-SipInterface gSipInterface;	// Here it is.
+MySipInterface gSipInterface;	// Here it is.
 
 // Pat added to hook messages from the ORTP library.  See ortp_set_log_handler in ortp.c.
 extern "C" {
-	static void ortpLogFunc(OrtpLogLevel lev, const char *fmt, va_list args)
+	static void ortpLogFunc(OrtpLogLevel /*lev unused*/, const char *fmt, va_list args)
 	{
 		// This floods the system with error messages, so regulate output to the console.
 		static time_t lasttime = 0;	// No more than one message per minute.
@@ -718,7 +734,6 @@ extern "C" {
 	}
 }
 
-
 void SipInterface::siInit()
 {
 	// We use random() alot in here for SIP tags, CSeq number starting points.
@@ -728,6 +743,13 @@ void SipInterface::siInit()
 	gettimeofday(&now,NULL);
 	srandom(now.tv_usec);
 
+	mSIPSocket = new UDPSocket(gConfig.getNum("SIP.Local.Port"));
+}
+
+
+void MySipInterface::msiInit()
+{
+	siInit();
 	// Start the ortp stuff. 
 	ortp_init();
 	ortp_scheduler_init();
@@ -736,8 +758,6 @@ void SipInterface::siInit()
 
 	ortp_set_log_handler(ortpLogFunc);
 
-	mSIPSocket = new UDPSocket(gConfig.getNum("SIP.Local.Port"));
-
 	mDriveThread.start((void *(*)(void*))driveLoop2, &gSipInterface );
 	mPeriodicServiceThread.start((void *(*)(void*))periodicServiceLoop, &gSipInterface );
 }
@@ -745,7 +765,7 @@ void SipInterface::siInit()
 
 void SIPInterfaceStart()
 {
-	gSipInterface.siInit();
+	gSipInterface.msiInit();
 }
 
 

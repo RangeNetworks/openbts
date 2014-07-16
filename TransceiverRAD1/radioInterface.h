@@ -1,7 +1,8 @@
 /*
 * Copyright 2008, 2014 Free Software Foundation, Inc.
+* Copyright 2014 Range Networks, Inc.
 *
-* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
+* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -18,6 +19,7 @@
 #include "GSMCommon.h"
 #include "LinkedLists.h"
 #include "radioDevice.h"
+#include <Interthread.h>
 
 /** samples per GSM symbol */
 #define SAMPSPERSYM 1 
@@ -141,6 +143,11 @@ private:
 
   short *rcvBuffer; //[2*2*OUTCHUNK];
   unsigned rcvCursor;
+ 
+  signalVector *txHistoryVector;
+  signalVector *rxHistoryVector;
+  signalVector *inverseCICFilter;
+  signalVector *rcvInverseCICFilter;
  
   bool underrun;			      ///< indicates writes to USRP are too slow
   bool overrun;				      ///< indicates reads from USRP are too slow

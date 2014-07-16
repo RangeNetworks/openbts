@@ -1,8 +1,8 @@
-/* Copyright 2013 Range Networks, Inc.
+/* Copyright 2013, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -11,13 +11,16 @@
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 */
+
 #ifndef _SIPEXPORTH_
 #define _SIPEXPORTH_ 1
 
-#include <SIPBase.h>
+//#include <SIPBase.h>
+#include <ControlTransfer.h>
 
 namespace SIP {
-extern void startRegister(const Control::FullMobileId &msic, const string rand, const string sres, L3LogicalChannel *chan);
+extern void startRegister(TranEntryId tid, const Control::FullMobileId &msic, const string rand, const string sres, L3LogicalChannel *chan);
+extern void startUnregister(const FullMobileId &msid, L3LogicalChannel *chan);
 class SipDialog;
 extern SipDialog *getRegistrar();
 
@@ -46,13 +49,13 @@ struct DialogState {
 
 struct SipCode {
 	int mCode;
-	const char *mReason;
+	string mReason;
 	SipCode() : mCode(0), mReason("") {}
-	SipCode(int wCode, const char *wReason) : mCode(wCode), mReason(wReason) {}
+	SipCode(int wCode, string wReason) : mCode(wCode), mReason(wReason) {}
 };
 
 class DialogMessage {
-	virtual void _define_vtable();
+	//virtual void _define_vtable();
 	public:
 	virtual ~DialogMessage() {}
 	Control::TranEntryId mTranId;		// The associated TransactionEntry or 0 for the old MobilityManagement SipBase which has none.

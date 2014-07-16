@@ -1,10 +1,9 @@
 /*
-* Copyright 2011 Range Networks, Inc.
-* All Rights Reserved.
+* Copyright 2011, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -27,6 +26,7 @@
 #include "MsgBase.h"
 #include "GPRSInternal.h"
 #include "MemoryLeak.h"
+#include "GSMTransfer.h"	// For RadData
 #define CASENAME(x) case x: return #x;
 
 
@@ -161,19 +161,11 @@ struct MACUplinkHeader 	// 8 bits.  See GSM04.60sec10.3.2
 	}
 #endif
 
-struct RadData {
-	bool mValid;
-	float mRSSI;
-	float mTimingError;
-	RadData() { mValid = false; }
-	RadData(float wRSSI, float wTimingError) : mValid(true),mRSSI(wRSSI),mTimingError(wTimingError) {}
-};
-
 
 // An incoming block straight from the decoder.
 struct RLCRawBlock {
 	RLCBSN_t mBSN;	// The BSN corresponding to the GSM FN of the first received burst.
-	RadData mRD;
+	GSM::RadData mRD;
 	BitVector mData;
 	MACUplinkHeader mmac;
 	ChannelCodingType mUpCC;
@@ -190,7 +182,7 @@ struct RLCRawBlock {
 		mmac.parseMAC(mData); 	// Pull the MAC header out of the BitVector.
 		mUpCC = cc;
 		assert(mData.isOwner());
-		mRD = RadData(wRSSI,wTimingError);
+		mRD = GSM::RadData(wRSSI,wTimingError);
 	}
 #endif
 

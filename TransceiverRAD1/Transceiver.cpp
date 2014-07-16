@@ -1,8 +1,8 @@
 /*
 * Copyright 2008, 2009 Free Software Foundation, Inc.
-* Copyright 2011, 2012 Range Networks, Inc.
+* Copyright 2011, 2012, 2014 Range Networks, Inc.
 *
-* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
+* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -24,6 +24,8 @@
 #include <Logger.h>
 #include <Configuration.h>
 #include <FactoryCalibration.h>
+#include <GSMTransfer.h>
+using namespace GSM;
 
 extern ConfigurationTable gConfig;
 extern FactoryCalibration gFactoryCalibration;
@@ -716,6 +718,7 @@ void Transceiver::driveControl(unsigned ARFCN)
 
 }
 
+// (pat) Input is is coming from OpenBTS ARFCNManager::writeHighSideTx
 bool Transceiver::driveTransmitPriorityQueue(unsigned ARFCN) 
 {
 
@@ -764,7 +767,7 @@ bool Transceiver::driveTransmitPriorityQueue(unsigned ARFCN)
 
   LOG(DEBUG) << "rcvd. burst at: " << GSM::Time(frameNum,timeSlot) <<LOGVAR(fillerFlag);
   
-  int RSSI = (int) buffer[5];
+  int RSSI = (int) buffer[5];	// (pat) It is not RSSI, it is transmit gain, always set to 0.
   static BitVector newBurst(gSlotLen);
   BitVector::iterator itr = newBurst.begin();
   char *bufferItr = buffer+6;
@@ -820,7 +823,9 @@ void Transceiver::driveTransmitFIFO()
       if (mRadioInterface->isUnderrun()) {
         // only do latency update every 10 frames, so we don't over update
 	if (radioClock->get() > mLatencyUpdateTime + GSM::Time(100,0)) {
-	  mTransmitLatency = mTransmitLatency + GSM::Time(1,0);
+	  //mTransmitLatency = mTransmitLatency + GSM::Time(1,0);
+      unsigned bumpLatency = gConfig.getNum("TRX.LatencyBumpUp");
+	  mTransmitLatency = mTransmitLatency + GSM::Time(bumpLatency,0);
 	  LOG(INFO) << "new latency: " << mTransmitLatency;
 	  mLatencyUpdateTime = radioClock->get();
 	}
@@ -866,6 +871,7 @@ void Transceiver::writeClockInterface()
   
 void *FIFOServiceLoopAdapter(Transceiver *transceiver)
 {
+  LOG(NOTICE) << "THREAD: FIFOLoopAdapter @ tid " << gettid();
   while (1) {
     //transceiver->driveReceiveFIFO();
     transceiver->driveTransmitFIFO();
@@ -876,6 +882,7 @@ void *FIFOServiceLoopAdapter(Transceiver *transceiver)
 
 void *RFIFOServiceLoopAdapter(Transceiver *transceiver)
 {
+  LOG(NOTICE) << "THREAD: RFIFOLoopAdapter @ tid " << gettid();
   bool isMulti = transceiver->multiARFCN();
   while (1) {
     transceiver->driveReceiveFIFO();
@@ -889,6 +896,7 @@ void *RFIFOServiceLoopAdapter(Transceiver *transceiver)
 
 void *ControlServiceLoopAdapter(ThreadStruct *ts)
 {
+  LOG(NOTICE) << "THREAD: ControlServiceLoopAdapter @ tid " << gettid();
   Transceiver *transceiver = ts->trx;
   unsigned CN = ts->CN;
   while (1) {
@@ -900,6 +908,7 @@ void *ControlServiceLoopAdapter(ThreadStruct *ts)
 
 void *DemodServiceLoopAdapter(Demodulator *demodulator)
 {
+  LOG(NOTICE) << "THREAD: DemodServiceLoopAdapter @ tid " << gettid();
   while(1) {
     demodulator->driveDemod(false);
     pthread_testcancel();
@@ -911,6 +920,7 @@ void *TransmitPriorityQueueServiceLoopAdapter(ThreadStruct *ts)
 {
   Transceiver *transceiver = ts->trx;
   unsigned CN = ts->CN;
+  LOG(NOTICE) << "THREAD: TransmitServiceLoopAdapter @ tid " << gettid();
   while (1) {
     bool stale = false;
     // Flush the UDP packets until a successful transfer.

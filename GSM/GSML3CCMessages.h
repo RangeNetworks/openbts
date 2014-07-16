@@ -6,7 +6,7 @@
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -146,7 +146,7 @@ class L3Release : public L3CCMessage, public L3CCCommonIEs  {
 
 	// We're ignoring "facility" and "user-user" for now.
 	bool mHaveCause;
-	L3Cause mCause;
+	L3CauseElement mCause;
 
 	public:
 
@@ -155,13 +155,13 @@ class L3Release : public L3CCMessage, public L3CCCommonIEs  {
 		mHaveCause(false)
 	{}
 
-	L3Release(unsigned wTI, const L3Cause& wCause)
+	L3Release(unsigned wTI, const CCCause wCause)
 		:L3CCMessage(wTI),
 		mHaveCause(true),mCause(wCause)
 	{}
 
 	bool haveCause() const { return mHaveCause; }
-	const L3Cause& cause() const { return mCause; }
+	const L3CauseElement& cause() const { return mCause; }
 	int MTI() const { return Release; }
 	void writeBody( L3Frame &dest, size_t &wp ) const;
 	void parseBody( const L3Frame &src, size_t &rp );
@@ -175,7 +175,7 @@ class L3Release : public L3CCMessage, public L3CCCommonIEs  {
 class L3CCStatus : public L3CCMessage 
 {
 private:
-	L3Cause mCause;
+	L3CauseElement mCause;
 	L3CallState mCallState;
 public:
 
@@ -183,13 +183,13 @@ public:
 		:L3CCMessage(wTI)
 	{}
 
-	L3CCStatus(unsigned wTI, const L3Cause &wCause, const L3CallState &wCallState)
+	L3CCStatus(unsigned wTI, const CCCause wCause, const L3CallState &wCallState)
 		:L3CCMessage(wTI), 
 		mCause(wCause), 
 		mCallState(wCallState)
 	{}
 	
-	const L3Cause& cause() const { return mCause; }
+	const L3CauseElement& cause() const { return mCause; }
 	const L3CallState callState() const { return mCallState; }
 
 	int MTI() const { return CCStatus; }
@@ -209,7 +209,7 @@ class L3ReleaseComplete : public L3CCMessage, public L3CCCommonIEs {
 
 	// We're ignoring "facility" and "user-user" for now.
 	bool mHaveCause;
-	L3Cause mCause;
+	L3CauseElement mCause;
 
 	public:
 
@@ -218,7 +218,7 @@ class L3ReleaseComplete : public L3CCMessage, public L3CCCommonIEs {
 		mHaveCause(false)
 	{}
 
-	L3ReleaseComplete(unsigned wTI, const L3Cause& wCause)
+	L3ReleaseComplete(unsigned wTI, const CCCause wCause)
 		:L3CCMessage(wTI),
 		mHaveCause(true),mCause(wCause)
 	{}
@@ -251,6 +251,9 @@ class L3Setup : public L3CCMessage, public L3CCCapabilities, public L3CCCommonIE
 	/// Called Party BCD Number (0x5E O TLV 3-19).
 	Bool_z mHaveCalledPartyBCDNumber;
 	L3CalledPartyBCDNumber mCalledPartyBCDNumber;
+
+	Bool_z mHaveSignal;
+	L3Signal mSignal;
 public:
 
 	L3Setup(unsigned wTI=7)
@@ -268,6 +271,8 @@ public:
 		:L3CCMessage(wTI), 
 		mHaveCallingPartyBCDNumber(true),mCallingPartyBCDNumber(wCallingPartyBCDNumber)
 	{ }
+
+	void setSignal(L3Signal &whatever) { mHaveSignal = true; mSignal = whatever; }
 
 
 	/** Accessors */
@@ -350,7 +355,7 @@ class L3Alerting : public L3CCMessage, public L3CCCommonIEs
 	private:
 
 	Bool_z mHaveProgress;
-	L3ProgressIndicator mProgress; 		///< Progress appears in uplink only.
+	L3ProgressIndicator mProgress; 		///< Progress appears in downlink only.
 
 	public:
 
@@ -427,17 +432,17 @@ class L3Disconnect : public L3CCMessage {
 
 private:
 
-	L3Cause mCause;
+	L3CauseElement mCause;
 
 public:
 
 	/** Initialize with default cause of 0x10 "normal call clearing". */
-	L3Disconnect(unsigned wTI=7, const L3Cause& wCause = L3Cause(L3Cause::NormalCallClearing))
+	L3Disconnect(unsigned wTI=7, const CCCause wCause = L3Cause::Normal_Call_Clearing)
 		:L3CCMessage(wTI),
 		mCause(wCause)
 	{}
 
-	const L3Cause& cause() const { return mCause; }
+	const L3CauseElement& cause() const { return mCause; }
 	int MTI() const { return Disconnect; }
 	void writeBody( L3Frame &dest, size_t &wp ) const;
 	void parseBody( const L3Frame &src, size_t &rp );
@@ -456,7 +461,7 @@ private:
 	//Bool_z mHaveBearerCapability;
 	//L3BearerCapability mBearerCapability;
 	Bool_z mHaveCause;
-	L3Cause	mCause;
+	L3CauseElement mCause;
 
 	// (pat) SupportedCodecList is sent by UMTS phone
 	//Bool_z mHaveSupportedCodecs;
@@ -531,12 +536,12 @@ class L3StartDTMFReject : public L3CCMessage {
 
 	private:
 
-	L3Cause mCause;
+	L3CauseElement mCause;
 
 	public:
 
 	/** Reject with default cause 0x3f, "service or option not available". */
-	L3StartDTMFReject(unsigned wTI, const L3Cause& wCause)
+	L3StartDTMFReject(unsigned wTI, const CCCause wCause)
 		:L3CCMessage(wTI),
 		mCause(wCause)
 	{}
@@ -583,6 +588,8 @@ class L3StopDTMFAcknowledge : public L3CCMessage {
 
 
 /** GSM 04.08 9.3.17 */
+// pat 2-2014: GSM 4.08 5.5.1: The ProgressIndicator is used to start in-band tones and announcements
+// if the value is 1-3 or 6-20.
 class L3Progress : public L3CCMessage
 {
 	L3ProgressIndicator mProgress; 
@@ -629,12 +636,12 @@ class L3HoldReject : public L3CCMessage {
 
 	private:
 
-	L3Cause mCause;
+	L3CauseElement mCause;
 
 	public:
 
 	/** Reject with default cause 0x3f, "service or option not available". */
-	L3HoldReject(unsigned wTI, const L3Cause& wCause)
+	L3HoldReject(unsigned wTI, const CCCause wCause)
 		:L3CCMessage(wTI),
 		mCause(wCause)
 	{}

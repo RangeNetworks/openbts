@@ -1,7 +1,8 @@
 /*
 * Copyright 2008 Free Software Foundation, Inc.
+* Copyright 2014 Range Networks, Inc.
 *
-* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
+* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -24,11 +25,10 @@
 #include <ortp/ortp.h>
 #include <ortp/telephonyevents.h>
 
-//#include "SIPInterface.h"
 #include "SIPUtility.h"
-#include <Globals.h>
-#include <GSMConfig.h>
-#include <GSML3CommonElements.h>
+#include <OpenBTSConfig.h>
+#include <Sockets.h>
+// #include <GSML3CommonElements.h> // (pat 3-2014) Take this out temporarily to avoid referencing gBTS from the SIP directory. 
 
 //#include "md5.h"
 
@@ -36,6 +36,14 @@
 namespace SIP {
 using namespace std;
 //using namespace MD5;
+
+string localIP() { // Replaces mSIPIP.
+	return gConfig.getStr("SIP.Local.IP");
+}
+
+string localIPAndPort() { // Replaces mSIPIP and mSIPPort.
+	return format("%s:%u", localIP(), (unsigned) gConfig.getNum("SIP.Local.Port"));
+}
 
 // Unused, but here it is if you want it:
 // Pair is goofed up, so just make our own.  It is trivial:
@@ -256,6 +264,15 @@ static uint32_t timeUniquifier()
 	return ((now.tv_sec&0xffff)<<16) + (now.tv_usec/16);	// 32 bit number that changes every 15-16 usecs.
 }
 
+#if 1
+string globallyUniqueId(const char *start)
+{
+	// This is a a globally unique callid.
+	char buf[80];
+	snprintf(buf,80,"%s%x%x",start,timeUniquifier(),(unsigned)(0xffffffff&random()));
+	return string(buf);
+}
+#else	// (pat 3-2014) Take this out temporarily to avoid referencing gBTS from the SIP directory.  
 static unsigned cellid()
 {
 	// Cell id:
@@ -280,6 +297,7 @@ string globallyUniqueId(const char *start)
 	snprintf(buf,80,"%s%03u%02u%x%x-%x%x",start,lai.MCC(),lai.MNC(),lai.LAC(),cellid(), timeUniquifier(),(unsigned)(0xffffffff&random()));
 	return string(buf);
 }
+#endif
 
 
 static string make_tag1(const char *start)
@@ -348,7 +366,7 @@ string makeMD5(string input)
 	FILE *f = popen(os.str().c_str(), "r");
 	if (f == NULL) {
 		LOG(CRIT) << "error: popen failed";
-		return false;
+		return "";
 	}
 	char digest[33];
 	char *buffer = fgets(digest, 33, f);
@@ -373,6 +391,23 @@ string makeResponse(string username, string realm, string password, string metho
    string str2 = makeMD5( method + separatorStr + uri);
    string str3 = makeMD5( str1 + separatorStr + nonce + separatorStr + str2);
    return str3;
+}
+
+// We will accept prefix or "sips:", which we dont support yet, but ever hopeful.
+const char * sipSkipPrefix1(const char* in)
+{
+	if (0 == strncasecmp(in,"sip:",4)) { return in + 4; }
+	else if (0 == strncasecmp(in,"tel:",4)) { return in + 4; }
+	else if (0 == strncasecmp(in,"sips:",5)) { return in + 5; }
+	return in;
+}
+
+string sipSkipPrefix(string in)
+{
+	if (0 == strncasecmp(in.c_str(),"sip:",4)) { return in.substr(4); }
+	else if (0 == strncasecmp(in.c_str(),"tel:",4)) { return in.substr(4); }
+	else if (0 == strncasecmp(in.c_str(),"sips:",5)) { return in.substr(5); }
+	return in;
 }
 
 };	// namespace SIP

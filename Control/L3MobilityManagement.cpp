@@ -1,8 +1,9 @@
-/* Copyright 2013, 2014 Range Networks, Inc.
+/* 
+* Copyright 2013, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -11,6 +12,8 @@
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 */
+
+// Written by Pat Thompson
 
 #define LOG_GROUP LogGroup::Control		// Can set Log.Level.Control for debugging
 
@@ -27,6 +30,7 @@
 #include <Logger.h>
 #include <Interthread.h>
 #include <Timeval.h>
+#include <Globals.h>
 
 
 #include <GSMConfig.h>
@@ -41,7 +45,6 @@
 //#include <SIPDialog.h>
 #include <SIPExport.h>
 #include <Regexp.h>
-#include "RRLPServer.h"
 using namespace GSM;
 
 
@@ -79,7 +82,7 @@ void NewCMServiceResponder(const L3CMServiceRequest* cmsrq, MMContext* mmchan)
 		default:
 			gReports.incr("OpenBTS.GSM.MM.CMServiceRequest.Unhandled");
 			LOG(NOTICE) << "service not supported for " << *cmsrq;
-			mmchan->l3sendm(L3CMServiceReject(L3RejectCause(L3RejectCause::ServiceOptionNotSupported)));
+			mmchan->l3sendm(L3CMServiceReject(L3RejectCause::Service_Option_Not_Supported));
 			//mmchan->l3sendm(L3ChannelRelease(L3RRCause::Unspecified));
 			return;
 	}
@@ -99,8 +102,8 @@ void NewPagingResponseHandler(const L3PagingResponse* resp, MMContext* mmchan)
 	L3MobileIdentity mobileId = resp->mobileID();
 	if (! gMMLayer.mmPageReceived(mmchan,mobileId)) {
 
-		LOG(WARNING) << "Paging Reponse with no Mobility Management record for " << mobileId;
-		mmchan->l3sendm(L3ChannelRelease(L3RRCause::CallAlreadyCleared));
+		LOG(WARNING) << "Paging Reponse with no Mobility Management record (probably timed out) for " << mobileId;
+		mmchan->l3sendm(L3ChannelRelease(L3RRCause::Call_Already_Cleared));
 		return;		// There is nothing more we can do about this because we dont know who it is.
 	}
 }
@@ -249,17 +252,8 @@ MMSharedData *LUBase::ludata() const
 	return tran()->mMMData;
 }
 
-#if 0
-// (pat) This queryForRejectCause was part of the ancient release 3 fuzzing interface, but please please do not
-// put this back in; I dont want to support this methodology any more; this wget is going to hang the state machine and that is bad.
-// We support a new wonderful and non-dorky way for the customer to return a reject cause,
-// which is simply to include it in the SIP Registrar response message using the "P-GSM-Reject-Cause" SIP header.
-
-#endif
 
 
-// (pat) This was formerly a member of LUBase so it could get at mNewImei for the S_RELEASE ifdefed code,
-// but I dont think that should be re-enabled in any case, and I am making this a simple global function.
 // TODO: Reject cause should be determined in a more central location, probably sipauthserve.
 // We may want different reject codes based on the IMSI or MSISDN of the MS, or on the CM service being requested (CC, SMS, USSD, GPRS),
 // although this code here is used only by LUR.
@@ -269,7 +263,7 @@ static MMRejectCause getRejectCause(unsigned sipCode)
 	unsigned utmp;
 	switch (sipCode) {
 		case 400:	// This value is used in the SIP code for unrecoverable errors in a SIP message from the Registrar.
-			rejectCause = L3RejectCause::NetworkFailure;
+			rejectCause = L3RejectCause::Network_Failure;
 			break;
 		case 401: {	// SIP 401 "Unauthorized"
 			// The sip nomenclature for 401 and 404 are exactly reversed:
@@ -280,7 +274,7 @@ static MMRejectCause getRejectCause(unsigned sipCode)
 			break;
 		}
 		case 403: {	// SIP 403 "Forbidden"
-			rejectCause = L3RejectCause::LocationAreaNotAllowed;
+			rejectCause = L3RejectCause::Location_Area_Not_Allowed;
 			break;
 		}
 		case 404: {	// SIP 404 "Not Found"
@@ -294,7 +288,7 @@ static MMRejectCause getRejectCause(unsigned sipCode)
 			break;
 		}
 		case 424: {	// SIP 424 "Bad Location Information"
-			rejectCause = L3RejectCause::RoamingNotAllowedInLA;
+			rejectCause = L3RejectCause::Roaming_Not_Allowed_In_LA;
 			break;
 		}
 		case 504: {	// SIP 504 "Servier Time-out"
@@ -302,18 +296,19 @@ static MMRejectCause getRejectCause(unsigned sipCode)
 			break;
 		}
 		case 603: { // SIP 603 "Decline"
-			rejectCause = L3RejectCause::IMSIUnknownInVLR;
+			rejectCause = L3RejectCause::IMSI_Unknown_In_VLR;
 			break;
 		}
 		case 604: { // SIP 604 "Does Not Exist Anywhere"
-			rejectCause = L3RejectCause::IMSIUnknownInHLR;
+			rejectCause = L3RejectCause::IMSI_Unknown_In_HLR;
 			break;
 		}
 		default:
 			LOG(NOTICE) << "REGISTER unexpected response from Registrar" <<LOGVAR(sipCode);
-			rejectCause = L3RejectCause::NetworkFailure;
+			rejectCause = L3RejectCause::Network_Failure;
 			break;
 	}
+	LOG(INFO) << "SIP term info sip code: " << sipCode << " rejectCause: " << rejectCause;
 	LOG(DEBUG) <<LOGVAR(sipCode)<<LOGVAR(rejectCause);
 	return rejectCause;	// TODO: We should check what the user entered makes sense.
 }
@@ -497,12 +492,13 @@ MachineStatus LUStart::stateRecvIdentityResponse(const GSM::L3IdentityResponse *
 			string prevImsi = getImsi();
 			if (prevImsi.size() && prevImsi != imsi) {
 				LOG(ERR) << "MS returned two different IMSIs";
-				MMRejectCause failCause = L3RejectCause::InvalidMandatoryInformation;
+				MMRejectCause failCause = L3RejectCause::Invalid_Mandatory_Information;
 				// There is no ludata()->store yet so just set it directly:
 				gTMSITable.tmsiTabSetRejected(imsi,(int)failCause);
 				// I dont know what the cause should be here, but if this ever happens, we dont care.
 				channel()->l3sendm(L3LocationUpdatingReject(failCause));
-				return closeChannel(L3RRCause::NormalEvent,RELEASE);
+				LOG(INFO) << "SIP term info closeChannel called in stateRecvIdentityResponse";
+				return closeChannel(L3RRCause::Normal_Event,L3_RELEASE_REQUEST,TermCause::Local(failCause));
 			}
 		}
 
@@ -689,8 +685,8 @@ MachineStatus LUAuthentication::machineRunState(int state, const GSM::L3Message*
 				LOG(ALERT) << "Invalid RAND challenge returned by Registrar (RAND length=" <<rand.size() <<")";
 				// (pat) LUFinish may still permit services depending on failOpen().
 				ludata()->mRegistrationResult.regSetError();
-				//channel()->l3sendm(L3LocationUpdatingReject(L3RejectCause::ServiceOptionTemporarilyOutOfOrder));
-				//return closeChannel(L3RRCause::NormalEvent,RELEASE);
+				//channel()->l3sendm(L3LocationUpdatingReject(L3RejectCause::Service_Option_Temporarily_Out_Of_Order));
+				//return closeChannel(L3RRCause::Normal_Event,RELEASE);
 				return callMachStart(new LUFinish(tran()));
 			}
 
@@ -921,6 +917,8 @@ MachineStatus LUFinish::stateSendLUResponse()
 		}
 	}
 
+	const char *openregistrationmsg = "";
+
 	switch (ludata()->mRegistrationResult.mRegistrationStatus) {
 		case RegistrationSuccess:
 			authorization = AuthAuthorized;
@@ -930,7 +928,7 @@ MachineStatus LUFinish::stateSendLUResponse()
 				authorization = AuthFailOpen;
 				//ludata()->mRegistrationResult.regSetSuccess();
 			} else {
-				failCause = L3RejectCause::NetworkFailure;
+				failCause = L3RejectCause::Network_Failure;
 			}
 			break;
 		case RegistrationFail:
@@ -939,6 +937,7 @@ MachineStatus LUFinish::stateSendLUResponse()
 			if (openRegistration()) {
 				//ludata()->mRegistrationResult.regSetSuccess();
 				authorization = AuthOpenRegistration;
+				openregistrationmsg = "(open registration)";
 			} else {
 				failCause = ludata()->mRegistrationResult.mRejectCause;
 			}
@@ -948,7 +947,7 @@ MachineStatus LUFinish::stateSendLUResponse()
 
 	if (authorization != AuthUnauthorized) {
 		if (authorization == AuthAuthorized) {
-			LOG(INFO) << "registration SUCCESS: " << ludata()->mLUMobileId;
+			LOG(INFO) << "registration SUCCESS"<<openregistrationmsg<<": " << ludata()->mLUMobileId;
 		} else {
 			LOG(INFO) << "registration ALLOWED: " << ludata()->mLUMobileId;
 		}
@@ -1023,7 +1022,7 @@ MachineStatus LUFinish::stateSendLUResponse()
 		//gTMSITable.tmsiTabSetRejected(imsi,failCause);
 		ludata()->store.setRejectCode(failCause);
 		gTMSITable.tmsiTabCreateOrUpdate(imsi,&ludata()->store,&ludata()->mLULAI,ludata()->mOldTmsi);
-		channel()->l3sendm(L3LocationUpdatingReject(L3RejectCause(failCause)));
+		channel()->l3sendm(L3LocationUpdatingReject(failCause));
 
 		sendWelcomeMessage(ludata(), "Control.LUR.FailedRegistration.Message",	// Does nothing if the SQL var is not set.
 				"Control.LUR.FailedRegistration.ShortCode",subscriber(),channel());
@@ -1031,8 +1030,8 @@ MachineStatus LUFinish::stateSendLUResponse()
 		// tmsiTabUpdate must be after sendWelcomeMessage optionally updates the welcomeSent field.
 		gTMSITable.tmsiTabUpdate(imsi,&ludata()->store);
 
-		//return closeChannel(L3RRCause::NormalEvent,RELEASE);
-		return MachineStatusQuitTran;
+		//return closeChannel(L3RRCause::Normal_Event,RELEASE);
+		return MachineStatus::QuitTran(TermCause::Local(failCause));
 	}
 
 	// (pat) We must NOT attach the MMContext to the MMUser during the Location Updating procedure;
@@ -1078,14 +1077,6 @@ MachineStatus LUFinish::statePostAccept()
 	LOG(DEBUG);
 	timerStop(TMisc1);	// The mystery timer.
 	timerStop(TMMCancel);	// all finished.
-	bool dorrlp;
-	if ((dorrlp = gConfig.getBool("Control.LUR.QueryRRLP"))) {
-		// Query for RRLP
-		// TODO: RRLP should be another procedure.
-		if (!sendRRLP(ludata()->mLUMobileId, channel())) {
-			LOG(INFO) << "RRLP request failed";
-		}
-	}
 
 	// If this is an IMSI attach, send a welcome message.
 	// (pat) This should be in the sipauthserve, not the BTS.
@@ -1107,20 +1098,10 @@ MachineStatus LUFinish::statePostAccept()
 	gTMSITable.tmsiTabUpdate(getImsi(),&ludata()->store);
 
 
-	if (dorrlp) {
-		// DEBUG: Wait for pirates.
-		//L3Frame* resp = channel()->l2recv(130000);
-		//LOG(ALERT) << "RRLP returned " << *resp;
-		// (pat) The RRLP message takes 2.5 secs download best case.  The response from the Nokia comes after 3.5 secs.
-		// So wait here for an RRLP response.
-		LOG(DEBUG) <<"Waiting for RRLP";
-		timerStart(TMMCancel,10000,TimerAbortChan);
-		return MachineStatusOK;
-	}
 
 	// Release the channel and return.
 	LOG(DEBUG) <<"MM procedure complete";
-	return MachineStatusQuitTran;
+	return MachineStatus::QuitTran(TermCause::Local(L3Cause::MM_Success));
 }
 
 // The l3msg is LocationUpdatingRequest
@@ -1154,7 +1135,7 @@ MachineStatus LUNetworkFailure::machineRunState(int state, const GSM::L3Message*
 			//onTimeout1(4000,stateAuthFail);
 			timerStart(TMMCancel,4000,TimerAbortChan);	// Mystery timer.
 			// We dont unauthorize because it is not the MS fault.
-			channel()->l3sendm(L3LocationUpdatingReject(L3RejectCause::NetworkFailure));
+			channel()->l3sendm(L3LocationUpdatingReject(L3RejectCause::Network_Failure));
 			return MachineStatusOK;
 		default:
 			return unexpectedState(state,l3msg);
@@ -1188,7 +1169,7 @@ MachineStatus L3RegisterMachine::machineRunState(int state, const GSM::L3Message
 {
 	switch (state) {
 		case stateStart:		// Start state.
-			startRegister(tran()->subscriber(),mRResult->mRand,mSRES,channel());
+			startRegister(tran()->tranID(),tran()->subscriber(),mRResult->mRand,mSRES,channel());
 			return MachineStatusOK;
 
 		case L3CASE_SIP(dialogActive): {
@@ -1263,6 +1244,33 @@ string RegistrationResult::text()
 	string result = format("RegistrationStatus=%u",mRegistrationStatus);
 	if (mRegistrationStatus == RegistrationFail) { result += format(",SipCode=%u,RejectCause=%u",mSipCode,mRejectCause); }
 	return result;
+}
+
+// (pat) 5-2014.  We dont currently save the detach information in OpenBTS.  I dont want to set the TMSI table AUTH or AUTH_EXPIRY to 0,
+// because we may need those for a later authorization if backhaul is cut or central authorization entity needs to be
+// refreshed from our database.  I dont want to add a new TMSI table field at this time, since it outdates all existing TMSI tables.
+// The best way would would be to make AUTH a bit field and add bits.
+// However, we dont currently use that information;  we could send an immediate final response code to an INVITE or MESSAGE
+// for a handset that did an Imsi-Detach if the beacon AttachDetach flag is still set, however, that will not work when we support
+// multiple BTS per LAC - the final response should be sent from the central authority, not the individual BTS.
+// So I am going to do nothing else at this time.
+// (pat) NOTE:  Kazoo may send a dialog failure to the imsi detach, which will try to go to the transaction, and is currently ignored.
+void imsiDetach(L3MobileIdentity mobid, L3LogicalChannel *chan)
+{
+	string imsi;
+	if (mobid.isIMSI()) {
+		imsi = string(mobid.digits());
+	} else if (mobid.isTMSI()) {
+		imsi = gTMSITable.tmsiTabGetIMSI(mobid.TMSI(),NULL);
+		if (imsi.size() == 0) {
+			LOG(WARNING)<<format("IMSI Detach indication with unrecognized TMSI (0x%x) ignored",mobid.TMSI());
+			return;
+		}
+	} else {
+		LOG(WARNING)<<format("IMSI Detach indication with unrecognized mobileID type (%d) ignored",mobid.type());
+		return;
+	}
+	startUnregister(imsi,chan);
 }
 
 }; // namespace Control

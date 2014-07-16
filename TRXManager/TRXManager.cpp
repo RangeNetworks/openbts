@@ -2,7 +2,7 @@
 * Copyright 2008, 2010 Free Software Foundation, Inc.
 * Copyright 2012, 2014 Range Networks, Inc.
 *
-* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
+* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -77,7 +77,7 @@ void* ClockLoopAdapter(TransceiverManager *transceiver)
 	// This loop has a period of about 3 seconds.
 
 	gResetWatchdog();
-	while (1) {
+	while (! gBTS.btsShutdown()) {
 		transceiver->clockHandler();
 		LOG(DEBUG) << "watchdog timer expires in " << gWatchdogRemaining() << " seconds";
 		if (gWatchdogExpired()) {
@@ -94,7 +94,13 @@ void* ClockLoopAdapter(TransceiverManager *transceiver)
 void TransceiverManager::clockHandler()
 {
 	char buffer[MAX_UDP_LENGTH];
-	int msgLen = mClockSocket.read(buffer,gConfig.getNum("TRX.Timeout.Clock")*1000);
+	int msgLen;
+	try {
+		msgLen = mClockSocket.read(buffer,gConfig.getNum("TRX.Timeout.Clock")*1000);
+	} catch (SocketError) {
+		LOG(ERR) <<"Transceiver Clock Interface read error:"<<strerror(errno);
+		return;
+	}
 
 	// Did the transceiver die??
 	if (msgLen<0) {
@@ -105,7 +111,7 @@ void TransceiverManager::clockHandler()
 		static int foo = 0;
 		pthread_exit(&foo);
 #else
-		abort();
+		exit(2);	// (pat 3-2014) changed from abort to exit, old:  abort();
 #endif
 	}
 
@@ -117,8 +123,8 @@ void TransceiverManager::clockHandler()
 	if (strncmp(buffer,"IND CLOCK",9)==0) {
 		uint32_t FN;
 		sscanf(buffer,"IND CLOCK %u", &FN);
-		LOG(INFO) << "CLOCK indication, current clock = " << gBTS.clock().get() << " new clock ="<<FN;
-		gBTS.clock().set(FN);
+		LOG(INFO) << "CLOCK indication, current clock = " << gBTS.clock().clockGet() << " new clock ="<<FN;
+		gBTS.clock().clockSet(FN);
 		mHaveClock = true;
 		return;
 	}
@@ -193,7 +199,7 @@ void ::ARFCNManager::installDecoder(GSM::L1Decoder *wL1d)
 // (pat) renamed overloaded function to clarify code
 void ::ARFCNManager::writeHighSideTx(const GSM::TxBurst& burst,const char *culprit)
 {
-	LOG(DEBUG) << culprit << " transmit at time " << gBTS.clock().get() << ": " << burst 
+	LOG(DEBUG) << culprit << " transmit at time " << gBTS.clock().clockGet() << ": " << burst 
 		<<" steal="<<(int)burst.peekField(60,1)<<(int)burst.peekField(87,1);
 	// format the transmission request message
 	static const int bufferSize = gSlotLen+1+4+1;
@@ -257,7 +263,7 @@ void ::ARFCNManager::driveRx()
 
 
 void* ReceiveLoopAdapter(::ARFCNManager* manager){
-	while (true) {
+	while (! gBTS.btsShutdown()) {
 		manager->driveRx();
 		pthread_testcancel();
 	}
@@ -393,7 +399,7 @@ bool ::ARFCNManager::tune(int wARFCN)
 	// tune rx
 	int status = sendCommand("RXTUNE",rxFreq);
 	if (status!=0) {
-		LOG(ALERT) << "RXTUNE failed with status " << status;
+		LOG(ALERT) << "RXTUNE("<<wARFCN<<") failed with status " << status;
 		return false;
 	}
 	// tune tx
@@ -511,7 +517,7 @@ bool ::ARFCNManager::setSlot(unsigned TN, unsigned combination)
 	sprintf(paramBuf,"%d %d", TN, combination);
 	int status = sendCommand("SETSLOT",paramBuf);
 	if (status!=0) {
-		LOG(ALERT) << "SETSLOT failed with status " << status;
+		LOG(ALERT) << "SETSLOT("<<TN<<","<<combination<<") failed with status " << status;
 		return false;
 	}
 	return true;
@@ -544,7 +550,7 @@ bool ::ARFCNManager::setHandover(unsigned TN)
 	assert(TN<8);
 	int status = sendCommand("HANDOVER",TN);
 	if (status!=0) {
-		LOG(ALERT) << "HANDOVER failed with status " << status;
+		LOG(ALERT) << "HANDOVER("<<TN<<") failed with status " << status;
 		return false;
 	}
 	return true;
@@ -556,7 +562,7 @@ bool ::ARFCNManager::clearHandover(unsigned TN)
 	assert(TN<8);
 	int status = sendCommand("NOHANDOVER",TN);
 	if (status!=0) {
-		LOG(ALERT) << "NOHANDOVER failed with status " << status;
+		LOG(ALERT) << "NOHANDOVER("<<TN<<") failed with status " << status;
 		return false;
 	}
 	return true;

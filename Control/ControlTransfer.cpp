@@ -1,10 +1,10 @@
 /**@file Declarations for common-use control-layer functions. */
 /*
-* Copyright 2013 Range Networks, Inc.
+* Copyright 2013, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -14,15 +14,19 @@
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
+
 #define LOG_GROUP LogGroup::Control
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <Utils.h>
+#include <L3Enums.h>
+#include "Defines.h"
 #include "ControlTransfer.h"
-//#include "TransactionTable.h"
-#include "L3TranEntry.h"
-#include <GSMTransfer.h>
-#include <SIPDialog.h>
+#include "CodecSet.h"
 
 namespace Control {
+using namespace GSM;
 
 #define CASENAME(x) case x: return #x;
 const char *CodecType2Name(CodecType ct)
@@ -134,7 +138,7 @@ ostream& operator<<(ostream& os, CallState state)
 std::ostream& operator<<(std::ostream& os, const TMSI_t&tmsi)
 {
 	if (tmsi.valid()) {
-		char buf[10]; sprintf(buf,"0x%x",tmsi.value()); os <<buf;
+		char buf[10]; snprintf(buf,sizeof(buf),"0x%x",tmsi.value()); os <<buf;
 	} else {
 		os <<"(no tmsi)";
 	}
@@ -166,15 +170,6 @@ void FullMobileId::fmidSet(string value)
 	}
 }
 
-bool FullMobileId::fmidMatch(const GSM::L3MobileIdentity&mobileId) const
-{
-	switch (mobileId.type()) {
-	case GSM::IMSIType: return 0 == strcmp(mImsi.c_str(),mobileId.digits());
-	case GSM::IMEIType: return 0 == strcmp(mImei.c_str(),mobileId.digits());
-	case GSM::TMSIType: return mTmsi.valid() && mTmsi.value() == mobileId.TMSI();
-	default: return false;	// something wrong, but certainly no match
-	}
-}
 
 std::ostream& operator<<(std::ostream& os, const FullMobileId&msid)
 {
@@ -204,13 +199,27 @@ const char *GenericL3Msg::typeName()
 }
 #endif
 
-void controlInit()
+string BestNeighbor::text() const
 {
-	LOG(DEBUG);
-	gTMSITable.tmsiTabOpen(gConfig.getStr("Control.Reporting.TMSITable").c_str());
-	LOG(DEBUG);
-	gNewTransactionTable.ttInit();
-	LOG(DEBUG);
+	ostringstream ss;
+	if (!mValid) {
+		ss <<LOGVAR(mValid);
+	} else {
+		ss <<LOGVAR(mValid) <<LOGVAR(mARFCN) <<LOGVAR(mBSIC) <<LOGVAR(mRxlev) <<LOGVAR(mHandoverCause);
+	}
+	return ss.str();
 }
+
+string NeighborPenalty::text() const
+{
+	ostringstream ss;
+	ss << LOGVAR(mARFCN) <<LOGVAR(mBSIC) <<LOGVAR(mPenaltyTime.remaining());
+	return ss.str();
+};
+
+std::ostream& operator<<(std::ostream& os, BestNeighbor best) { os <<best.text(); return os; }
+std::ostream& operator<<(std::ostream& os, BestNeighbor *best) { os <<best->text(); return os; }
+std::ostream& operator<<(std::ostream& os, NeighborPenalty np) { os <<np.text(); return os; }
+std::ostream& operator<<(std::ostream& os, NeighborPenalty *np) { os <<np->text(); return os; }
 
 };

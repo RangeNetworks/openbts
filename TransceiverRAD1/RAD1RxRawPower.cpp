@@ -1,5 +1,6 @@
 /*
 * Copyright 2008, 2009 Free Software Foundation, Inc.
+* Copyright 2014 Range Networks, Inc.
 *
 * This software is distributed under the terms of the GNU Public License.
 * See the COPYING file in the main directory for details.
@@ -73,6 +74,12 @@ int main(int argc, char *argv[]) {
   }
   printf("Moving average = %d\n",movingAverage);
 
+  int numOfSamples = -1;
+  if (argc > 5) {
+    numOfSamples = atoi(argv[5]);
+  }
+  int currSampleNum = 0;
+
   bool underrun;
 
   usrp->updateAlignment(20000);
@@ -103,10 +110,19 @@ int main(int argc, char *argv[]) {
 		   sum = 0;
 		   num = 0;
 		}
+
+          if (numOfSamples > 0) {
+            if ((currSampleNum + 1) < numOfSamples) {
+              currSampleNum++;
+            } else {
+              return 0;
+            }
+          }
 	}
       }
       timestamp += rd;
     }
   }
 
+  return 0;
 }

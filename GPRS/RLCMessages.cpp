@@ -1,10 +1,9 @@
 /*
-* Copyright 2011 Range Networks, Inc.
-* All Rights Reserved.
+* Copyright 2011, 2014 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -15,6 +14,8 @@
 */
 
 /**@file GPRS L2 RLC Messages, from GSM 04.60 Section 11 */
+
+#define LOG_GROUP LogGroup::GPRS		// Can set Log.Level.GPRS for debugging
 
 //#include <iostream>
 #include "Defines.h"
@@ -153,7 +154,9 @@ void RLCMsgPowerControlParametersIE::setFrom(TBF *tbf)
 }
 
 
-/** GSM 04.60 11.2 */
+/** GSM 04.60 11.2
+ * Process/parse all uplink messages
+ * */
 RLCUplinkMessage* RLCUplinkMessageParse(RLCRawBlock *src)
 {
 	RLCUplinkMessage *result = NULL;

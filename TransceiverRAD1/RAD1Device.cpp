@@ -1,5 +1,6 @@
 /*
 * Copyright 2008, 2009, 2014 Free Software Foundation, Inc.
+* Copyright 2014 Range Networks, Inc.
 *
 * This software is distributed under the terms of the GNU Public License.
 * See the COPYING file in the main directory for details.
@@ -387,6 +388,7 @@ double RAD1Device::setRxGain(double dB) {
 
 
 // NOTE: Assumes sequential reads
+// (pat) The RSSI argument appears unused by anyone.
 int RAD1Device::readSamples(short *buf, int len, bool *overrun, 
 			    TIMESTAMP timestamp,
 			    bool *underrun,
@@ -406,11 +408,13 @@ int RAD1Device::readSamples(short *buf, int len, bool *overrun,
  
   uint32_t readBuf[20000];
  
+  // (pat) Step 1 is to read from USB into *data, which is a 2M*sizeof(short) buffer.
+  // The packet timestamp is used as an index into the data buffer so packets are arranged in order of increasing timestamp.
   while (1) {
     //guestimate USB read size
     int readLen=0;
     {
-      int numSamplesNeeded = timestamp + len - timeEnd;
+      int numSamplesNeeded = (int) (timestamp + (TIMESTAMP) len - timeEnd);
       if (numSamplesNeeded <=0) break;
       readLen = 512 * ((int) ceil((float) numSamplesNeeded/126.0));
       if (readLen > 8000) readLen= (8000/512)*512;
@@ -427,7 +431,8 @@ int RAD1Device::readSamples(short *buf, int len, bool *overrun,
       unsigned payloadSz = word0 & 0x1ff;
       LOG(DEBUG) << "first two bytes: " << hex << word0 << " " << dec << pktTimestamp;
 
-      bool incrementHi32 = ((lastPktTimestamp & 0x0ffffffffll) > pktTimestamp);
+      // (pat) FIXME I dont think this incremeintHi32 logic works...  SVGDBG look at this
+      bool incrementHi32 = ((lastPktTimestamp & 0x0ffffffffllu) > pktTimestamp);
       if (incrementHi32 && (timeStart!=0)) {
            LOG(DEBUG) << "high 32 increment!!!";
            hi32Timestamp++;
@@ -436,24 +441,29 @@ int RAD1Device::readSamples(short *buf, int len, bool *overrun,
       lastPktTimestamp = pktTimestamp;
 
       if (chan == 0x01f) {
-	// control reply, check to see if its ping reply
-        uint32_t word2 = usrp_to_host_u32(tmpBuf[2]);
-	if ((word2 >> 16) == ((0x01 << 8) | 0x02)) {
-          timestamp -= timestampOffset;
-	  timestampOffset = pktTimestamp - pingTimestamp + PINGOFFSET;
-	  LOG(DEBUG) << "updating timestamp offset to: " << timestampOffset;
-          timestamp += timestampOffset;
-	  isAligned = true;
-	}
-	continue;
+		// control reply, check to see if its ping reply
+			uint32_t word2 = usrp_to_host_u32(tmpBuf[2]);
+		if ((word2 >> 16) == ((0x01 << 8) | 0x02)) {
+			timestamp -= timestampOffset;
+			TIMESTAMP newTimestampOffset = pktTimestamp - pingTimestamp + PINGOFFSET;
+			if ((timestampOffset==0) || fabs((float) newTimestampOffset-(float) timestampOffset)/(float) timestampOffset < 0.1)
+				timestampOffset = newTimestampOffset;
+			else { // new offset is more than 10% from old one, then its bogus, so ignore it and keep going
+				LOG(ERR) << "Ignoring bad update of timestamp offset: " << newTimestampOffset << ", keeping offset at " << timestampOffset;
+			}
+			LOG(NOTICE) << "updating timestamp offset to: " << timestampOffset;
+			timestamp += timestampOffset;
+			isAligned = true;
+		}
+		continue;
       }
       if (chan != 0) {
-	LOG(DEBUG) << "chan: " << chan << ", timestamp: " << pktTimestamp << ", sz:" << payloadSz;
-	continue;
+    	  LOG(DEBUG) << "chan: " << chan << ", timestamp: " << pktTimestamp << ", sz:" << payloadSz;
+    	  continue;
       }
       if ((word0 >> 28) & 0x04) {
-	if (underrun) *underrun = true; 
-	LOG(DEBUG) << "UNDERRUN in TRX->USRP interface";
+    	  if (underrun) *underrun = true;
+    	  LOG(DEBUG) << "UNDERRUN in TRX->USRP interface";
       }
       if (RSSI) *RSSI = (word0 >> 21) & 0x3f;
       
@@ -461,18 +471,20 @@ int RAD1Device::readSamples(short *buf, int len, bool *overrun,
       
       unsigned cursorStart = pktTimestamp - timeStart + dataStart;
       while (cursorStart*2 > currDataSize) {
-	cursorStart -= currDataSize/2;
+    	  cursorStart -= currDataSize/2;
       }
       if (cursorStart*2 + payloadSz/2 > currDataSize) {
-	// need to circle around buffer
-	memcpy(data+cursorStart*2,tmpBuf+2,(currDataSize-cursorStart*2)*sizeof(short));
-	memcpy(data,tmpBuf+2+(currDataSize/2-cursorStart),payloadSz-(currDataSize-cursorStart*2)*sizeof(short));
+		// need to circle around buffer
+		// (pat) This is trickey. For a cicular copy using memcpy(a,b,c); memcpy(d,e,f); it is required that e==b+c,
+		// but it does because tmpBuf is (uint32_t*)
+		memcpy(data+cursorStart*2,tmpBuf+2,(currDataSize-cursorStart*2)*sizeof(short));
+		memcpy(data,tmpBuf+2+(currDataSize/2-cursorStart),payloadSz-(currDataSize-cursorStart*2)*sizeof(short));
       }
       else {
-	memcpy(data+cursorStart*2,tmpBuf+2,payloadSz);
+    	  memcpy(data+cursorStart*2,tmpBuf+2,payloadSz);
       }
       if (pktTimestamp + payloadSz/2/sizeof(short) > timeEnd) 
-	timeEnd = pktTimestamp+payloadSz/2/sizeof(short);
+    	  timeEnd = pktTimestamp+payloadSz/2/sizeof(short);
 
       //LOG(DEBUG) << "timeStart: " << timeStart << ", timeEnd: " << timeEnd << ", pktTimestamp: " << pktTimestamp;
 

@@ -1,10 +1,9 @@
 /*
 * Copyright 2011, 2014 Range Networks, Inc.
-* All Rights Reserved.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -13,6 +12,8 @@
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 */
+
+#define LOG_GROUP LogGroup::GPRS		// Can set Log.Level.GPRS for debugging
 
 #include "GPRSInternal.h"
 #include "TBF.h"
@@ -251,6 +252,7 @@ static CLIStatus gprsStop(int argc, char **argv, int argi, ostream&os)
 	return SUCCESS;
 }
 
+#if NO_LONGER_WORKING // (pat 2-2014) This code has eroded so I just disabled it.
 static CLIStatus gprsTestRach(int argc, char **argv, int argi, ostream&os)
 {
 	GSM::Time now = gBTS.time();
@@ -258,6 +260,7 @@ static CLIStatus gprsTestRach(int argc, char **argv, int argi, ostream&os)
 	GPRSProcessRACH(RA,now,-20,0.5);
 	return SUCCESS;
 }
+#endif
 
 extern "C" {
 	int gprs_llc_fcs(uint8_t *data, unsigned int len);
@@ -615,7 +618,7 @@ static struct GprsSubCmds {
 	{ "stop",gprsStop,	"stop [-c]  # stop gprs thread and if -c release channels" },
 	{ "step",gprsStep,	"step    # single step the MAC service loop (requires 'start step')." },
 	{ "set",gprsSet,	"set name [val]   # print and optionally set a variable - see source for names" },
-	{ "rach",gprsTestRach,	"rach   # Simulate a RACH, which starts gprs service" },
+	//{ "rach",gprsTestRach,	"rach   # Simulate a RACH, which starts gprs service" },
 	{ "testmsg",gprsTestMsg,	"testmsg   # Test message functions" },
 	{ "testbsn",gprsTestBSN,	"testbsn   # Test bsn<->frame number functions" },
 #if INTERNAL_SGSN==0

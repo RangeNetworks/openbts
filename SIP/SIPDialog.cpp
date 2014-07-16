@@ -3,7 +3,7 @@
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -22,15 +22,549 @@
 #include "SIPDialog.h"
 #include "SIP2Interface.h"
 #include "SIPTransaction.h"
-//#include <ControlTransfer.h>
+#include <Reporting.h>	// For gReports.
 #include <L3TranEntry.h>
+#include <L3TermCause.h>
 #include <L3StateMachine.h>
 #include <GSML3MMElements.h>	// for L3CMServiceType
+#include "config.h"		// For VERSION
+#include <GSML3CCElements.h>	// for L3Cause
 #include <algorithm>
 
 namespace SIP {
 using namespace Control;
 SipDialog *gRegisterDialog = NULL;
+
+// Only the SipMTInviteServerTransactionLayer and SipMOInviteClientTransactionLayer are allowed to call
+// the underlying sipWrite method directly for the invite transactions.
+void SipDialogBase::sipWrite(SipMessage *sipmsg)
+{
+	if (!mProxy.mipValid) {
+		LOG(ERR) << "Attempt to write to invalid proxy ignored, address:"<<mProxy.mipName;
+		return;
+	}
+	gSipInterface.siWrite(&mProxy.mipSockAddr,sipmsg);
+}
+
+SipDialog *SipDialogBase::dgGetDialog()
+{
+	return dynamic_cast<SipDialog*>(this);
+}
+
+SipState SipDialogBase::MODSendCANCEL(TermCause cause)
+{
+	LOG(INFO) << "SIP term info MODSendCANCEL cause: " << cause;
+	LOG(INFO) << sbText();
+	setSipState(MODCanceling);  // (pat) MOD sent a cancel.
+	SipMOCancelTU *cancelTU = new SipMOCancelTU(dynamic_cast<SipDialog*>(this),cause.tcGetSipReasonHeader());
+	//cancelTU->mstOutRequest.addCallTerminationReasonSM(CallTerminationCause::eQ850, cause.tcGetCCCause(), ""); // MODSendCANCEL
+	cancelTU->sctStart();
+	return getSipState(); 
+}
+
+void SipDialogBase::initRTP()
+{
+	SdpInfo sdp;
+	sdp.sdpParse(getSdpRemote().c_str());
+	initRTP1(sdp.sdpHost.c_str(),sdp.sdpRtpPort,mDialogId);
+}
+
+
+string SipDialogBase::makeSDPOffer()
+{
+	SdpInfo sdp;
+	sdp.sdpInitOffer(this);
+	return sdp.sdpValue();
+	//return makeSDP("0","0");
+}
+
+// mCodec is an implicit parameter, consisting of the chosen codec.
+string SipDialogBase::makeSDPAnswer()
+{
+	SdpInfo answer;
+	answer.sdpInitOffer(this);
+	mSdpAnswer = answer.sdpValue();
+	return mSdpAnswer;
+}
+
+void SipDialogBase::MTCInitRTP()
+{
+	initRTP();
+}
+
+void SipDialogBase::MOCInitRTP()
+{
+	initRTP();
+}
+
+
+void SipDialogBase::sdbText(std::ostringstream&os, bool verbose) const
+{
+	sbText(os);
+
+	if (verbose || IS_LOG_LEVEL(DEBUG)) {
+		rtpText(os);
+		//os << "proxy=(" << mProxy.ipToText() << ")";
+	}
+}
+
+string SipDialogBase::sdbText() const
+{
+	std::ostringstream ss;
+	sdbText(ss);
+	return ss.str();
+}
+
+void SipMOInviteClientTransactionLayer::MOUssdSendINVITE(string ussd, const L3LogicalChannel *chan)
+{
+	static const char* xmlUssdTemplate = 
+		"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+		"<ussd-data>\n"
+		" <language>en</language>\n"
+		" <ussd-string>%s</ussd-string>\n"
+		"</ussd-data>\n";
+
+	LOG(INFO) << "user " << sipLocalUsername() << " state " << getSipState() <<sdbText();
+
+	static const string cInviteStr("INVITE");
+	SipMessage *invite = makeInitialRequest(cInviteStr);
+	// This is dumber than snot.  We have to put in a dummy sdp with port 0.
+	mRTPPort = 0;
+	invite->smAddBody(string("application/sdp"),makeSDPOffer());
+
+	// Add RFC-4119 geolocation XML to content area, if available.
+	// TODO: This makes it a multipart message, needs to be tested.
+	string xml = format(xmlUssdTemplate,ussd);
+	invite->smAddBody(string("application/vnd.3gpp.ussd+xml"),xml);
+
+	SipCallbacks::writePrivateHeaders(invite,chan);
+	moWriteLowSide(invite);
+	LOG(DEBUG) <<LOGVAR(invite);
+	delete invite;
+	setSipState(Starting);
+}
+
+//old args: const char * calledUser, const char * calledDomain, short rtpPort, Control::CodecSet codec,
+void SipMOInviteClientTransactionLayer::MOCSendINVITE(const L3LogicalChannel *chan)
+{
+	static const char* xmlGeoprivTemplate = 
+		"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+		 "<presence xmlns=\"urn:ietf:params:xml:ns:pidf\"\n"
+			"xmlns:gp=\"urn:ietf:params:xml:ns:pidf:geopriv10\"\n"
+			"xmlns:gml=\"urn:opengis:specification:gml:schema-xsd:feature:v3.0\"\n"
+			"entity=\"pres:%s@%s\">\n"
+		  "<tuple id=\"1\">\n"
+		   "<status>\n"
+			"<gp:geopriv>\n"
+			 "<gp:location-info>\n"
+			  "<gml:location>\n"
+			   "<gml:Point gml:id=\"point1\" srsName=\"epsg:4326\">\n"
+				"<gml:coordinates>%s</gml:coordinates>\n"
+			   "</gml:Point>\n"
+			  "</gml:location>\n"
+			 "</gp:location-info>\n"
+			 "<gp:usage-rules>\n"
+			  "<gp:retransmission-allowed>no</gp:retransmission-allowed>\n"
+			 "</gp:usage-rules>\n"
+			"</gp:geopriv>\n"
+		   "</status>\n"
+		  "</tuple>\n"
+		 "</presence>\n";
+
+	LOG(INFO) << "user " << sipLocalUsername() << " state " << getSipState() <<sdbText();
+#if PAT_TEST_SIP_DIRECT
+	// (pat 7-23-2013): This code has eroded beyond recoverability...
+	//bool directBtsConnection = false;
+	// exten => _X.,1,Set(Name=${ODBC_SQL(select dial from dialdata_table where exten=\"${EXTEN}\")})
+	// exten => _X.,n,GotoIf($["${Name}"=""] ?other-lines,${EXTEN},1)
+	// exten => _X.,n,Set(IPAddr=${ODBC_SQL(select ipaddr from sip_buddies where username=\"${Name}\")})
+	// exten => _X.,n,GotoIf($["${IPAddr}"=""] ?other-lines,${EXTEN},1)
+	// exten => _X.,n,Set(Port=${ODBC_SQL(select port from sip_buddies where username=\"${Name}\")})
+	// exten => _X.,n,GotoIf($["${Port}"!=""] ?dialNum)
+	// exten => _X.,n,Set(Port=5062) ; Port was not set, so set to default. Gets around bug in subscriberRegistry
+	// exten => _X.,n(dialNum),Dial(SIP/${Name}@${IPAddr}:${Port})
+	if (gConfig.getStr("SIP.Proxy.Mode") == string("direct")) {
+		// Is this IMSI registered directly on a BTS?
+		string remoteIMSI = gSubscriberRegistry.getIMSI(wCalledUsername);
+		string remoteIPStr, remotePortStr;
+		if (remoteIMSI != "") {
+			remoteIPStr = gSubscriberRegistry.imsiGet(remoteIMSI,"ipaddr");
+			remotePortStr = gSubscriberRegistry.imsiGet(remoteIMSI,"port");
+			unsigned remotePort = (remotePortStr != "") ? atoi(remotePortStr.c_str()) : 0;
+			LOG(DEBUG) << "BTS direct test: "<<wCalledUsername
+					<< format(" -> SIP/%s@%s:%s",remoteIMSI.c_str(),remoteIPStr.c_str(),remotePortStr.c_str()) <<sdbText();
+			if (remoteIPStr != "" && remotePort) {
+				//directBTSConnection = true;
+				mRemoteUsername = remoteIMSI;
+				mProxyIP = remoteIPStr;
+				mProxyPort = remotePort;
+				LOG(INFO) << "Calling BTS direct: "<<wCalledUsername
+					<< format(" -> SIP/%s@%s:%u",mRemoteUsername.c_str(),mProxyIP.c_str(),mProxyPort) <<sdbText();
+			}
+		}
+	}
+	//mRemoteUsername = "IMSI001690000000002";	// pats iphone
+#endif
+	
+	LOG(DEBUG) <<sdbText();
+
+	static const string cInviteStr("INVITE");
+	SipMessage *invite = makeInitialRequest(cInviteStr);
+	invite->smAddBody(string("application/sdp"),makeSDPOffer());
+
+
+	string username = sipLocalUsername();
+	WATCH("MOC imsi="<<username);
+
+	if (this->dsPAssociatedUri.size()) {
+		invite->smAddHeader("P-Associated-URI",this->dsPAssociatedUri);
+	}
+	if (this->dsPAssertedIdentity.size()) {
+		invite->smAddHeader("P-Asserted-Identity",this->dsPAssertedIdentity);
+	}
+
+	SipCallbacks::writePrivateHeaders(invite,chan);
+	moWriteLowSide(invite);
+	delete invite;
+	setSipState(Starting);
+};
+
+
+void SipMOInviteClientTransactionLayer::handleSMSResponse(SipMessage *sipmsg)
+{
+	// There are only three cases, and here they are:
+	stopTimers();
+	int code = sipmsg->smGetCode();
+	if (code < 200) {
+		// (pat) 11-26 This was wrong: mTimerBF.set(64*T1);
+		return;		// Ignore 100 Trying.
+	}
+
+	dialogPushState((code/100)*100 == 200 ? Cleared : SSFail,code);
+	mTimerK.setOnce(T4);	// 17.1.2.2: Timer K Controls when the dialog is destroyed.
+}
+
+void SipInviteServerTransactionLayerBase::SipMTCancel(SipMessage *sipmsg)
+{
+	assert(sipmsg->isCANCEL());
+	SipMessageReply cancelok(sipmsg,200,string("OK"),this);
+	sipWrite(&cancelok);
+	if (dsPeer()->ipIsReliableTransport()) {
+		// It no longer matters whether we use Canceled or MTDCanceling state, and we should get rid of some states.
+		dialogPushState(Canceled,0);
+	} else {
+		dialogPushState(MTDCanceling,0);
+		setTimerJ();
+	}
+}
+
+void SipInviteServerTransactionLayerBase::SipMTBye(SipMessage *sipmsg)
+{
+	assert(sipmsg->isBYE());
+	gReports.incr("OpenBTS.SIP.BYE.In");
+	SipMessageReply byeok(sipmsg,200,string("OK"),this);
+	sipWrite(&byeok);
+	if (dsPeer()->ipIsReliableTransport()) {
+		dialogPushState(Cleared,0);
+	} else {
+		dialogPushState(MTDClearing,0);
+		setTimerJ();
+	}
+}
+
+// Incoming message from SIPInterface.
+void SipMOInviteClientTransactionLayer::MOWriteHighSide(SipMessage *sipmsg)
+{
+	int code = sipmsg->smGetCode();
+	LOG(DEBUG) <<LOGVAR(code) <<LOGVAR(dgIsInvite());
+	if (code == 0) {	// It is a SIP Request.  Switch based on the method.
+		if (sipmsg->isCANCEL()) {
+			mTimerBF.stop();
+			// I dont think the peer is supposed to do this, but lets cancel it:
+			SipMTCancel(sipmsg);
+		} else if (sipmsg->isBYE()) {
+			// A BYE should not be sent by the peer until dialog established, and we are supposed to send 405 error.
+			// but instead we are going to quietly terminate the dialog anyway.
+			SipMTBye(sipmsg);
+		} else {
+			// Not expecting any others.
+			// Must send 405 error.
+			LOG(WARNING)<<"SIP Message ignored:"<<sipmsg;
+			SipMessageReply oops(sipmsg,405,string("Method Not Allowed"),this);
+			sipWrite(&oops);
+		}
+	} else {		// It is a SIP reply.
+		saveMOResponse(sipmsg);	LOG(DEBUG)<<"saveResponse"<<sipmsg;
+		if (dgIsInvite()) {	// It is INVITE
+			stopTimers();	// Yes we stop the timers for every possible case.  TimerBF will be restarted when handleInviteResponse sends the reply.
+			handleInviteResponse(code,true);
+		} else {	// It is a MESSAGE
+			handleSMSResponse(sipmsg);
+		}
+	}
+}
+
+// Outgoing message.
+void SipMOInviteClientTransactionLayer::moWriteLowSide(SipMessage *sipmsg)
+{
+	if (sipmsg->isINVITE() || sipmsg->isMESSAGE()) {	// It cant be anything else.
+		if (!dsPeer()->ipIsReliableTransport()) { mTimerAE.set(2*T1); }
+		mTimerBF.setOnce(64*T1);	// RFC3261 17.1.2.2.2  Timer F
+		// This assert is not true in the weird case where we resend an SMS message.
+		// We should not be using this code for MESSAGE in the first place - it should be a TU.
+		//assert(mInvite == 0);
+		saveInviteOrMessage(sipmsg,true);
+	}
+	sipWrite(sipmsg);
+}
+
+// (pat) Counter-intuitively, the "ACK" is a SIP Request, not a SIP Response.
+// Therefore its first line includes a Request-URI, and the request-uri is also placed in the "To" field.
+// RFC2234 13.1: "The procedure for sending this ACK depends on the type of response.
+// 		For final responses between 300 and 699, the ACK processing is done in the transaction layer and follows
+//		one set of rules (See Section 17).  For 2xx responses, the ACK is generated by the UAC core. (section 13)"
+// 17.1.1.3: "The ACK request constructed by the client transaction MUST contain
+//		values for the Call-ID, From, and Request-URI that are equal to the
+//		values of those header fields in the request passed to the transport
+//		by the client transaction (call this the "original request").  The To
+//		header field in the ACK MUST equal the To header field in the
+//		response being acknowledged, and therefore will usually differ from
+//		the To header field in the original request by the addition of the
+//		tag parameter.  The ACK MUST contain a single Via header field, and
+//		this MUST be equal to the top Via header field of the original
+//		request.  The CSeq header field in the ACK MUST contain the same
+//		value for the sequence number as was present in the original request,
+//		but the method parameter MUST be equal to "ACK".
+//
+void SipMOInviteClientTransactionLayer::MOCSendACK()
+{
+	assert(! mTimerAE.isActive() && ! mTimerBF.isActive());
+	LOG(INFO) << sdbText();
+	//LOG(INFO) << "user " << mSipUsername << " state " << getSipState() <<sdbText();
+
+	static const string cAckstr("ACK");
+	SipMessageAckOrCancel ack(cAckstr,mInvite);
+	ack.msmTo = *dsRequestToHeader();		// Must get the updated to-tag.
+	sipWrite(&ack);
+	// we dont care mTimerD.set(T4);
+}
+
+void SipMOInviteClientTransactionLayer::MOSMSSendMESSAGE(const string &messageText, const string &contentType)
+{
+	LOG(INFO) << "SIP send to " << dsRequestToHeader() <<" MESSAGE " << messageText <<sdbText();
+	assert(mDialogType == SIPDTMOSMS);
+	gReports.incr("OpenBTS.SIP.MESSAGE.Out");
+	
+	static const string cMessagestr("MESSAGE");
+	SipMessage *msg = makeInitialRequest(cMessagestr);
+	msg->smAddBody(contentType,messageText);
+	moWriteLowSide(msg);
+	delete msg;
+	setSipState(MOSMSSubmit);
+}
+
+
+// Return TRUE to remove the dialog.
+bool SipMOInviteClientTransactionLayer::moPeriodicService()
+{
+	if (mTimerAE.expired()) {	// Resend timer.
+		// The HANDOVER is inbound, but the invite is outbound like MOC.
+		if (getSipState() == Starting || getSipState() == HandoverInbound || getSipState() == MOSMSSubmit) {
+			sipWrite(getInvite());
+			mTimerAE.setDouble();
+		} else {
+			mTimerAE.stop();
+		}
+	} else if (mTimerBF.expired() || mTimerD.expired()) {	// Dialog killer timer.
+		// Whoops.  No response from peer.
+		stopTimers();
+		dialogPushState(SSFail,0);
+		return true;
+	} else if (mTimerK.expired()) {		// Normal exit delay to absorb resends.
+		stopTimers();
+		if (! dgIsInvite()) { return true; }	// It is a SIP MESSAGE.
+	} else if (sipIsFinished()) {
+		// If one of the kill timers is active, wait for it to expire, otherwise kill now.
+		return (mTimerBF.isActive() || mTimerD.isActive() || mTimerK.isActive()) ? false : true;
+	}
+	return false;
+}
+
+string SipMOInviteClientTransactionLayer::motlText() const
+{
+	ostringstream os;
+	os <<LOGVAR2("Timers: AE",mTimerAE) <<LOGVAR2("BF",mTimerBF) <<LOGVAR2("K",mTimerK) <<LOGVAR2("D",mTimerD);
+	return os.str();
+}
+
+void SipMTInviteServerTransactionLayer::MTCSendTrying()
+{
+	SipMessage *invite = getInvite();
+	if (invite==NULL) {
+		setSipState(SSFail);
+		gReports.incr("OpenBTS.SIP.Failed.Local");
+	}
+	LOG(INFO) << sdbText();
+	if (getSipState()==SSFail) return;
+	SipMessageReply trying(invite,100,string("Trying"),this);
+	mtWriteLowSide(&trying);
+	setSipState(Proceeding);
+}
+
+void SipMTInviteServerTransactionLayer::MTSMSSendTrying()
+{
+	MTCSendTrying();
+}
+
+
+void SipMTInviteServerTransactionLayer::MTCSendRinging()
+{
+	if (getSipState()==SSFail) return;
+	SipMessage *invite = getInvite();
+	LOG(INFO) <<sdbText();
+	assert(invite);
+	LOG(DEBUG) << "send ringing" <<sdbText();
+	SipMessageReply ringing(invite,180,string("Ringing"),this);
+	mtWriteLowSide(&ringing);
+	setSipState(Proceeding);
+}
+
+void SipMTInviteServerTransactionLayer::MTCSendOK(CodecSet wCodec, const L3LogicalChannel *chan)
+{
+	if (getSipState()==SSFail) { devassert(0); }
+	SipMessage *invite = getInvite();
+	gReports.incr("OpenBTS.SIP.INVITE-OK.Out");
+	mRTPPort = allocateRTPPorts();
+	mCodec = wCodec;
+	LOG(INFO) <<sdbText();
+	SipMessageReply ok(invite,200,string("OK"),this);
+	ok.smAddBody(string("application/sdp"),makeSDPAnswer());	// TODO: This should be a reply to the originating SDP offer.
+	// (pat) Chan is NULL when in a weird special handled in dialogCancel.
+	if (chan) SipCallbacks::writePrivateHeaders(&ok,chan);
+	mtWriteLowSide(&ok);
+	setSipState(Connecting);
+	// In RFC-3261 the Transaction Layer no longer handles timers after the OK is sent.
+	// The Transport Layer alone is not capabable of sending the 200 OK reliably because then the
+	// INVITE server transaction ends, and the INVITE client transaction no longer resends INVITEs after
+	// receiving a provisional response.  Rather, the way that would end up being handled is by starting a new
+	// INVITE transaction, which is totally not what we want to do.  So we will push out the 2xx OK
+	// until we get the ACK.  Doesnt matter for reliable transports.
+	if (dgIsInvite()) { setTimerG(); }
+	setTimerH();
+}
+
+string SipMTInviteServerTransactionLayer::mttlText() const
+{
+	ostringstream ss;
+	ss << LOGVAR2("Timers: G",mTimerG) <<LOGVAR2("H",mTimerH) <<LOGVAR2("J",mTimerJ);
+	return ss.str();
+}
+
+// Doesnt seem like messages need the private headers.
+void SipMTInviteServerTransactionLayer::MTSMSReply(int code, const char *explanation) // , const L3LogicalChannel *chan)
+{
+	LOG(INFO) <<sdbText();
+	// If this operation was initiated from the CLI, there was no MESSAGE
+	if (mInvite) {	// It is a MESSAGE in this case, not an INVITE
+		//2-2014: the reply to MESSAGE must include the to-field, so we pass the dialog to SIpMessageReply
+		SipMessageReply reply(mInvite,code,string(explanation),this);			// previous: NULL);
+		sipWrite(&reply);
+	} else {
+		LOG(INFO) << "clearing CLI-generated transaction" <<sdbText();
+	}
+	setSipState(code == 200 ? Cleared : SSFail);
+}
+
+// This can only be used for early errors before we get the ACK.
+void SipMTInviteServerTransactionLayer::MTCEarlyError(TermCause cause)	// The message must be 300-699.
+{
+	LOG(DEBUG) << LOGVAR(cause);
+	string reason;
+	int sipcode = cause.tcGetSipCodeAndReason(reason);
+	devassert(sipcode);
+	// Double check cause validity.
+	if (sipcode == 0) { // This should never happen; this is just a last resort in case of bugs.
+		sipcode = 486; reason = "No_User_Responding";
+	}
+	// TODO: What if we were already ACKed?
+	setSipState(MODError);
+	SipMessageReply reply(getInvite(),sipcode,reason,this); // The message must be 300-699.
+	reply.msmReasonHeader = cause.tcGetSipReasonHeader();		// Returns a SIP "Reason:" header string.
+	mtWriteLowSide(&reply);
+	if (dgIsInvite()) { setTimerG(); }
+	setTimerH();
+}
+
+// This is called for the second and subsequent received INVITEs as well as the ACK.
+// We send the current response, whatever it is.
+void SipMTInviteServerTransactionLayer::MTWriteHighSide(SipMessage *sipmsg) {	// Incoming message from SIPInterface.
+	LOG(DEBUG);
+	SipState state = getSipState();
+	if (sipmsg->smGetCode() == 0) {
+		if (sipmsg->isINVITE()) {
+			if (mtLastResponse.smIsEmpty()) { MTCSendTrying(); }
+			else { sipWrite(&mtLastResponse); }
+		} else if (sipmsg->isACK()) {
+			if (state == SSNullState || state == Proceeding || state == Connecting) {
+				dialogPushState(Active,0);
+				gSipInterface.dmAddLocalTag(dgGetDialog());
+			} else {
+				// We could be failed or canceled, so ignore the ACK.
+			}
+			stopTimers();	// happiness
+			// The spec shows a short Timer I being started here, but all it does is specify a time
+			// when the dialog will stop absorbing additional ACKS, thus suppressing error messages.
+			// Well, how about if we just never throw an error for that?  Done.
+		} else if (sipmsg->isCANCEL()) {
+			SipMTCancel(sipmsg);
+		} else if (sipmsg->isBYE()) {		// TODO: This should not happen.
+			SipMTBye(sipmsg);
+		} else if (sipmsg->isMESSAGE()) {
+			// It is a duplicate MESSAGE.  Resend the current response.
+			if (mtLastResponse.smIsEmpty()) {
+				if (! gConfig.getBool("SIP.RFC3428.NoTrying")) { MTSMSSendTrying(); }	// Otherwise just ignore the duplicate MESSAGE.
+			} else {
+				sipWrite(&mtLastResponse);
+			}
+		} else {
+			// Not expecting any others.  Must send 405 error.
+			LOG(WARNING)<<"SIP Message ignored:"<<sipmsg;
+			SipMessageReply oops(sipmsg,405,string("Method Not Allowed"),this);
+			sipWrite(&oops);
+		}
+	} else {
+		LOG(WARNING)<<"SIP Message ignored:"<<sipmsg;
+	}
+}
+
+// Return TRUE to remove the dialog.
+bool SipMTInviteServerTransactionLayer::mtPeriodicService()
+{
+	if (mTimerG.expired()) {	// Resend timer.
+		if (getSipState() == SSFail || getSipState() == Active) {
+			sipWrite(mLastResponse);
+			mTimerG.setDouble(T2);	// Will send again later.
+		} else {
+			// This could happen if a CANCEL started before the ACK was received.
+			// Not sure what to do - I think we will let the CANCEL take precedence, so stop sending this response.
+			mTimerG.stop();
+		}
+	} else if (mTimerJ.expired() || mTimerH.expired()) {	// Dialog killer timers.
+		stopTimers();	// probably redundant.
+		// Time to destroy the Dialog.
+		if (dgIsInvite()) {
+			// Whoops.  No ACK received.  Notify L3 and remove the dialog
+			dialogPushState(SSFail,0);
+		} else {
+			// No need to notify, just remove the dialog.
+		}
+		return true; // Stop the dialog now.  It will be deleted by the periodic service loop after the associated L3 transaction ends.
+	} else if (sipIsFinished()) {
+		// If one of the kill timers is active, wait for it to expire, otherwise kill now.
+		return (mTimerJ.isActive() || mTimerH.isActive()) ? false : true;
+	}
+	return false;
+}
 
 SipDialog *getRegistrar()
 {
@@ -43,6 +577,66 @@ SipDialog *getRegistrar()
 	return gRegisterDialog;
 }
 
+
+// We wrap our REGISTER messages inside a dialog object, even though it is technically not a dialog.
+SipMessage *SipDialog::makeRegisterMsg(DialogType wMethod, const L3LogicalChannel* chan, string RAND, const FullMobileId &msid, const char *SRES)
+{
+	// TODO: We need to make a transaction here...
+	static const string registerStr("REGISTER");
+	// The request URI is special for REGISTER;
+	string reqUri = string("sip:") + proxyIP();
+	// We formerly allocated a new Dialog for each REGISTER message so the IMSI was stashed in the dialog, and localSipUri() worked.
+	//SipPreposition myUri(localSipUri());
+	string username = msid.fmidUsername();
+	// RFC3261 is somewhat contradictory on the From-tag and To-tag.
+	// The documentation for 'from' says the from-tag is always included.
+	// The examples in 24.1 show a From-tag but no To-tag.
+	// The To-tag includes the optional <>, and Paul at null team incorrectly thought the <> were required,
+	// so we will include them as that appears to be common practice.
+
+	string myUriString;
+	string authUri;
+	string authUsername;
+	string realm = gConfig.getStr("SIP.Realm");
+	if (realm.length() > 0) {
+		authUri = string("sip:") + realm;
+		authUsername = string("IMSI") + msid.mImsi;
+		myUriString = makeUri(username,realm,0);
+	} else {
+		myUriString = makeUri(username,dsPeer()->mipName,0);	// The port, if any, is already in mipName.
+	}
+
+	//string fromUriString = makeUriWithTag(username,dsPeer()->mipName,make_tag());	// The port, if any, is already in mipName.
+	SipPreposition toHeader("",myUriString,"");
+	SipPreposition fromHeader("",myUriString,make_tag());
+	dsNextCSeq();	// Advance CSeqNum.
+	SipMessage *msg = makeRequest(registerStr,reqUri,username,&toHeader,&fromHeader,make_branch());
+
+	// Replace the Contact header so we can set the expires option.  What a botched up spec.
+	// Replace the P-Preferred-Identity
+	unsigned expires;
+	if (wMethod == SIPDTRegister ) {
+		expires = 60*gConfig.getNum("SIP.RegistrationPeriod");
+		if (SRES && strlen(SRES)) {
+			if (realm.length() > 0) {
+				string response = makeResponse(authUsername, realm, SRES, registerStr, authUri, RAND);
+				msg->msmAuthorizationValue = format("Digest realm=\"%s\", username=\"%s\", nonce=\"%s\", uri=\"%s\", response=\"%s\", algorithm=MD5, qop=\"auth\" ",
+					realm.c_str(), authUsername.c_str(), RAND.c_str(), authUri.c_str(), response.c_str());
+			} else {
+				msg->msmAuthorizationValue = format("Digest, nonce=%s, uri=%s, response=%s",RAND.c_str(),msid.mImsi.c_str(),SRES);
+			}
+		}
+	} else if (wMethod == SIPDTUnregister ) {
+		expires = 0;
+	} else { assert(0); }
+	// We use myURI instead of localContact because the SIPDialog for REGISTER is shared by all REGISTER
+	// users and does not contain the personal info for this user.
+	//msg->msmContactValue = format("<%s>;expires=%u",myUriString.c_str(),expires);
+	msg->msmContactValue = localContact(username,expires);
+	SipCallbacks::writePrivateHeaders(msg,chan);
+	return msg;
+}
+
 void SipDialog::dgReset()
 {
 	mPrevDialogState = DialogState::dialogUndefined; sipStopTimers();
@@ -50,12 +644,14 @@ void SipDialog::dgReset()
 }
 
 
-void SipDialog::MODSendBYE()
+void SipDialog::MODSendBYE(TermCause cause)
 {
-	LOG(INFO) <<sbText();
+	LOG(INFO) <<sdbText();
+	LOG(INFO) << "SIP term info MODSendBYE cause: " << cause; // SVGDBG
 
 	setSipState(MODClearing);
-	SipMOByeTU *byeTU = new SipMOByeTU(this);
+	SipMOByeTU *byeTU = new SipMOByeTU(this,cause.tcGetSipReasonHeader());
+	//byeTU->mstOutRequest.addCallTerminationReasonSM(CallTerminationCause::eQ850, cause.tcGetCCCause(), ""); // MODSendBYE
 	byeTU->sctStart();
 }
 
@@ -123,15 +719,9 @@ SipDialog *SipDialog::newSipDialogMOSMS(
 	LOG(DEBUG) <<LOGVAR(fromMsId)<<LOGVAR2("called",calledDigits); //<<LOGVAR2("tranid",wTranId);
 	// This is weird - use the local IP address as the domain of the remote user?
 	SipDialog *dialog = new SipDialog(SIPDTMOSMS,gConfig.getStr("SIP.Proxy.SMS"),"SIP.Proxy.SMS");
-	dialog->dsSetLocalMO(fromMsId,gPeerIsBuggySmqueue ? true : false);
+	dialog->dsSetLocalMO(fromMsId, true);
 	string calledDomain = dialog->localIP();
-	if (gConfig.getStr("SIP.Realm").length() > 0) {
-		string tmpURI = makeUri(calledDigits,calledDomain);
-		tmpURI.erase(std::remove(tmpURI.begin(), tmpURI.end(), '+'), tmpURI.end());
-		dialog->dsSetRemoteUri(tmpURI);
-	} else {
-		dialog->dsSetRemoteUri(makeUri(calledDigits,calledDomain));
-	}
+	dialog->dsSetRemoteUri(makeUri(calledDigits,calledDomain));
 	dialog->smsBody = body;				// Temporary until smqueue is fixed.
 	dialog->smsContentType = contentType;		// Temporary until smqueue is fixed.
 
@@ -143,6 +733,32 @@ SipDialog *SipDialog::newSipDialogMOSMS(
 	gNewTransactionTable.ttSetDialog(tranid,dialog);		// Must do this before the dialog receives any messages.
 	dialog->MOSMSSendMESSAGE(body,contentType);
 	return dialog;
+}
+
+
+// SIP-URI          =  "sip:" [ userinfo ] hostport
+// userinfo         =  ( user / telephone-subscriber ) [ ":" password ] "@"
+// user             =  1*( unreserved / escaped / user-unreserved )
+// unreserved  =  alphanum / mark
+// mark        =  "-" / "_" / "." / "!" / "~" / "*" / "'" / "(" / ")"
+// escaped     =  "%" HEXDIG HEXDIG
+// user-unreserved  =  "&" / "=" / "+" / "$" / "," / ";" / "?" / "/"
+// Any other character needs to be escaped.  RFC 2396.
+//
+// In general, URI encoding (RFC2396) is kind of complicated - for example, we need a-priori knowledge if ";" in the string is
+// marking a URI parameter, in which case it needs to be left alone, or if it is part of the URI component, in which case it must be escaped.
+// RFC3267 talks about URBNF the URI string may contain:
+// This handles the USSD special case.  A USSD request can contain only digits, letters * and #,
+// and of these the only special one is "#" turns into "%23".
+string escapeUssdUri(string ss)
+{
+	size_t pos = 0;
+	while (1) {
+		pos = ss.find(pos,'#');
+		if (pos == string::npos) return ss;
+		ss.replace(pos,1,"%23");	// it is ok not to advance pos because replacement "%23" does not include search "#".
+	}
+	return ss;
 }
 
 SipDialog *SipDialog::newSipDialogMOUssd(
@@ -175,7 +791,19 @@ SipDialog *SipDialog::newSipDialogMOUssd(
 		dialog->dialogQueueMessage(dmsg);
 		return dialog;
 	}
-	dialog->dsSetRemoteUri(makeUri(wUssd,dialog->localIP()));
+
+	// Yes, you really do put the USSD request in the To: of the SIP as per 3GPP 24.090 Appendix A, but we need to
+	// escape the "#" character.  We also add a "dialstring" tag.
+	// Like this: INVITE sip:*135%23;phone-context=home1.net;user=dialstring SIP/2.0
+	// The obvious way to pass a USSD string is as a "tel:" domain, but evidently that was too easy, so we
+	// must add the user=dialstring tag as per RFC 4967, and then THAT requires a "context" as per RFC3966 because
+	// this is not a "global" tel number, and therefore by definition it must be a "local" tel number, which requires
+	// a context, but we learn from RFC 4967 that we can stick in anything we want for the context, since it is meaningless
+	// when used for a USSD string.  This spec is not exactly an "A-team" effort.
+
+	string ussdEscaped = escapeUssdUri(wUssd);
+	string ussdPerSpec = ussdEscaped + ";phone-context=irrelevant.net;user=dialstring";
+	dialog->dsSetRemoteUri(makeUri(ussdPerSpec,dialog->localIP()));
 	// TODO: What about codecs?  The example in 24.390 annex A has them.
 
 	gSipInterface.dmAddCallDialog(dialog);
@@ -194,15 +822,9 @@ SipDialog *SipDialog::newSipDialogMOC(
 	)
 {
 
-#ifdef C_CRELEASE
-	LOG(DEBUG) << "MOC SIP (INVITE)"<<LOGVAR(fromMsId)<<LOGVAR2("called",wCalledDigits) <<LOGVAR(isEmergency);
-	// TODO: The SIPEngine constructor calls sipSetUser.  FIX IT.  Maybe I just need to replace SIPEngine.
-	const char *proxyOption = isEmergency ? "SIP.Proxy.Emergency" : "SIP.Proxy.Speech";
-#else
 	LOG(DEBUG) << "MOC SIP (INVITE)"<<LOGVAR(fromMsId)<<LOGVAR2("called",wCalledDigits);
 	// TODO: The SIPEngine constructor calls sipSetUser.  FIX IT.  Maybe I just need to replace SIPEngine.
 	const char *proxyOption = "SIP.Proxy.Speech";
-#endif
 
 	string proxy = gConfig.getStr(proxyOption);
 	LOG(DEBUG) << LOGVAR(proxyOption) <<LOGVAR(proxy);
@@ -216,6 +838,18 @@ SipDialog *SipDialog::newSipDialogMOC(
 	{
 		gReports.incr("OpenBTS.SIP.INVITE.Out");
 		dialog->dsSetRemoteUri(makeUri(wCalledDigits,dialog->localIP()));
+	}
+
+	string username = fromMsId.fmidUsername();
+	if (username.length()) {
+		devassert(username.substr(0,4) == "IMSI");
+		string pAssociatedUri, pAssertedIdentity;
+		gTMSITable.getSipIdentities(username.substr(4),pAssociatedUri,pAssertedIdentity); // They may be empty.
+		dialog->dsPAssociatedUri = pAssociatedUri;
+		dialog->dsPAssertedIdentity = pAssertedIdentity;
+		WATCH("MOC"<<LOGVAR(username)<<LOGVAR(pAssociatedUri)<<LOGVAR(pAssertedIdentity));
+		//if (pAssociatedUri.size()) { invite->smAddHeader("P-Associated-URI",pAssociatedUri); }
+		//if (pAssertedIdentity.size()) { invite->smAddHeader("P-Asserted-Identity",pAssertedIdentity); }
 	}
 
 	dialog->mRTPPort = Control::allocateRTPPorts();
@@ -298,16 +932,65 @@ TranEntry *SipDialog::findTranEntry()
 	return gNewTransactionTable.ttFindById(this->mTranId);
 }
 
+// If it is not an IMSI we think it may be a phone number.
+static bool isPhoneNumber(string thing)
+{
+	if (thing.size() == 0) { return false; }	// Not a phone number.
+	if (0 == strncasecmp(thing.c_str(),"IMSI",4)) { return false; }	// It is an IMSI, not a phone number.
+	return true;	// Well, maybe it is a phone number.
+}
+
+static string removeUriFluff(string thing)
+{
+	if (unsigned first = thing.find('<') != string::npos) {	// Remove the angle brackets.
+		thing = thing.substr(first,thing.find_last_of('>'));
+	}
+	thing = thing.substr(0,thing.find_last_of('@'));		// Chop off the ip address, if any.
+	const char *str = thing.c_str();
+	// Very clever, that a phone number may be prefixed with either sip: or tel:
+	if (0 == strncasecmp(str,"sip:",4) || 0 == strncasecmp(str,"tel:",4)) {
+		thing = thing.substr(4);
+	} else if (0 == strncasecmp(str,"sips:",5)) {	// secure not supported, but always hopeful....
+		thing = thing.substr(5);
+	}
+	return thing;	// Hopefully, what is remaining is a phone number.
+}
+
 
 TranEntry *SipDialog::createMTTransaction(SipMessage *invite)
 {
-	// Create an incipient TranEntry.  It does not have a TI yet.
 	TranEntry *tran = NULL;
 	string callerId;
-	if (gConfig.getStr("GSM.CallerID.Source").compare("username") == 0) {
+	string callerIdSource = gConfig.getStr("GSM.CallerID.Source");
+	if (0 == strcasecmp(callerIdSource.c_str(),"auto")) {
+		// (pat 6-2014) Added automatic caller id identification.
+		// We can do this automatically because we know whether the displayname, etc, are imsi because they are preceded by "IMSI".
+		// btw, the P-Asserted-Identity should by an IMSI; the phone number is supposed to be in the P-Associated-URI.
+		callerId = sipRemoteDisplayname();	// This is out best guess.
+		LOG(DEBUG) << "CallerID=auto: sipRemoteDisplayname="<<callerId;
+		if (! isPhoneNumber(callerId)) {
+			// Well that wasnt it, try again...
+			callerId = removeUriFluff(invite->msmHeaders.paramFind("P-Associated-URI"));
+			LOG(DEBUG) << "CallerID=auto: P-Associated-URI="<<callerId;
+		}
+		if (! isPhoneNumber(callerId)) {
+			// Keep trying...
+			callerId = removeUriFluff(invite->msmHeaders.paramFind("P-Asserted-Identity"));
+			LOG(DEBUG) << "CallerID=auto: P-Asserted-Identity="<<callerId;
+		}
+		if (! isPhoneNumber(callerId)) {
+			// The SIP username is not likely a phone number, but it is our last hope.
+			callerId = removeUriFluff(sipRemoteUsername());
+			LOG(DEBUG) << "CallerID=auto: sipRemoteUserName="<<callerId;
+		}
+		if (! isPhoneNumber(callerId)) {
+			callerId = string("");	// Did not find a phone number, sigh, zero it out.
+			LOG(DEBUG) << "CallerID=auto: giving up";
+		}
+	} else if (callerIdSource.compare("username") == 0) {
 		callerId = sipRemoteUsername();
 		LOG(INFO) << "source=username, callerId = " << callerId;
-	} else if (gConfig.getStr("GSM.CallerID.Source").compare("p-asserted-identity") == 0) {
+	} else if (callerIdSource.compare("p-asserted-identity") == 0) {
 		string tmpcid = invite->msmHeaders.paramFind("P-Asserted-Identity");
 		unsigned first = tmpcid.find("<sip:");
 		unsigned last = tmpcid.find_last_of("@");
@@ -324,36 +1007,45 @@ TranEntry *SipDialog::createMTTransaction(SipMessage *invite)
 		// Tell the sender we are trying.
 		this->MTCSendTrying();
 	} else {
-		assert(0);
+		devassert(0);
 	}
 	return tran;
 }
 
 // If the cause is handoverOutbound, kill the dialog now: dont send a BYE, dont wait for any other incoming messsages.
 // Used for outbound handover, where the SIP session was transferred to another BTS.
-void SipDialog::dialogCancel(CancelCause cause)
+// cause == This is the reason a Transaction (TranEntry) was cancelled
+// Layer3 may call this multiple times just to be safe and make sure the dialog is truly cancelled;
+// generally the first call includes the real causes, then the second call is made when the transaction
+// is destroyed and the cause is some bogus cause.
+void SipDialog::dialogCancel(TermCause cause)
 {
-	WATCH("dialogCancel"<<LOGVAR(getSipState())<<LOGVAR(cause) );
+	SIP::SipState state = this->getSipState();
+	//bool bTerminationAdded = false;
+
+	LOG(INFO) << "SIP term info dialogCancel begin cancel cause: " << cause;  // SVGDBG
+
+	WATCH("dialogCancel"<<LOGVAR(state)<<LOGVAR(cause) )
 	ScopedLock lock(mDialogLock,__FILE__,__LINE__);
 
-	SIP::SipState state = this->getSipState();
-	LOG(INFO) << dialogText(); // "SIP state " << state;
+	LOG(DEBUG) << dialogText(); // "SIP state " << state;   //SVGDBG switch to LOG(INFO)
 
-	switch (cause) {
-		case CancelCauseHandoverOutbound:
-		case CancelCauseSipInternalError:
+	if (cause.tcGetValue() == L3Cause::Handover_Outbound) {
 			// Terminate the dialog instantly.  Dont send anything on the SIP interface.
 			sipStopTimers();
 			// We need to remove the callid of the terminated outbound dialog queue from SIPInterface in case
 			// the same call is handerovered back, it would then be a duplicate.
 			gSipInterface.dmRemoveDialog(this);
+			LOG(INFO) << "SIP term info dialogCancel dmRemoveDialog return";
 			return;
-		default:
-			break;
 	}
 
-	//why aren't we checking for failed here? -kurtis ; we are now. -david
-	if (this->sipIsFinished()) return;
+	// why aren't we checking for failed here? -kurtis ; we are now. -david
+	if (this->sipIsFinished()) {
+		// No bye or cancel message will be sent.
+		LOG(INFO) << "SIP term info dialogCancel sipIsFinished return SIP state: " << this->getSipState();
+		return;
+	}
 	switch (mDialogType) {
 	case SIPDTRegister:
 	case SIPDTUnregister:
@@ -372,8 +1064,10 @@ void SipDialog::dialogCancel(CancelCause cause)
 				LOG(ERR) "Unexpected SIP State:"<<state;
 				break;
 			case Active:			// (pat) MOC received OK; MTC sent ACK
+			caseActive:
 				//Changes state to clearing
-				this->MODSendBYE();
+				this->MODSendBYE(cause);
+				//bTerminationAdded = true;
 				//then cleared
 				sipStartTimers(); // formerly: MODWaitForBYEOK();
 				break;
@@ -386,12 +1080,13 @@ void SipDialog::dialogCancel(CancelCause cause)
 			case HandoverInbound:
 				if (mDialogType == SIPDTMOC) {
 					// To cancel the invite before the ACK is received we must send CANCEL instead of BYE.
-					this->MODSendCANCEL(); //Changes state to MODCanceling
+					this->MODSendCANCEL(cause); //Changes state to MODCanceling
+					//bTerminationAdded = true;
 				} else {
 					// We are the INVITE recipient server and have not received the ACK yet, so we must send an error response.
-					// Yes this was formerly used for MTC also.  TODO: Make sure it works!
+					// Way back in version 3 this was used for MTC also.
 					// RFC3261 (SIP) is internally inconsistent describing the error codes - the 4xxx and 5xx generic
-					// descriptions are contracted by specific error code descriptions.
+					// descriptions are contradicted by specific error code descriptions.
 					// This is from Paul Chitescu at Null Team:
 					// "A 504 Server Timeout seems the most adequate response [to MS not responding to page.]
 					// 408 is reserved for SIP protocol timeouts (no answer to SIP message)
@@ -404,31 +1099,64 @@ void SipDialog::dialogCancel(CancelCause cause)
 					// Note: We previously sent 480.
 					//this->MTCEarlyError(480, "Temporarily Unavailable"); // The message must be 300-699.
 
-					int sipcode = 500; const char *reason = "Server Internal Error";
+					if (cause.tcGetCCCause() == L3Cause::Normal_Call_Clearing) {
+						// (pat 7-2014) The handset MTC hung up normally but the SIP Dialog here is not in the Active state.
+						// This weird case occurs if the handset sends a disconnect before it sends a connect,
+						// which can happen on some if the user answers and hangs up immediately.
+						// We need to send a 200 OK and then BYE instead of sending an early error.
+						// We dont care about codecs because we are clearing immediately so just regurgitate the codecs from the INVITE.
+						LOG(DEBUG) << "SIP SPECIAL CASE: Disconnect before connect";
+						this->MTCSendOK(this->vGetCodecs(), NULL);
+						goto caseActive;
+					} else {
+						this->MTCEarlyError(cause);
+					}
+#if PREVIOUS_CODE
+// (pat) Keeping this old code here for a while to show what SIP responses were returned by the version 4 code.
+// Now SIP responses are formulated from the TermCause by tcGetSipCodeAndReason()
+					int sipcode = 486; const char *reason = "No answer";
 					switch (cause) {
 						case CancelCauseHandoverOutbound:
 						case CancelCauseSipInternalError:
 							assert(0);		// handled above
+						case CancelCauseNormalDisconnect:		// 0 Loss of contact with MS or an error.
 						case CancelCauseBusy:			// MS is here and unavailable.
-						case CancelCauseUnknown:		// Loss of contact with MS or an error.
-						case CancelCauseCongestion:		// MS is here but no channel avail or other congestion.
-							// The MS is here but we cannot get at it for some reason.
 							sipcode = 486; reason = "Busy Here";
 							break;
-						case CancelCauseNoAnswerToPage:	// We dont have any clue if the MS is in this area or not.
+
+						case CancelCauseUnknown:		// 0 Loss of contact with MS or an error.
+							if (l3Cause == L3Cause::SwitchingEquipmentCongestion) {
+								sipcode = 503; reason = "Normal circuit congestion";
+							}
+							else if (l3Cause == L3Cause::NoUserResponding) {
+								sipcode = 408; reason = "No user responding";
+							}
+							else if (l3Cause == L3Cause::CallRejected) {
+								sipcode = 603; reason = "Call rejected";
+							}
+
+							break;
+
+						case CancelCauseCongestion:		// This reason is never used MS is here but no channel avail or other congestion.
+							sipcode = 503; reason = "Normal circuit congestion";
+							break;
+
+						case CancelCauseNoAnswerToPage:	// Not used   We dont have any clue if the MS is in this area or not.
 							// The MS is not here or turned off.
-							sipcode = 504; reason = "Temporarily Unavailable";
+							sipcode = 408; reason = "No user responding";
 							break;
 						case CancelCauseOperatorIntervention:
 							sipcode = 487; reason = "Request Terminated Operator Intervention";
 							break;
 					}
 					this->MTCEarlyError(sipcode,reason); // The message must be 300-699.
+#endif
+					//bTerminationAdded = true;
 				}
 				break;
 			case MODClearing:	// (pat) MOD sent BYE
-			case MODCanceling:	// (pat) MOD sent a cancel, see forceSIPClearing.
-			case MODError:		// (pat) MOD sent an error response, see forceSIPClearing.
+			case MODCanceling:	// (pat) MOD sent a cancel.
+			case MODError:		// (pat) MOD sent an error response.
 			case MTDClearing:	// (pat) MTD received BYE.
 			case MTDCanceling:	// (pat) MTD received CANCEL
 			case Canceled:		// (pat) received OK to CANCEL.
@@ -445,7 +1173,22 @@ void SipDialog::dialogCancel(CancelCause cause)
 		assert(0);
 		break;
 	}
-}
+
+	LOG(INFO) << "SIP term info end dialogCancel, cancel cause: " << cause << " mDialogType: " << mDialogType <<LOGVAR(state)<<LOGVAR(cause);
+		// << " bTerminationAdded: " << bTerminationAdded;
+
+	// (pat) The TermCause has the complete termination reason.  The cause was sent in the error response, CANCEL message, or BYE message;
+	// we dont need to save it in the dialog.
+	// Save termination reason
+	//if (!bTerminationAdded) {
+	//		if (! cause.tcIsEmpty()) {  // Don't log unknown reason codes
+	//			LOG(INFO) << "SIP term info add message from dialogCancel"<<LOGVAR(cause);  // SVGDBG
+	//			addCallTerminationReasonDlg(CallTerminationCause::eQ850, cause.tcGetCCCause(), ""); // dialCancel
+	//		}
+	//}
+
+} // dialogCancel
+
 
 void SipEngine::dialogQueueMessage(DialogMessage *dmsg)
 {
@@ -456,6 +1199,14 @@ void SipEngine::dialogQueueMessage(DialogMessage *dmsg)
 	// We dont enqueue on the GSM LogicalChannel because that may change from, eg, SDCCH to FACCH before this message is processed.
 	LOG(DEBUG) << "sending DialogMessage to L3 " /*<<dialogText()*/ <<LOGVAR(dmsg);
 	//mDownlinkFifo.write(dmsg);
+	if (mTranId == 0) {
+		// pat 5-2014: There will not be a transaction if the dialog was cancelled in handleInvite because the
+		// called user is already busy with no transaction slot available.  This case will go away when
+		// we support call-hold/call-wait.
+		LOG(DEBUG) << "Warning: dialog with no attached transaction; DialogMessage ignored.";
+		delete dmsg;
+		return;
+	}
 	gNewTransactionTable.ttAddMessage(mTranId,dmsg);
 }
 
@@ -559,7 +1310,7 @@ DialogState::msgState SipDialog::getDialogState() const
 		return DialogState::dialogActive;
 
 	case MODClearing:	// (pat) MOD sent BYE
-	case MODCanceling:	// (pat) MOD sent a cancel, see forceSIPClearing.
+	case MODCanceling:	// (pat) MOD sent a cancel.
 	case MTDClearing:	// (pat) MTD received BYE.
 	case MTDCanceling:	// (pat) received CANCEL
 	case Canceled:		// (pat) received OK to CANCEL.
@@ -568,7 +1319,7 @@ DialogState::msgState SipDialog::getDialogState() const
 
 	case MOCBusy:			// (pat) MOC received Busy; MTC not used.
 	case SSTimeout:
-	case MODError:		// (pat) MOD sent a cancel, see forceSIPClearing.
+	case MODError:		// (pat) MOD sent a cancel.
 	case SSFail:
 		return DialogState::dialogFail;
 
@@ -599,6 +1350,7 @@ void SipDialog::handleInviteResponse(int status,
 			dialogPushState(Proceeding,status);
 			break;
 		case 180:	// Ringing
+			mReceived180 = true;
 			dialogPushState(Ringing,status);
 			break;
 
@@ -615,7 +1367,7 @@ void SipDialog::handleInviteResponse(int status,
 		case 302:	// Moved Temporarily
 		case 305:	// Use Proxy
 		case 380:	// Alternative Service
-			LOG(NOTICE) << "redirection not supported code " << status <<sbText();
+			LOG(NOTICE) << "redirection not supported code " << status <<sdbText();
 			dialogPushState(SSFail,status, 'D');
 			gReports.incr("OpenBTS.SIP.Failed.Remote.3xx");
 			// TODO: What if it is not MOC?
@@ -656,14 +1408,14 @@ void SipDialog::handleInviteResponse(int status,
 		case 483:	// Too Many Hops
 		case 484:	// Address Incomplete
 		case 485:	// Ambiguous
-			LOG(NOTICE) << "request failure code " << status <<sbText();
+			LOG(NOTICE) << "request failure code " << status <<sdbText();
 			dialogPushState(SSFail,status, 'D');
 			gReports.incr("OpenBTS.SIP.Failed.Remote.4xx");
 			if (sendAck) MOCSendACK();
 			break;
 
 		case 486:	// Busy Here
-			LOG(NOTICE) << "remote end busy code " << status <<sbText();
+			LOG(NOTICE) << "remote end busy code " << status <<sdbText();
 			dialogPushState(MOCBusy,status,'D');
 			// TODO: What if it is not MOC?
 			if (sendAck) MOCSendACK();
@@ -672,7 +1424,7 @@ void SipDialog::handleInviteResponse(int status,
 		case 488:	// Not Acceptable Here
 		case 491:	// Request Pending
 		case 493:	// Undecipherable: Could not decrypt S/MIME body part
-			LOG(NOTICE) << "request failure code " << status <<sbText();
+			LOG(NOTICE) << "request failure code " << status <<sdbText();
 			dialogPushState(SSFail,status,'D');
 			gReports.incr("OpenBTS.SIP.Failed.Remote.4xx");
 			if (sendAck) MOCSendACK();
@@ -686,7 +1438,7 @@ void SipDialog::handleInviteResponse(int status,
 		case 504:	// Server Time-out
 		case 505:	// Version Not Supported: The server does not support this version of the SIP protocol
 		case 513:	// Message Too Large
-			LOG(NOTICE) << "server failure code " << status <<sbText();
+			LOG(NOTICE) << "server failure code " << status <<sdbText();
 			dialogPushState(SSFail,status,'D');
 			gReports.incr("OpenBTS.SIP.Failed.Remote.5xx");
 			// TODO: What if it is not MOC?
@@ -701,12 +1453,12 @@ void SipDialog::handleInviteResponse(int status,
 			break;
 		case 604:	// Does Not Exist Anywhere
 		case 606:	// Not Acceptable
-			LOG(NOTICE) << "global failure code " << status <<sbText();
+			LOG(NOTICE) << "global failure code " << status <<sdbText();
 			dialogPushState(SSFail,status,'D');
 			gReports.incr("OpenBTS.SIP.Failed.Remote.6xx");
 			if (sendAck) MOCSendACK();
 		default:
-			LOG(NOTICE) << "unhandled status code " << status <<sbText();
+			LOG(NOTICE) << "unhandled status code " << status <<sdbText();
 			dialogPushState(SSFail,status,'D');
 			gReports.incr("OpenBTS.SIP.Failed.Remote.xxx");
 			if (sendAck) MOCSendACK();
@@ -891,7 +1643,7 @@ string SipDialog::dialogText(bool verbose) const
 	ss << " SipDialog("<<LOGVARM(mTranId) ;
 	ss << LOGVAR2("state",getDialogState()) <<LOGVARM(mPrevDialogState);
 	//ss << LOGVAR2("fifo",mDownlinkFifo.size());
-	SipBase::sbText(ss,verbose);
+	sdbText(ss,verbose);
 	// The C++ virtual inheritance is so broken we cant use it.  Gag me.
 	switch (mDialogType) {
 		case SIPDTMTC: case SIPDTMTSMS:
@@ -911,6 +1663,11 @@ std::ostream& operator<<(std::ostream& os, const SipDialog*dg) {
 	return os;
 }
 std::ostream& operator<<(std::ostream& os, const SipDialog&dg) { os << dg.dialogText(); return os; }	// stupid language
+std::ostream& operator<<(std::ostream& os, const SipDialogRef&dr) {
+	SipDialog *dg = dr.self();
+	if (dg) os << dg->dialogText(); else os << "(null SipDialog)";
+	return os;
+}
 
 std::ostream& operator<<(std::ostream& os, const DialogState::msgState dstate)
 {
@@ -929,6 +1686,13 @@ std::ostream& operator<<(std::ostream& os, const DialogMessage*dmsg)
 }
 
 std::ostream& operator<<(std::ostream& os, const DialogMessage&dmsg) { os << &dmsg; return os; }	// stupid language
+
+string OpenBTSUserAgent()
+{
+	static const char* userAgent1 = "OpenBTS " VERSION " Build Date " TIMESTAMP_ISO;
+	string userAgent = string(userAgent1);
+	return userAgent;
+}
 
 
 };	// namespace

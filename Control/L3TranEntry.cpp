@@ -7,7 +7,7 @@
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -19,6 +19,8 @@
 */
 
 #define LOG_GROUP LogGroup::Control		// Can set Log.Level.Control for debugging
+#include <sys/stat.h>
+#include <sys/types.h>
 
 #include "ControlCommon.h"
 #include "L3TranEntry.h"
@@ -29,9 +31,14 @@
 #include <GSML3CCMessages.h>
 #include <GSML3RRMessages.h>
 #include <GSML3MMMessages.h>
+#include <GSML3CCElements.h>
 #include <GSMConfig.h>
+#include <ControlTransfer.h>
 
 #include <Peering.h>
+
+#include <sqlite3.h>
+#include <sqlite3util.h>
 
 //#include <SIPEngine.h>
 //#include <SIPInterface.h>
@@ -43,16 +50,20 @@
 #include <Logger.h>
 #undef WARNING
 
+
 // This is in the global namespace.
 Control::NewTransactionTable gNewTransactionTable;
-Control::StaleTransactionTable gStaleTransactionTable;
 
 int gCountTranEntry = 0;
+
+
 
 namespace Control {
 using namespace std;
 using namespace GSM;
 using namespace SIP;
+using namespace Peering;	// for sockaddr2string - remove me
+CdrService gCdrService;
 
 
 #if EXTERNAL_TRANSACTION_TABLE
@@ -88,6 +99,8 @@ HandoverEntry::HandoverEntry(const TranEntry *tran) :
 	mMyTranID(tran->tranID()),
 	mHandoverOtherBSTransactionID(0)
 {
+	memset(&mInboundPeer,0,sizeof(mInboundPeer));
+	memset(&mOutboundPeer,0,sizeof(mOutboundPeer));
 };
 
 HandoverEntry *TranEntry::getHandoverEntry(bool create) const	// It is not const, but we want C++ to be a happy compiler.
@@ -109,14 +122,11 @@ void TranEntry::TranEntryInit()
 	//mChannel = NULL;
 	//mNextChannel = NULL;
 	mMMData = NULL;
-	//mRemoved = false;	moved to TranEntryProtected
 	//initTimers();
 }
 
+//#include <execinfo.h>
 
-//DIG: Debug Start
-#include <execinfo.h>
-//DIG: Debug End
 TranEntry::TranEntry(
 	SipDialog *wDialog,
 	//const L3MobileIdentity& wSubscriber,
@@ -127,13 +137,10 @@ TranEntry::TranEntry(
 	if (wDialog) setDialog(wDialog);
 	//mSubscriber = wSubscriber;
 	mService = wService;
+	mTerminationRequested.value = 0;	// redundant; it inits itself to 0
 
-	//DIG: Debug Start
+	/*****
 	if (0) {
-	   printf("*********************************************************\n");
-	   printf("*********************************************************\n");
-	   printf("                      CONSTRUCTOR\n");
-	   printf("TranEntry::TranEntry() called, call stack follows:\n");
 	   const int elements = 100;
 	   void *buffer[elements];
 	   int nptrs = backtrace(buffer, elements);
@@ -144,12 +151,12 @@ TranEntry::TranEntry(
 	       for (int j = 0; j < nptrs; j++) printf("%s\n", strings[j]);
 		   free(strings);
 	   }
-	   printf("*********************************************************\n");
-	   printf("*********************************************************\n");
 	}
-	//DIG: Debug End
-	startTime = time(NULL);
-	endTime = 0;
+	***/
+
+	mStartTime = time(NULL);
+	mConnectTime = 0;	// Means never connected.
+	//mEndTime = 0;
 	//gNewTransactionTable.ttAdd(this);
 }
 
@@ -160,15 +167,14 @@ TranEntry *TranEntry::newMO(MMContext *wChan, const GSM::L3CMServiceType& wServi
 	//TranEntry *result = new TranEntry(proxy,unknownId,wChannel,wService,CCState::NullState);
 	TranEntry *result = new TranEntry(NULL,wService);	// No SipDialog yet for MO transactions.
 	LOG(DEBUG);
-	//wChan->chanGetContext(true)->mmConnectTran(result);
 	wChan->mmConnectTran(result);
 	gNewTransactionTable.ttAdd(result);
 	return result;
 }
 
 void TranEntry::setDialog(SIP::SipDialog *dialog) { mDialog = dialog; dialog->setTranId(mID); }
-void TranEntry::txFrame(GSM::AudioFrame* frame, unsigned numFlushed) { getDialog()->txFrame(frame,numFlushed); }
-GSM::AudioFrame *TranEntry::rxFrame() { return getDialog()->rxFrame(); }	// Crashes if rtp not established.
+void TranEntry::txFrame(SIP::AudioFrame* frame, unsigned numFlushed) { getDialog()->txFrame(frame,numFlushed); }
+SIP::AudioFrame *TranEntry::rxFrame() { return getDialog()->rxFrame(); }	// Crashes if rtp not established.
 
 unsigned TranEntry::getRTPPort() const
 {
@@ -184,7 +190,7 @@ TranEntry *TranEntry::newMOSSD(MMContext* wChannel)
 
 TranEntry *TranEntry::newMOC(MMContext* wChannel, CMServiceTypeCode serviceType)
 {
-	assert(serviceType == L3CMServiceType::MobileOriginatedCall);
+	devassert(serviceType == L3CMServiceType::MobileOriginatedCall);
 	return newMO(wChannel,serviceType);
 }
 
@@ -202,7 +208,7 @@ TranEntry *TranEntry::newMOMM(MMContext* wChannel)
 TranEntry *TranEntry::newMTC(
 	SipDialog *dialog,
 	const FullMobileId& msid,
-	const GSM::L3CMServiceType& wService, // MobileTerminatedCall, FuzzCall, TestCall, or UndefinedType for generic page from CLI.
+	const GSM::L3CMServiceType& wService, // MobileTerminatedCall or UndefinedType for generic page from CLI.
 	const string wCallerId)
 	//const L3CallingPartyBCDNumber& wCalling)
 {
@@ -251,10 +257,6 @@ TranEntry *TranEntry::newHandover(
 	// We dont want to open the dialog before receiving the handover.
 	// The proxy is not used until the dialog is created so it is no longer a parameter.
 	TranEntry *result = newMO(mmchan, GSM::L3CMServiceType::HandoverCall);
-
-	//TranEntry *result = new TranEntry(NULL, GSM::L3CMServiceType::HandoverCall);
-	//wChannel->getContext(true)->mmConnectTran(this);
-	//wChannel->chanSetVoiceTran(result);		// TODO: This should error check no tran there yet.
 
 	result->setGSMState(CCState::HandoverInbound);
 	const char* IMSI = params.get("IMSI");
@@ -312,7 +314,7 @@ void HandoverEntry::initHandoverEntry(
 	mHandoverOtherBSTransactionID = wHandoverOtherBSTransactionID;
 
 	// Save the peer address.
-	bcopy(peer,&mInboundPeer,sizeof(mInboundPeer));
+	memcpy(&mInboundPeer,peer,sizeof(mInboundPeer));
 
 	const char* refer = params.get("REFER");
 	if (refer) {
@@ -332,26 +334,6 @@ void HandoverEntry::initHandoverEntry(
 
 TranEntry::~TranEntry()
 {
-//DIG: Debug Start
-	if (0) {
-	   printf("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n");
-	   printf("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n");
-	   printf("                      destructor\n");
-	   printf("TranEntry::~TranEntry() called, call stack follows:\n");
-	   const int elements = 100;
-	   void *buffer[elements];
-	   int nptrs = backtrace(buffer, elements);
-	   char **strings = backtrace_symbols(buffer, nptrs);
-	   if (strings == NULL) { perror("backtrace_symbols"); }
-	   else
-	   {
-	       for (int j = 0; j < nptrs; j++) printf("%s\n", strings[j]);
-		   free(strings);
-	   }
-	   printf("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n");
-	   printf("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n");
-	}
-//DIG: Debug End
 	gCountTranEntry--;
 	// This lock should go out of scope before the object is actually destroyed.
 	//ScopedLock lock(mLock,__FILE__,__LINE__);
@@ -377,19 +359,9 @@ TranEntry::~TranEntry()
 #endif
 }
 
-//bool TranEntryProtected::isRemoved() const
-//{
-//	if (mRemoved) {
-//		assert(0);
-//		return true;
-//	}
-//	return false;
-//}
-
 
 bool TranEntryProtected::clearingGSM() const
 {
-	//if (isRemoved()) throw RemovedTransaction(tranID());
 	//ScopedLock lock(mLock,__FILE__,__LINE__);
 	return (mGSMState==CCState::ReleaseRequest) || (mGSMState==CCState::DisconnectIndication);
 }
@@ -397,7 +369,6 @@ bool TranEntryProtected::clearingGSM() const
 
 bool TranEntryProtected::isStuckOrRemoved() const
 {
-	//if (mRemoved) return true;
 	unsigned age = mStateTimer.elapsed();
 
 	// 180-second tests
@@ -434,134 +405,56 @@ bool TranEntry::deadOrRemoved() const
 //}
 
 
+#if UNUSED
+bool TranEntry::teDead() const
+{
+	// Get the state information and release the locks.
+
+	// If it's locked, we assume someone has locked it,
+	// so it's not dead.
+	// And if someone locked in permanently,
+	// the resulting deadlock would spread through the whole system.
+
+	//if (!mLock.trylock()) return false;
+	if (mDialog && mDialog->sipIsStuck()) return true;
+	//mLock.unlock();
+
+#if 0
+	// (pat) You cannot check the sip state here based on the transaction state-age because the state
+	// age is not updated for sip-side state changes.
+	// 30-second tests
+	if (age < 30*1000) return false;
+	// Failed?
+	if (lSIPState==SIP::Fail) return true;
+	// Bad handover?
+	if (lSIPState==SIP::HandoverInbound) return true;
+	// SIP Null state?
+	if (lSIPState==SIP::NullState) return true;
+	// SIP stuck in proceeding?
+	if (lSIPState==SIP::Proceeding) return true;
+	// SIP cancelled?
+	if (lSIPState==SIP::Canceled) return true;
+	// SIP Cleared?
+	if (lSIPState==SIP::Cleared) return true;
+#endif
+	
+	// If we got here, the state-vs-timer relationship
+	// appears to be valid.
+	return false;
+}
+#endif
+
+
 void TranEntryProtected::stateText(ostream &os) const
 {
-	//if (mRemoved) os << " [removed]";
 	os << " GSMState=" << mGSMState;	// Dont call getGSMState(), it asserts 0 if the transaction has been removed;
 	if (isStuckOrRemoved()) os << " [defunct]";
 }
 
-void TranEntryProtected::stateText(unsigned &state, std::string &deleted) const
-{
-	state = (unsigned)mGSMState;	// Dont call getGSMState(), it asserts 0 if the transaction has been removed;
-	if (isStuckOrRemoved()) deleted = " [defunct]";
-	else deleted = "";
-}
 
-
-// Use this for the column headers for the "calls" output
-void TranEntry::header(ostream& os)
-{
-    std::string fmtBuf("");
-	char buf[BUFSIZ];
-
-	fmtBuf += TranFmt::lblfmt_Active;
-	fmtBuf += TranFmt::lblfmt_TranId;
-	fmtBuf += TranFmt::lblfmt_L3TI;
-	fmtBuf += TranFmt::lblfmt_Service;
-	fmtBuf += TranFmt::lblfmt_To;
-	fmtBuf += TranFmt::lblfmt_From;
-	fmtBuf += TranFmt::lblfmt_AgeSec;
-	fmtBuf += TranFmt::lblfmt_StartTime;
-	fmtBuf += TranFmt::lblfmt_EndTime;
-	fmtBuf += TranFmt::lblfmt_Message;
-	fmtBuf += "\n";
-
-	snprintf(buf, sizeof(buf)-1, fmtBuf.c_str(),
-		"Active",
-		"TranId",
-		"L3TI",
-		"Service",
-		"To",
-		"From",
-		"AgeSec",
-		"Start Time",
-		"End Time",
-		"Message");
-	os << buf;
-
-	snprintf(buf, sizeof(buf)-1, fmtBuf.c_str(),
-		"======",
-		"==========",
-		"=========",
-		"=========",
-		"================",
-		"================",
-		"=========",
-		"=====================================",
-		"=====================================",
-		"========================================================");
-	os << buf;
-}
-
-// Use this for the column data for the "calls" output
-void TranEntry::textTable(ostream& os) const
-{
-    std::string fmtBuf("");
-	char buf[BUFSIZ];
-
-	fmtBuf += TranFmt::fmt_Active;
-	fmtBuf += TranFmt::fmt_TranId;
-	fmtBuf += TranFmt::fmt_L3TI;
-	fmtBuf += TranFmt::fmt_Service;
-	fmtBuf += TranFmt::fmt_To;
-	fmtBuf += TranFmt::fmt_From;
-	fmtBuf += TranFmt::fmt_AgeSec;
-	fmtBuf += TranFmt::fmt_StartTime;
-	if (endTime)
-		fmtBuf += TranFmt::fmt_EndTime;
-	else
-		fmtBuf += TranFmt::fmt_EndTime2;
-	fmtBuf += TranFmt::fmt_Message;
-	fmtBuf += "\n";
-
-	struct tm startTm, endTm;
-	localtime_r(&startTime, &startTm);
-	std::ostringstream svc;
-	mService.text(svc);
-	const char *psSvc = svc.str().c_str();
-	if (endTime)
-	{
-		localtime_r(&endTime, &endTm);
-		snprintf(buf, sizeof(buf)-1, fmtBuf.c_str(),
-			endTime == 0 ? "yes" : "no",
-			tranID(),
-			mL3TI,
-			psSvc,
-			mCalled.digits()[0] ? mCalled.digits() : "",
-			mCalling.digits()[0] ? mCalling.digits() : "",
-			(stateAge()+500)/1000,
-			startTm.tm_year + 1900, startTm.tm_mon + 1, startTm.tm_mday,
-			startTm.tm_hour, startTm.tm_min, startTm.tm_sec,
-			startTime,
-			endTm.tm_year + 1900, endTm.tm_mon + 1, endTm.tm_mday,
-			endTm.tm_hour, endTm.tm_min, endTm.tm_sec,
-			endTime,
-			mMessage.c_str());
-	} else
-	{
-		snprintf(buf, sizeof(buf)-1, fmtBuf.c_str(),
-			endTime == 0 ? "yes" : "no",
-			tranID(),
-			mL3TI,
-			psSvc,
-			mCalled.digits()[0] ? mCalled.digits() : "",
-			mCalling.digits()[0] ? mCalling.digits() : "",
-			(stateAge()+500)/1000,
-			startTm.tm_year + 1900, startTm.tm_mon + 1, startTm.tm_mday,
-			startTm.tm_hour, startTm.tm_min, startTm.tm_sec,
-			startTime,
-			"", // no end time
-			mMessage.c_str());
-	}
-	os << buf;
-}
-
-// Use this for the column data for the "calls" output
 void TranEntry::text(ostream& os) const
 {
 	//ScopedLock lock(mLock,__FILE__,__LINE__);
-	if (endTime != 0) return; // don't bother printing one that's complete through this interface
 	os << " TranEntry(";
 	os <<LOGVAR2("tid",tranID());
 	stateText(os);
@@ -569,7 +462,7 @@ void TranEntry::text(ostream& os) const
 		// Nothing else I am willing to risk saying about a removed transaction, for fear of trigging an exception.
 		if (channel()) os << " chan=(" << *channel() <<")";
 		else os << " chan=none";
-		os <<LOGVARM(mSubscriber);
+		os <<LOGVARP2("Subscriber",mSubscriber);
 		os <<LOGVARM(mL3TI);
 		//if (mSIP) {
 		//	os << " SIP-call-id=" << mSIP->callId();
@@ -612,27 +505,6 @@ ostream& operator<<(ostream& os, const TranEntry* entry)
 	entry->text(os);
 	return os;
 }
-
-//void TranEntry::message(const char *wMessage, size_t length)
-//{
-//	/*if (length>520) {
-//		LOG(NOTICE) << "truncating long message: " << wMessage;
-//		length=520;
-//	}*/
-//	if (isRemoved()) throw RemovedTransaction(tranID());
-//	//ScopedLock lock(mLock,__FILE__,__LINE__);
-//	//memcpy(mMessage,wMessage,length);
-//	//mMessage[length]='\0';
-//	mMessage.assign(wMessage, length);
-//}
-//
-//void TranEntry::messageType(const char *wContentType)
-//{
-//	if (isRemoved()) throw RemovedTransaction(tranID());
-//	//ScopedLock lock(mLock,__FILE__,__LINE__);
-//	mContentType.assign(wContentType);
-//}
-
 
 
 #if EXTERNAL_TRANSACTION_TABLE
@@ -697,6 +569,26 @@ void TranEntry::runQuery(const char* query) const
 
 
 
+#if UNUSED
+void TranEntry::setChannel(L3LogicalChannel* wChannel)
+{
+	//ScopedLock lock(mLock,__FILE__,__LINE__);
+	mChannel = wChannel;
+
+	char query[500];
+	if (mChannel) {
+		sprintf(query,"UPDATE TRANSACTION_TABLE SET CHANGED=%u,CHANNEL='%s' WHERE ID=%u",
+				(unsigned)time(NULL), mChannel->descriptiveString(), tranID());
+	} else {
+		sprintf(query,"UPDATE TRANSACTION_TABLE SET CHANGED=%u,CHANNEL=NULL WHERE ID=%u",
+				(unsigned)time(NULL), tranID());
+	}
+
+	runQuery(query);
+}
+#endif
+
+
 void TranEntry::setSubscriberImsi(string imsi, bool andAttach)
 {
 	mSubscriber.mImsi = imsi;
@@ -708,16 +600,12 @@ void TranEntry::setSubscriberImsi(string imsi, bool andAttach)
 
 L3LogicalChannel* TranEntry::channel()
 {
-	// Dont do this isRemoved test.  We use the channel just for LOG messages.  The ts will be NULL if the tran is removed.
-	//if (isRemoved()) throw RemovedTransaction(tranID());
 	MMContext *ts = teGetContext();
 	return ts ? ts->tsChannel() : NULL;
 }
 
 const L3LogicalChannel* TranEntry::channel() const
 {
-	//if (isRemoved()) throw RemovedTransaction(tranID());
-	//MMContext *ts = const_cast<TranEntry*>(this)->teGetContext();	// gotta love it.
 	MMContext *ts = Unconst(this)->teGetContext();	// gotta love it.
 	return ts ? ts->tsChannel() : NULL;
 }
@@ -746,15 +634,11 @@ L3LogicalChannel* TranEntry::getTCHFACCH() {
 
 unsigned TranEntry::getL3TI() const
 {
-	//if (isRemoved()) throw RemovedTransaction(tranID());
 	return mL3TI;
 }
 
 CallState TranEntryProtected::getGSMState() const
 {
-	// Dont throw this for just asking about the GSMState; we do that even while the transaction is being removed,
-	// to print it, and etc.
-	// if (isRemoved()) throw RemovedTransaction(tranID());
 	//ScopedLock lock(mLock,__FILE__,__LINE__);		// redundant
 	return mGSMState;
 }
@@ -762,11 +646,21 @@ CallState TranEntryProtected::getGSMState() const
 
 void TranEntryProtected::setGSMState(CallState wState)
 {
-	//if (wState != CCState::NullState && isRemoved()) throw RemovedTransaction(tranID());
 	//ScopedLock lock(mLock,__FILE__,__LINE__);
 	mStateTimer.now();
 
 	mGSMState = wState;
+#if UNUSED	// We are removing the transaction table, so I'm just taking this out.
+	const char* stateString = CCState::callStateString(wState);
+	assert(stateString);
+
+	unsigned now = mStateTimer.sec();
+	char query[150];
+	sprintf(query,
+		"UPDATE TRANSACTION_TABLE SET GSMSTATE='%s',CHANGED=%u WHERE ID=%u",
+		stateString,now, tranID());
+	runQuery(query);
+#endif
 }
 
 SIP::SipState TranEntry::echoSipState(SIP::SipState state) const
@@ -776,7 +670,7 @@ SIP::SipState TranEntry::echoSipState(SIP::SipState state) const
 	mPrevSipState = state;
 
 	const char* stateString = SIP::SipStateString(state);
-	assert(stateString);
+	devassert(stateString);
 
 #if EXTERNAL_TRANSACTION_TABLE
 	unsigned now = time(NULL);
@@ -794,7 +688,6 @@ SIP::SipState TranEntry::echoSipState(SIP::SipState state) const
 
 void TranEntry::setCalled(const L3CalledPartyBCDNumber& wCalled)
 {
-	//if (isRemoved()) throw RemovedTransaction(tranID());
 	//ScopedLock lock(mLock,__FILE__,__LINE__);
 	mCalled = wCalled;
 
@@ -823,7 +716,6 @@ bool TranEntry::matchL3TI(unsigned ti, bool fromMS)
 
 void TranEntry::setL3TI(unsigned wL3TI)
 {
-	//if (isRemoved()) throw RemovedTransaction(tranID());
 	//ScopedLock lock(mLock,__FILE__,__LINE__);
 	mL3TI = wL3TI;
 
@@ -837,12 +729,11 @@ void TranEntry::setL3TI(unsigned wL3TI)
 }
 
 
-bool TranEntry::terminationRequested()
+L3Cause::AnyCause TranEntry::terminationRequested()
 {
 	ScopedLock lock(mAnotherLock,__FILE__,__LINE__);
-	//if (isRemoved()) throw RemovedTransaction(tranID());
-	bool retVal = mTerminationRequested;
-	mTerminationRequested = false;
+	L3Cause::AnyCause retVal = mTerminationRequested;
+	mTerminationRequested.value = 0;
 	return retVal;
 }
 
@@ -859,7 +750,6 @@ string TranEntry::handoverString(string peer) const
 	// We call this as "BS1" in the handover ladder diagram.
 	// It is decoded at the other end by a TransactionEnty constructor.
 
-	//if (isRemoved()) throw RemovedTransaction(tranID());
 	//ScopedLock lock(mLock,__FILE__,__LINE__);
 	ostringstream os;
 	os << tranID();
@@ -867,7 +757,7 @@ string TranEntry::handoverString(string peer) const
 	// We dont need these.
 	//HandoverEntry *handover = getHandoverEntry(true);
 	//if (getGSMState()==CCState::HandoverInbound) os << " inbound-ref=" << handover->mInboundReference;
-	//if (getGSMState()==CCState::HandoverOutbound) os << " outbound-ref=" << handover->mOutboundReference.value();
+	//if (getGSMState()==CCState::Handover_Outbound) os << " outbound-ref=" << handover->mOutboundReference.value();
 	os << " L3TI=" << mL3TI;
 	if (mCalled.digits()[0]) os << " called=" << mCalled.digits();
 	if (mCalling.digits()[0]) os << " calling=" << mCalling.digits();
@@ -931,17 +821,44 @@ void NewTransactionTable::ttInit()
 	//mIDCounter = random();
 	mIDCounter = 100;	// pat changed.  0 is reserved.  Start it high enough so it cannot possibly be confused with an L3TI.
 
+#if EXTERNAL_TRANSACTION_TABLE
+	// Connect to the database.
+	const char *path = gConfig.getStr("Control.Reporting.TransactionTable").c_str();
+	int rc = sqlite3_open(path,&mDB);
+	if (rc) {
+		LOG(ALERT) << "Cannot open Transaction Table database at " << path << ": " << sqlite3_errmsg(mDB);
+		sqlite3_close(mDB);
+		mDB = NULL;
+		return;
+	}
+	// Create a new table, if needed.
+	if (!sqlite3_command(mDB,createNewTransactionTable)) {
+		LOG(ALERT) << "Cannot create Transaction Table";
+	}
+	// Clear any previous entires.
+	if (!sqlite3_command(gNewTransactionTable.getDB(),"DELETE FROM TRANSACTION_TABLE"))
+		LOG(WARNING) << "cannot clear previous transaction table";
+#endif
 }
+
+
+
+#if EXTERNAL_TRANSACTION_TABLE
+NewTransactionTable::~NewTransactionTable()
+{
+	// Don't bother disposing of the memory,
+	// since this is only invoked when the application exits.
+	if (mDB) sqlite3_close(mDB);
+}
+#endif
+
 
 
 
 unsigned NewTransactionTable::ttNewID()
 {
-	unsigned iCntr;
-	rwLock.wlock();
-	iCntr = mIDCounter++;
-	rwLock.unlock();
-	return iCntr;
+	ScopedLock lock(mttLock,__FILE__,__LINE__);
+	return mIDCounter++;
 }
 
 
@@ -949,34 +866,33 @@ void NewTransactionTable::ttAdd(TranEntry* value)
 {
 	LOG(DEBUG);
 	LOG(INFO) << "new transaction " << *value;
-	rwLock.wlock();
-	//value->vGetRef();
-	value->incRefCnt();
+	ScopedLock lock(mttLock,__FILE__,__LINE__);
+	//clearDeadEntries();		// This the only call to clearDeadEntries that really matters.
 	mTable[value->tranID()]=value;
-	rwLock.unlock();
-//DIG: Debug Start
-	if (0) {
-	   printf("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n");
-	   printf("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n");
-	   printf("                      transaction ttAdd\n");
-	   printf("NewTransactionTable::ttAdd(%p) called, call stack follows:\n", value);
-	   const int elements = 100;
-	   void *buffer[elements];
-	   int nptrs = backtrace(buffer, elements);
-	   char **strings = backtrace_symbols(buffer, nptrs);
-	   if (strings == NULL) { perror("backtrace_symbols"); }
-	   else
-	   {
-	       for (int j = 0; j < nptrs; j++) printf("%s\n", strings[j]);
-		   free(strings);
-	   }
-	   printf("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n");
-	   printf("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n");
-	}
-//DIG: Debug End
 }
 
 
+bool TranEntry::teIsTalking()
+{
+	LOG(DEBUG) << LOGVAR2("GSMState",this->getGSMState());
+	if (this->getGSMState() == CCState::Active) {
+		//WATCHINFO(LOGVAR2("GSMState",this->getGSMState()) <<LOGVAR2("meas",this->channel()->getL2Channel()->getSACCH()->measurementResults()));
+		if (L3LogicalChannel *l3chan = this->channel()) {
+			L2LogicalChannel *l2chan = l3chan->getL2Channel();
+			GSM::L3MeasurementResults meas = l2chan->getSACCH()->measurementResults();
+			if (meas.isServingCellValid()) { return true; }
+		}
+	}
+	return false;
+}
+
+bool NewTransactionTable::ttIsTalking(TranEntryId tranid)
+{
+	bool result = false;
+	ScopedLock lock(mttLock,__FILE__,__LINE__);
+	if (TranEntry *tran = ttFindById(tranid)) { result = tran->teIsTalking(); }
+	return result;
+}
 
 TranEntry* NewTransactionTable::ttFindById(TranEntryId key)
 {
@@ -984,21 +900,15 @@ TranEntry* NewTransactionTable::ttFindById(TranEntryId key)
 
 	// ID==0 is a non-valid special case.
 	LOG(DEBUG) << "by key: " << key;
-	assert(key);
-
-	TranEntry* poEntry = NULL;
-	rwLock.rlock();
+	devassert(key);
+	ScopedLock lock(mttLock,__FILE__,__LINE__);
 	NewTransactionMap::iterator itr = mTable.find(key);
-	if (itr!=mTable.end())
-	    if (!itr->second->deadOrRemoved())
-		poEntry = itr->second;
-	rwLock.unlock();
-	return poEntry;
+	if (itr==mTable.end()) return NULL;
+	if (itr->second->deadOrRemoved()) return NULL;
+	return (itr->second);
 }
 
-
 // In l3-rewrite this is called ONLY from teRemove.
-// mark the element as done
 bool NewTransactionTable::ttRemove(TranEntryId key)
 {
 	LOG(DEBUG) <<LOGVAR(key);
@@ -1007,85 +917,25 @@ bool NewTransactionTable::ttRemove(TranEntryId key)
 		LOG(ERR) << "called with key==0";
 		return false;
 	}
-//DIG: Debug Start
-	if (0) {
-	   printf("vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\n");
-	   printf("vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\n");
-	   printf("                      transaction ttRemove\n");
-	   printf("NewTransactionTable::~ttRemove(%d) called, call stack follows:\n", key);
-	   const int elements = 100;
-	   void *buffer[elements];
-	   int nptrs = backtrace(buffer, elements);
-	   char **strings = backtrace_symbols(buffer, nptrs);
-	   if (strings == NULL) { perror("backtrace_symbols"); }
-	   else
-	   {
-	       for (int j = 0; j < nptrs; j++) printf("%s\n", strings[j]);
-		   free(strings);
-	   }
-	   printf("vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\n");
-	   printf("vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\n");
-	}
-//DIG: Debug End
 
-	bool bRet = true;
-	rwLock.wlock();
+	ScopedLock lock(mttLock,__FILE__,__LINE__);
 	NewTransactionMap::iterator itr = mTable.find(key);
-	if (itr==mTable.end()) bRet = false;
-	else
-	{
-		StaleTranEntry *poEntry = new StaleTranEntry(*(itr->second)); // copy constructor
-		poEntry->setEndTime(time(NULL));
-		gStaleTransactionTable.ttAdd(poEntry);
-		mTable.erase(itr); // erase the original
-	}
-	rwLock.unlock();
-	return bRet;
-}
-
-void NewTransactionTable::ttErase(NewTransactionMap::iterator itr)
-{
-//DIG: Debug Start
-	if (0) {
-	   printf("vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\n");
-	   printf("vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\n");
-	   printf("                      transaction ttErase\n");
-	   printf("NewTransactionTable::ttErase(%p) called, call stack follows:\n", itr->second);
-	   const int elements = 100;
-	   void *buffer[elements];
-	   int nptrs = backtrace(buffer, elements);
-	   char **strings = backtrace_symbols(buffer, nptrs);
-	   if (strings == NULL) { perror("backtrace_symbols"); }
-	   else
-	   {
-	       for (int j = 0; j < nptrs; j++) printf("%s\n", strings[j]);
-		   free(strings);
-	   }
-	   printf("vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\n");
-	   printf("vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\n");
-	}
-//DIG: Debug End
-
-	// we are already locked
-	mTable.erase(itr); // erase the original
+	if (itr==mTable.end()) return false;
+	mTable.erase(itr);
+	return true;
 }
 
 // Return true if we found it, or false if not found.
 // This is called from a separate thread, so we set the flag and wait for the service loop to handle it.
-bool NewTransactionTable::ttTerminate(TranEntryId tid)
+bool NewTransactionTable::ttTerminate(TranEntryId tid, L3Cause::BSSCause cause)
 {
-	bool bRet = true;
-	rwLock.rlock();
+	ScopedLock lock(mttLock,__FILE__,__LINE__);
 	NewTransactionMap::iterator itr = mTable.find(tid);
-	if (itr==mTable.end()) bRet = false;
-	else
-	{
-	    TranEntry *tran = itr->second;
-	    ScopedLock lock2(tran->mAnotherLock,__FILE__,__LINE__);
-	    tran->mTerminationRequested = true;
-	}
-	rwLock.unlock();
-	return bRet;
+	if (itr==mTable.end()) { return false; }
+	TranEntry *tran = itr->second;
+	ScopedLock lock2(tran->mAnotherLock,__FILE__,__LINE__);
+	tran->mTerminationRequested = cause;
+	return true;
 }
 
 // Does the TranEntry referenced by this id still pointer to its SipDialog?
@@ -1093,98 +943,21 @@ bool NewTransactionTable::ttTerminate(TranEntryId tid)
 // However, the TranEntry has a pointer to the SipDialog, so we dont delete that until its gone.
 bool NewTransactionTable::ttIsDialogReleased(TranEntryId tid)
 {
-	bool bRet = true;
-	rwLock.rlock();
+	ScopedLock lock(mttLock,__FILE__,__LINE__);
 	NewTransactionMap::iterator itr = mTable.find(tid);
-	if (itr==mTable.end()) bRet = false;
-	else bRet = (itr->second->mDialog == 0);
-	rwLock.unlock();
-	return bRet;
+	if (itr==mTable.end()) { return true; }	// TranEntry no longer exists.
+	return itr->second->mDialog == 0;
 }
 
-// This is only used as a bug work around for the buggy smqueue.
 bool NewTransactionTable::ttSetDialog(TranEntryId tid, SipDialog *dialog)
 {
-	bool bRet = true;
-	rwLock.rlock();
+	ScopedLock lock(mttLock,__FILE__,__LINE__);
 	NewTransactionMap::iterator itr = mTable.find(tid);
-	if (itr==mTable.end()) bRet = false;
-	else itr->second->setDialog(dialog);
-	rwLock.unlock();
-	return bRet;
+	if (itr==mTable.end()) { return false; }	// TranEntry no longer exists.
+	itr->second->setDialog(dialog);
+	return true;
 }
 
-//void NewTransactionTable::clearDeadEntries()
-//{
-	// We just cant do this any more because there are pointers to TranEntry in the MMContext or MMUser
-	// If we want this functionality it has to be in the MMContext and MMUser.
-//}
-
-
-//TranEntry* NewTransactionTable::ttFindByLCH(const L3LogicalChannel *chan)
-//{
-//	//LOG(DEBUG) << "by channel: " << *chan << " (" << chan << ")";
-//
-//	ScopedLock lock(mttLock,__FILE__,__LINE__);
-//
-//	// Yes, it's linear time.
-//	// Since clearDeadEntries is also linear, do that here, too.
-//	clearDeadEntries();
-//
-//	// Brute force search.
-//	// This search assumes in order by transaction ID.
-//	for (NewTransactionMap::iterator itr = mTable.begin(); itr!=mTable.end(); ++itr) {
-//		TranEntry *tran = itr->second;
-//		if (tran->deadOrRemoved()) continue;
-//		if ((void*)tran->channel() == (void*)chan || (void*)tran->mNextChannel == (void*)chan) return tran;
-//	}
-//	LOG(DEBUG) << "no match for " << *chan << " (" << chan << ")";
-//	return NULL;	// not found
-//}
-
-// Release anything associated with this channel.
-//void NewTransactionTable::ttLostChannel(const L3LogicalChannel *chan)
-//{
-//	ScopedLock lock(mttLock,__FILE__,__LINE__);
-//
-//	// Yes, it's linear time.
-//	// Since clearDeadEntries is also linear, do that here, too.
-//	clearDeadEntries();
-//
-//	// Brute force search.
-//	// This search assumes in order by transaction ID.
-//	for (NewTransactionMap::iterator itr = mTable.begin(); itr!=mTable.end(); ++itr) {
-//		TranEntry *tran = itr->second;
-//		if (tran->deadOrRemoved()) continue;
-//		if (tran->isChannelMatch(chan)) {
-//			//tran->terminate();
-//			tran->teRemove();
-//		}
-//	}
-//	//LOG(DEBUG) << "no match for " << *chan << " (" << chan << ")";
-//}
-
-
-//TranEntry* NewTransactionTable::ttFindBySACCH(const GSM::SACCHLogicalChannel *chan)
-//{
-//	LOG(DEBUG) << "by SACCH: " << *chan << " (" << chan << ")";
-//
-//	ScopedLock lock(mttLock,__FILE__,__LINE__);
-//
-//	// Yes, it's linear time.
-//	// Since clearDeadEntries is also linear, do that here, too.
-//	clearDeadEntries();
-//
-//	// Brute force search.
-//	TranEntry *retVal = NULL;
-//	for (NewTransactionMap::iterator itr = mTable.begin(); itr!=mTable.end(); ++itr) {
-//		if (itr->second->deadOrRemoved()) continue;
-//		const GSM::L2LogicalChannel* thisChan = itr->second->getL2Channel();
-//		if (thisChan->SACCH() != chan) continue;
-//		retVal = itr->second;
-//	}
-//	return retVal;
-//}
 
 
 #if UNUSED
@@ -1250,6 +1023,7 @@ bool NewTransactionTable::isBusy(const L3MobileIdentity& mobileID)
 		if (itr->second->subscriber() != mobileID) continue;
 		GSM::L3CMServiceType::TypeCode service = itr->second->servicetype();
 		bool speech =
+			service==GSM::L3CMServiceType::EmergencyCall ||
 			service==GSM::L3CMServiceType::MobileOriginatedCall ||
 			service==GSM::L3CMServiceType::MobileTerminatedCall;
 		if (!speech) continue;
@@ -1307,40 +1081,28 @@ TranEntry *NewTransactionTable::ttFindByL3Msg(GSM::L3Message *l3msg, L3LogicalCh
 #endif
 
 
-#if UNUSED
-// (pat added) By design, there is no back pointer from SIP to the TranEntry, so the TranEntry can be deleted
-// independently, so we have to search for the Transaction if we need it.
-TranEntry* NewTransactionTable::ttFindByDialog(SIP::SipDialog *pDialog)
-{
-	// Brute force search.
-	ScopedLock lock(mttLock,__FILE__,__LINE__);
-	for (NewTransactionMap::iterator itr = mTable.begin(); itr!=mTable.end(); ++itr) {
-		TranEntry *tran = itr->second;
-		if (tran->deadOrRemoved()) continue;
-		if (tran->getDialog() == pDialog) return tran;
-	}
-	return NULL;
-}
-#endif
-
 // (pat added) Add a message to the TranEntry inbox.
 void NewTransactionTable::ttAddMessage(TranEntryId tranid,SIP::DialogMessage *dmsg)
 {
-	rwLock.rlock();
+	ScopedLock lock(mttLock,__FILE__,__LINE__);
 	TranEntry* tran = ttFindById(tranid);
 	if (tran) {
 		tran->mTranInbox.write(dmsg);
-		rwLock.unlock();
 	} else {
-		rwLock.unlock(); // don't do the log or delete while locked - reduce the timing window
-
 		// This is ok - the SIP dialog and L3 transaction side are completely decoupled so it is quite
 		// possible that the transaction was deleted (for example, MS signal failure) while
 		// a SIP dialog is still running.
 		LOG(DEBUG) << "info: SIP Dialog message to non-existent"<<LOGVAR(tranid);
 		delete dmsg;
 	}
+}
 
+CallState NewTransactionTable::ttGetGSMStateById(TranEntryId tranid)
+{
+	ScopedLock lock(mttLock,__FILE__,__LINE__);
+	TranEntry *tran = ttFindById(tranid);
+	CallState result = tran ? tran->getGSMState() : CCState::NullState;
+	return result;
 }
 
 // This is an external interface so we dont have to include L3TranEntry.h just to access this function.
@@ -1348,29 +1110,6 @@ void NewTransactionTable_ttAddMessage(TranEntryId tranid,SIP::DialogMessage *dms
 {
 	gNewTransactionTable.ttAddMessage(tranid,dmsg);
 }
-
-
-//TranEntry* NewTransactionTable::ttFindBySIPCallId(const L3MobileIdentity& mobileID, const char* callID)
-//{
-//	assert(callID);
-//	LOG(DEBUG) << "by ID and call-ID: " << mobileID << ", call " << callID;
-//
-//	string callIDString = string(callID);
-//	// Yes, it's linear time.
-//	// Since clearDeadEntries is also linear, do that here, too.
-//	ScopedLock lock(mttLock,__FILE__,__LINE__);
-//	clearDeadEntries();
-//
-//	// Brute force search.
-//	for (NewTransactionMap::iterator itr = mTable.begin(); itr!=mTable.end(); ++itr) {
-//		TranEntry *tran = itr->second;
-//		if (tran->deadOrRemoved()) continue;
-//		if (tran->mDialog->callID() != callIDString) continue;
-//		if (tran->subscriber() != mobileID) continue;
-//		return itr->second;
-//	}
-//	return NULL;
-//}
 
 
 TranEntry* NewTransactionTable::ttFindHandoverOther(const L3MobileIdentity& mobileID, unsigned otherBS1TranId)
@@ -1382,11 +1121,9 @@ TranEntry* NewTransactionTable::ttFindHandoverOther(const L3MobileIdentity& mobi
 	//clearDeadEntries();
 
 	// Brute force search.
-	rwLock.rlock();
+	ScopedLock lock(mttLock,__FILE__,__LINE__);
 	for (NewTransactionMap::iterator itr = mTable.begin(); itr!=mTable.end(); ++itr) {
 		TranEntry *tran = itr->second;
-		
-		// PERFORMANCE NOTE: Should not do logging in a lock
 		LOG(DEBUG) << "comparing "<<tran<<LOGVAR2("HandoverOtherBSTransactionID",(tran->mHandover?tran->mHandover->mHandoverOtherBSTransactionID:-1));
 		if (tran->deadOrRemoved()) continue;
 		if (!tran->mHandover) {
@@ -1397,52 +1134,79 @@ TranEntry* NewTransactionTable::ttFindHandoverOther(const L3MobileIdentity& mobi
 			LOG(DEBUG) "no match "<<tran->mHandover->mHandoverOtherBSTransactionID<<"!="<<otherBS1TranId;
 			continue;
 		}
-		if (! tran->subscriber().fmidMatch(mobileID)) {
+		if (! mobileID.fmidMatch(&tran->subscriber())) {
 			LOG(DEBUG) "no match"<<LOGVAR(tran->subscriber()) <<LOGVAR(mobileID);
 			continue;
 		}
-		rwLock.unlock();
 		return tran;
 	}
-	rwLock.unlock();
 	return NULL;
 }
 
 
 
+#if UNUSED
+// Currently unused
+L3LogicalChannel* NewTransactionTable::findChannel(const L3MobileIdentity& mobileID)
+{
+	// Yes, it's linear time.
+	// Even in a 6-ARFCN system, it should rarely be more than a dozen entries.
+
+	ScopedLock lock(mttLock,__FILE__,__LINE__);
+
+	// Since clearDeadEntries is also linear, do that here, too.
+	clearDeadEntries();
+
+	// Brute force search.
+	for (NewTransactionMap::iterator itr = mTable.begin(); itr!=mTable.end(); ++itr) {
+		if (itr->second->deadOrRemoved()) continue;
+		if (! itr->second->subscriber().fmidMatch(mobileID)) continue;
+		L3LogicalChannel* chan = itr->second->channel();
+		if (!chan) continue;
+		if (chan->chtype() == FACCHType) return chan;
+		if (chan->chtype() == SDCCHType) return chan;
+		// (pat) What other channel type could there be?  The SACCH are not returned by channel().
+		assert(0);		// Alert pat if you get this assertion.
+	}
+	return NULL;
+}
+#endif
+
+
+#if UNUSED
+unsigned NewTransactionTable::countChan(const L3LogicalChannel* chan)
+{
+	ScopedLock lock(mttLock,__FILE__,__LINE__);
+	clearDeadEntries();
+	unsigned count = 0;
+	for (NewTransactionMap::iterator itr = mTable.begin(); itr!=mTable.end(); ++itr) {
+		if (itr->second->deadOrRemoved()) continue;
+		if (itr->second->channel() == chan) count++;
+	}
+	return count;
+}
+#endif
+
+
 
 size_t NewTransactionTable::dump(ostream& os, bool showAll) const
 {
-	rwLock.rlock();
+	ScopedLock lock(mttLock,__FILE__,__LINE__);
 	size_t sz = 0;
 	for (NewTransactionMap::const_iterator itr = mTable.begin(); itr!=mTable.end(); ++itr) {
 		if ((!showAll) && itr->second->deadOrRemoved()) continue;
 		sz++;
 		os << *(itr->second) << endl;
 	}
-	rwLock.unlock();
-	return sz;
-}
-
-size_t NewTransactionTable::dumpTable(ostream& os) const
-{
-	rwLock.rlock();
-	size_t sz = 0;
-	for (NewTransactionMap::const_iterator itr = mTable.begin(); itr!=mTable.end(); ++itr) {
-		sz++;
-		itr->second->textTable(os);
-	}
-	rwLock.unlock();
 	return sz;
 }
 
 
 TranEntryId NewTransactionTable::findLongestCall()
 {
-	rwLock.rlock();
+	ScopedLock lock(mttLock,__FILE__,__LINE__);
 	//clearDeadEntries();
 	long longTime = 0;
-	TranEntryId iRet = 0;
 	NewTransactionMap::iterator longCall = mTable.end();
 	for (NewTransactionMap::iterator itr = mTable.begin(); itr!=mTable.end(); ++itr) {
 		if (itr->second->deadOrRemoved()) continue;
@@ -1454,10 +1218,8 @@ TranEntryId NewTransactionTable::findLongestCall()
 			longCall = itr;
 		}
 	}
-	if (longCall == mTable.end()) iRet = 0;
-	else iRet = longCall->second->tranID();
-	rwLock.unlock();
-	return iRet;
+	if (longCall == mTable.end()) return 0;
+	return longCall->second->tranID();
 }
 
 /**
@@ -1485,9 +1247,9 @@ unsigned allocateRTPPorts()
 
 /* linear, we should move the actual search into this structure */
 // (pat) Speed entirely irrelevant; this is done once per call.
-bool NewTransactionTable::RTPAvailable(short rtpPort)
+bool NewTransactionTable::RTPAvailable(unsigned rtpPort)
 {
-	rwLock.rlock();
+	ScopedLock lock(mttLock,__FILE__,__LINE__);
 	//clearDeadEntries();
 	bool avail = true;
 	for (NewTransactionMap::iterator itr = mTable.begin(); itr!=mTable.end(); ++itr) {
@@ -1497,44 +1259,34 @@ bool NewTransactionTable::RTPAvailable(short rtpPort)
 			break;
 		}
 	}
-	rwLock.unlock();
 	return avail;
 }
 
-void StaleTransactionTable::ttAdd(StaleTranEntry* value)
+
+
+
+#if 0
+bool NewTransactionTable::outboundReferenceUsed(unsigned ref)
 {
-	rwLock.wlock();
-	if ((int)mTable.size() >= gConfig.getNum("Control.Reporting.TransactionMaxCompletedRecords")) {
-		mTable.erase(mTable.begin());
+	// Called is expected to hold mttLock.
+	for (NewTransactionMap::iterator itr = mTable.begin(); itr!=mTable.end(); ++itr) {
+		if (itr->second->deadOrRemoved()) continue;
+		if (itr->second->getGSMState() != GSM::Handover_Outbound) continue;
+		if (itr->second->handoverReference() == ref) return true;
 	}
-	mTable[value->tranID()]=value;
-	rwLock.unlock();
+	return false;
 }
 
-void StaleTransactionTable::ttErase(StaleTransactionMap::iterator itr)
+unsigned NewTransactionTable::generateHandoverReference(TranEntry *transaction)
 {
-	// we are already locked
-	mTable.erase(itr); // erase the original
+	ScopedLock lock(mttLock,__FILE__,__LINE__);
+	clearDeadEntries();
+	unsigned ref = random() % 256;
+	while (outboundReferenceUsed(ref)) { ref = (ref+1) % 256; }
+	transaction->handoverReference(ref);
+	return ref;
 }
-
-size_t StaleTransactionTable::dumpTable(ostream& os) const
-{
-	rwLock.rlock();
-	size_t sz = 0;
-	for (StaleTransactionMap::const_iterator itr = mTable.begin(); itr!=mTable.end(); ++itr) {
-		sz++;
-		itr->second->textTable(os);
-	}
-	rwLock.unlock();
-	return sz;
-}
-
-void StaleTransactionTable::clearTable()
-{
-	rwLock.wlock();
-	mTable.clear();
-	rwLock.unlock();
-}
+#endif
 
 MachineBase *TranEntry::tePopMachine()
 {
@@ -1580,12 +1332,12 @@ MachineStatus TranEntry::handleRecursion(MachineStatus status)
 bool TranEntry::handleMachineStatus(MachineStatus status)
 {
 	//MMContext *set = teGetContext();
-	OBJLOG(DEBUG) <<LOGVAR(status.mCode);
+	OBJLOG(DEBUG) <<LOGVAR(status.msCode);
 	status = handleRecursion(status);	// Harmless overkill if called again.
 
-	switch (status.mCode) {
+	switch (status.msCode) {
 	case MachineStatus::MachineCodePopMachine:	// aka MachineStatusPopMachine
-		assert(0);	// We just checked this case above.
+		devassert(0);	// We just checked this case above.
 	case MachineStatus::MachineCodeOK:
 		// continue the procedure, meaning return to L3 message handler and wait for the next message.
 		return true;
@@ -1593,15 +1345,19 @@ bool TranEntry::handleMachineStatus(MachineStatus status)
 		// Drop the channel.
 		// Normally the user called closeChannel which does the actual work, but we will make sure:
 		// Just in case we get here without closeChannel having been 
-		if (! channel()->isReleased()) {
+		// (pat) Update: Now the cause is passed to us in the transaction result MachineStatus.
+		// If the caller already called chanRelease then channel will already be null.
+		if (channel() && ! channel()->isReleased()) {
 			// If the caller did not already call this, we dont know what the heck happened, so do a RELEASE instead of HARDRELEASE.
-			channel()->chanRelease(RELEASE);
+			channel()->chanRelease(L3_RELEASE_REQUEST,status.msCause);
 		}
 		return true;
 	case MachineStatus::MachineCodeQuitTran:	// aka MachineStatusQuitTran
 		// Pop all procedures from stack and remove the transaction.  Procedure already sent messages.
 		// This is the normal exit from a completed procedure.
-		teRemove(CancelCauseUnknown);		// Danger will robinson!!!!  Deletes the Transaction we are running.
+		// In all cases the caller was supposed to already send termination messages toward both layer2 (the handset)
+		// and SIP Dialog (the network) however, we will perform additional termination to make sure.
+		teRemove(status.msCause);		// Danger will robinson!!!!  Deletes the Transaction we are running.
 		return true;
 	case MachineStatus::MachineCodeUnexpectedState:	// aka MachineStatusUnexpectedState
 		return false;		// The message or state was unrecognized by this state machine.
@@ -1636,6 +1392,11 @@ bool TranEntry::handleMachineStatus(MachineStatus status)
 
 // The 'lockAnd...' methods are used to initially start or restart a Procedure.
 // Update: This locking is no longer needed or relevant.
+// (pat 5-13-2014) Update update: Yes the locks appear to be used - I got the "waiting more than one second" emssage from lockAndInvokeFrame;
+//   the situation was starting then cancelling a call on the same handset.  This may have been in the midst of a reassignment procedure
+//   so messages were arriving simultaneously on both channels.  Looks like the CC Disconnect was sent on the SDCCH right before the
+//   reassign procedure, then a dialog cancel came in too.
+//	 The phone misbehaved - it looked like it stayed connected after pressing disconnect?  check again.
 // When jumping between procedures we dont use these, although it would not matter since the locks can be recursive.
 // Start a procedure by calling stateStart:
 // If no proc is specified here, assume that teSetProcedure was called previously and start the currentProcedure.
@@ -1644,10 +1405,10 @@ bool TranEntry::lockAndStart(MachineBase *wProc)
 	ScopedLock lock(mL3RewriteLock,__FILE__,__LINE__);
 	if (wProc) {
 		teSetProcedure(wProc,false);
-		assert(wProc == currentProcedure());
+		devassert(wProc == currentProcedure());
 	} else {
 		wProc = currentProcedure();
-		assert(wProc);	// Someone set the currentProcedure before calling this method.
+		devassert(wProc);	// Someone set the currentProcedure before calling this method.
 	}
 	return handleMachineStatus(wProc->callMachStart(wProc));
 }
@@ -1658,10 +1419,37 @@ bool TranEntry::lockAndStart(MachineBase *wProc, GSM::L3Message *l3msg)
 {
 	ScopedLock lock(mL3RewriteLock,__FILE__,__LINE__);
 	teSetProcedure(wProc,false);
-	assert(wProc == currentProcedure());
+	devassert(wProc == currentProcedure());
 	return handleMachineStatus(wProc->dispatchL3Msg(l3msg));
 }
 
+#if UNUSED
+// Send a message to the current Procedure, either l3msg or lch.
+// lch is the channel this message arrived on.  It is information we have, but I dont think it is useful.
+// I wonder if there are any cases where lch may not be the L3LogicalChannel that initiated the Procedure?
+// It probably doesnt matter - we use the L3LogicalChannel to send return messages to the MS,
+// and the initial channel that created the Procedure is probably the correct one.
+// For example if lch is FACCH, we cannot send anything downstrem on that.
+bool TranEntry::lockAndInvokeL3Msg(const GSM::L3Message *l3msg /*, const L3LogicalChannel *lch*/)
+{
+	LOG(DEBUG);
+	ScopedLock lock(mL3RewriteLock,__FILE__,__LINE__);
+#if ORIGINAL
+	// Look up the message in the Procedure message table.
+	int state = mCurrentProcedure->findMsgMap(l3msg->PD(),l3msg->MTI());
+	if (state == -1) {
+		// If state is -1, message is not mapped and is ignored by us.
+		return false;	// Message was not wanted by this Procedure.
+	}
+	teProcInvoke(state,l3msg,NULL);
+#endif
+	if (MachineBase *proc = currentProcedure()) {
+		LOG(DEBUG) <<"sending l3msg to"<<LOGVAR(proc) <<LOGVAR(l3msg);
+		return handleMachineStatus(proc->dispatchL3Msg(l3msg));
+	}
+	return false;
+}
+#endif
 
 // l3msg may be NULL for primitives or unparseable messages.
 bool TranEntry::lockAndInvokeFrame(const L3Frame *frame, const L3Message *l3msg)
@@ -1719,15 +1507,18 @@ bool TranEntry::lockAndInvokeTimeout(L3Timer *timer)
 
 void TranEntry::terminateHook()
 {
+	LOG(INFO) "SIP term info terminateHook";
 	if (MachineBase *proc = currentProcedure()) {
 		proc->handleTerminationRequest();
 	}
 }
 
-void TranEntry::teCloseDialog(CancelCause cause)
+
+void TranEntry::teCloseDialog(TermCause cause)
 {
 	CallState state = getGSMState();
 
+	LOG(INFO) << "SIP term info teCloseDialog cancel cause: " << cause /*<< " l3Cause : " << l3Cause*/ ;  // SVGDBG
 	// An MO transaction may not have a dialog yet.
 	// The dialog can also be NULL because the phone will send a DISCONNECT first thing if a previous call did not close correctly.
 	SipDialog *dialog = getDialog();
@@ -1736,209 +1527,74 @@ void TranEntry::teCloseDialog(CancelCause cause)
 		// For the special case of outbound handover we must destroy the dialog immediately
 		// in case a new handover comes back to us in the reverse direction.
 		// just drop the dialog, dont send a BYE.
-		//bool terminate = (state == CCState::HandoverOutbound);
 		if (state == CCState::HandoverOutbound) {
-			cause = CancelCauseHandoverOutbound;
+			cause = TermCause::Local(L3Cause::Handover_Outbound);
 		}
+		LOG(INFO) << "SIP term info dialogCancel called in teCloseDialog";
 		dialog->dialogCancel(cause);		// Does nothing if dialog not yet started.
 	}
 }
-
-
-StaleTranEntry::StaleTranEntry(TranEntry &old)
-{
-	mStateTimer = old.mStateTimer;
-	mID = old.tranID();
-	mService = old.mService;
-	mL3TI = old.mL3TI;
-	mCalled = old.mCalled;
-	mCalling = old.mCalling;
-	mMessage = old.mMessage;
-	startTime = old.startTime;
-	endTime = old.endTime;
-
-	//DIG: Debug Start
-	if (0) {
-	   printf("*********************************************************\n");
-	   printf("*********************************************************\n");
-	   printf("                      STALE TRANSACTION ENTRY CONSTRUCTOR\n");
-	   printf("StaleTranEntry::StaleTranEntry() called, call stack follows:\n");
-	   printf("This %p, tranid %d\n", this, mID);
-	   const int elements = 100;
-	   void *buffer[elements];
-	   int nptrs = backtrace(buffer, elements);
-	   char **strings = backtrace_symbols(buffer, nptrs);
-	   if (strings == NULL) { perror("backtrace_symbols"); }
-	   else
-	   {
-	       for (int j = 0; j < nptrs; j++) printf("%s\n", strings[j]);
-		   free(strings);
-	   }
-	   printf("*********************************************************\n");
-	   printf("*********************************************************\n");
-	}
-	//DIG: Debug End
-}
-
-StaleTranEntry::~StaleTranEntry()
-{
-//DIG: Debug Start
-	if (0) {
-	   printf("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n");
-	   printf("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n");
-	   printf("                      destructor\n");
-	   printf("StalTranEntry::~StalTranEntry() called, call stack follows:\n");
-	   printf("This %p, tranid %d\n", this, mID);
-	   const int elements = 100;
-	   void *buffer[elements];
-	   int nptrs = backtrace(buffer, elements);
-	   char **strings = backtrace_symbols(buffer, nptrs);
-	   if (strings == NULL) { perror("backtrace_symbols"); }
-	   else
-	   {
-	       for (int j = 0; j < nptrs; j++) printf("%s\n", strings[j]);
-		   free(strings);
-	   }
-	   printf("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n");
-	   printf("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n");
-	}
-//DIG: Debug End
-}
-
-// Use this for the column headers for the "calls" output
-void StaleTranEntry::header(ostream& os)
-{
-    std::string fmtBuf("");
-	char buf[BUFSIZ];
-
-	fmtBuf += TranFmt::lblfmt_Active;
-	fmtBuf += TranFmt::lblfmt_TranId;
-	fmtBuf += TranFmt::lblfmt_L3TI;
-	fmtBuf += TranFmt::lblfmt_Service;
-	fmtBuf += TranFmt::lblfmt_To;
-	fmtBuf += TranFmt::lblfmt_From;
-	fmtBuf += TranFmt::lblfmt_AgeSec;
-	fmtBuf += TranFmt::lblfmt_StartTime;
-	fmtBuf += TranFmt::lblfmt_EndTime;
-	fmtBuf += TranFmt::lblfmt_Message;
-	fmtBuf += "\n";
-
-	snprintf(buf, sizeof(buf)-1, fmtBuf.c_str(),
-		"Active",
-		"TranId",
-		"L3TI",
-		"Service",
-		"To",
-		"From",
-		"AgeSec",
-		"Start Time",
-		"End Time",
-		"Message");
-	os << buf;
-
-	snprintf(buf, sizeof(buf)-1, fmtBuf.c_str(),
-		"======",
-		"==========",
-		"=========",
-		"=========",
-		"================",
-		"================",
-		"=========",
-		"=====================================",
-		"=====================================",
-		"========================================================");
-	os << buf;
-}
-
-// Use this for the column data for the "calls" output
-void StaleTranEntry::textTable(ostream& os) const
-{
-    std::string fmtBuf("");
-	char buf[BUFSIZ];
-
-	fmtBuf += TranFmt::fmt_Active;
-	fmtBuf += TranFmt::fmt_TranId;
-	fmtBuf += TranFmt::fmt_L3TI;
-	fmtBuf += TranFmt::fmt_Service;
-	fmtBuf += TranFmt::fmt_To;
-	fmtBuf += TranFmt::fmt_From;
-	fmtBuf += TranFmt::fmt_AgeSec;
-	fmtBuf += TranFmt::fmt_StartTime;
-	if (endTime)
-		fmtBuf += TranFmt::fmt_EndTime;
-	else
-		fmtBuf += TranFmt::fmt_EndTime2;
-	fmtBuf += TranFmt::fmt_Message;
-	fmtBuf += "\n";
-
-	struct tm startTm, endTm;
-	localtime_r(&startTime, &startTm);
-	std::ostringstream svc;
-	mService.text(svc);
-	const char *psSvc = svc.str().c_str();
-	if (endTime)
-	{
-		localtime_r(&endTime, &endTm);
-		snprintf(buf, sizeof(buf)-1, fmtBuf.c_str(),
-			endTime == 0 ? "yes" : "no",
-			tranID(),
-			mL3TI,
-			psSvc,
-			mCalled.digits()[0] ? mCalled.digits() : "",
-			mCalling.digits()[0] ? mCalling.digits() : "",
-			(stateAge()+500)/1000,
-			startTm.tm_year + 1900, startTm.tm_mon + 1, startTm.tm_mday,
-			startTm.tm_hour, startTm.tm_min, startTm.tm_sec,
-			startTime,
-			endTm.tm_year + 1900, endTm.tm_mon + 1, endTm.tm_mday,
-			endTm.tm_hour, endTm.tm_min, endTm.tm_sec,
-			endTime,
-			mMessage.c_str());
-	} else
-	{
-		snprintf(buf, sizeof(buf)-1, fmtBuf.c_str(),
-			endTime == 0 ? "yes" : "no",
-			tranID(),
-			mL3TI,
-			psSvc,
-			mCalled.digits()[0] ? mCalled.digits() : "",
-			mCalling.digits()[0] ? mCalling.digits() : "",
-			(stateAge()+500)/1000,
-			startTm.tm_year + 1900, startTm.tm_mon + 1, startTm.tm_mday,
-			startTm.tm_hour, startTm.tm_min, startTm.tm_sec,
-			startTime,
-			"", // no end time
-			mMessage.c_str());
-	}
-	os << buf;
-}
-
-unsigned StaleTranEntry::getL3TI() const
-{
-	return mL3TI;
-}
-
 
 
 // Used by MMLayer to immediately remove the transaction, without notifying MM layer.
 // An assumption is that the dialog pointer is valid as long as the transaction exists,
 // so we dont zero out the dialog pointer until we kill the dialog.
-void TranEntry::teRemove(CancelCause cause)
+void TranEntry::teRemove(TermCause cause)
 {
-	CallState state = getGSMState();
-
+	if (mFinalDisposition.tcIsEmpty()) {
+		mFinalDisposition = cause;
+	}
 	SipDialog *dialog = getDialog();
-	mDialog = 0;
-
+	CallState state = getGSMState();
 	if (dialog) {
-		// For the special case of outbound handover we must destroy the dialog immediately
-		// in case a new handover comes back to us in the reverse direction.
-		// just drop the dialog, dont send a BYE.
-		//bool terminate = (state == CCState::HandoverOutbound);
 		if (state == CCState::HandoverOutbound) {
-			cause = CancelCauseHandoverOutbound;
+			// FIXME: Sigh, it could be NoUserResponding from the default timer handler.
+			devassert(cause.tcGetValue() == L3Cause::Handover_Outbound || cause.tcIsEmpty());
+			cause = TermCause::Local(L3Cause::Handover_Outbound);
 		}
+		if (cause.tcIsEmpty() && dialog->getLastResponseCode()) {
+			// Both transaction and dialog are already cancelled, so this cause is for reporting purposes.
+			cause = dialog2TermCause(dialog);
+		}
+		LOG(INFO) << "SIP term info dialogCancel called in teRemove cancel cause: " << cause;
 		dialog->dialogCancel(cause);		// Does nothing if dialog not yet started.
+	}
+
+	//GSM::CCCause l3Cause = GSM::L3Cause::UnknownL3Cause;
+	//if (dialog) {
+	//	int SIPerror = dialog->getLastResponseCode();
+	//	// For the special case of outbound handover we must destroy the dialog immediately
+	//	// in case a new handover comes back to us in the reverse direction.
+	//	// just drop the dialog, dont send a BYE.
+	//	if (state == CCState::Handover_Outbound) {
+	//		devassert(cause == TermCauseHandoverOutbound);
+	//		cause = TermCauseHandoverOutbound;
+	//	}
+
+	//	if (cause == TermCauseNoAnswerToPage)
+	//		l3Cause = GSM::L3Cause::NoUserResponding;
+	//	else if (cause == TermCauseBusy)
+	//		l3Cause = GSM::L3Cause::UserBusy;
+	//	else if (cause == TermCauseCongestion)
+	//		l3Cause = GSM::L3Cause::SwitchingEquipmentCongestion;
+
+	//	if (l3Cause == GSM::L3Cause::UnknownL3Cause) {
+	//		// Translate SIP error to L3Cause
+	//		switch (SIPerror) {
+	//		case 408: l3Cause = L3Cause::NoUserResponding; break;
+	//		case 480: l3Cause = L3Cause::UserAlertingNoAnswer; break;
+	//		case 404: l3Cause = L3Cause::UnassignedNumber; break;
+	//		default: break;
+	//		}
+	//	}
+
+	//	LOG(INFO) << "SIP term info dialogCancel called in teRemove cancel cause: " << cause << " L3Cause: " << l3Cause << " SIPerror: " << SIPerror;
+	//	dialog->dialogCancel(cause, l3Cause);		// Does nothing if dialog not yet started.
+	//}
+
+	if (L3CDR *cdr = this->createCDR(false,cause)) {
+		gCdrService.cdrServiceStart();
+		gCdrService.cdrAdd(cdr);
 	}
 
 	// It is important to make this transaction no longer point at the dialog, because the dialog
@@ -1958,19 +1614,258 @@ void TranEntry::teRemove(CancelCause cause)
 // Send closure messages for a transaction that is known to be a CS transaction, using the specified CC cause.
 // Must only call from the thread running the channel.
 // To close all transactions on a channel, see L3LogicalChannel::chanClose()
-void TranEntry::teCloseCallNow(L3Cause l3cause)
+void TranEntry::teCloseCallNow(TermCause cause, bool sendCause)
 {
-	WATCHINFO("CloseCallNow"<<LOGVAR2("cause",l3cause.cause())<<" "<<channel()->descriptiveString());
-	LOG(DEBUG) <<LOGVAR(l3cause) << this << gMMLayer.printMMInfo();
-	teCloseDialog(); // Redundant with teRemove, but I want to be sure we terminate the dialog regardless of bugs.
+	LOG(INFO) << "SIP term info closeCallNow cause: " << cause; // SVGDBG
+	WATCHINFO("CloseCallNow"<<LOGVAR2("cause",cause)<<" "<<channel()->descriptiveString());
+	LOG(DEBUG) <<LOGVAR(cause) << this << gMMLayer.printMMInfo();
+
+	tran()->teCloseDialog(cause); // Redundant with teRemove, but I want to be sure we terminate the dialog regardless of bugs.
 	if (isL3TIValid() && tran()->getGSMState() != CCState::NullState && tran()->getGSMState() != CCState::ReleaseRequest) {
 		unsigned l3ti = getL3TI();
 		// 24.008 5.4.2: Permitted method to close call immediately.
-		channel()->l3sendm(GSM::L3ReleaseComplete(l3ti,l3cause));	// This is a CC message that releases this Transaction immediately.
+		if (sendCause) {
+			channel()->l3sendm(GSM::L3ReleaseComplete(l3ti,cause.tcGetCCCause()));	// This is a CC message that releases this Transaction immediately.
+		} else {
+			channel()->l3sendm(GSM::L3ReleaseComplete(l3ti));	// This is a reply that confirms transaction was released.
+		}
 	}
 	setGSMState(CCState::NullState);	// redundant, we are deleting this transaction.
 }
 
-};
+void writePrivateHeaders(SipMessage *msg, const L3LogicalChannel *l3chan)
+{
+	// P-PHY-Info
+	// This is a non-standard private header in OpenBTS.
+	// TODO: If we add the MSC params to this, especially L3TI, the SIP message will completely encapsulate handover.
+	// TA=<timing advance> TE=<TA error> UpRSSI=<uplink RSSI> TxPwr=<MS tx power> DnRSSIdBm=<downlink RSSI>
+	// Get the values.
+	if (l3chan) {
+		char phy_info[200];
+		// (pat) TODO: This is really cheating.
+		const GSM::L2LogicalChannel *chan = l3chan->getL2Channel();
+		MSPhysReportInfo *phys = chan->getPhysInfo();
+		// (pat 5-2014) Adding the imsi to the info, since it is sometimes not possible to know which of the
+		// two handsets involved in the dialog initiated the SIP message.
+		string imsi = l3chan->chanGetImsi(true);
+		snprintf(phy_info,200,"OpenBTS; IMSI=%s TA=%d TE=%f UpRSSI=%f TxPwr=%d DnRSSIdBm=%d time=%9.3lf",
+			imsi.c_str(),
+			phys->actualMSTiming(), phys->timingError(),
+			phys->getRSSI(), phys->actualMSPower(),
+			chan->measurementResults().RXLEV_FULL_SERVING_CELL_dBm(),
+			phys->timestamp());
+		static const string cPhyInfoString("P-PHY-Info");
+		msg->smAddHeader(cPhyInfoString,phy_info);
+	}
+
+	// P-Access-Network-Info
+	// See 3GPP 24.229 7.2.  This is a genuine specified header.
+	char cgi_3gpp[256];
+	snprintf(cgi_3gpp,256,"3GPP-GERAN; cgi-3gpp=%s%s%04x%04x",
+		gConfig.getStr("GSM.Identity.MCC").c_str(),gConfig.getStr("GSM.Identity.MNC").c_str(),
+		(unsigned)gConfig.getNum("GSM.Identity.LAC"),(unsigned)gConfig.getNum("GSM.Identity.CI"));
+	static const string cAccessNetworkInfoString("P-Access-Network-Info");
+	msg->smAddHeader(cAccessNetworkInfoString, cgi_3gpp);
+ 
+	// FIXME -- Use the subscriber registry to look up the E.164
+	// and make a second P-Preferred-Identity header.
+}
+
+void TranInit()
+{
+	SipCallbacks::setcallback_ttAddMessage( & NewTransactionTable_ttAddMessage);
+	SipCallbacks::setcallback_writePrivateHeaders( & writePrivateHeaders);
+}
+
+// Look up the phone number, if any, passed to us from the Registrar when this imsi registered.
+static string lookupPhoneNumber(string imsi)
+{
+	string number, unused;
+	gTMSITable.getSipIdentities(imsi,number,unused);
+	int len = number.size();
+	if (len >= 2 && number[0] == '<') { number = number.substr(1,len-2); }
+	if (0 == strncasecmp(number.c_str(),"tel:",4)) { number = number.substr(4); }
+	return number;
+}
+
+L3CDR *TranEntry::createCDR(bool makeCMR, TermCause cause)	// If true, make a CMR instead of a CDR.  CMRs have more info.
+{
+	L3CDR *cdrp = new L3CDR(), &cdr = *cdrp;	// Gotta love this language.
+	cdr.cdrToNumber = string(this->called().digits());
+	cdr.cdrFromNumber = string(this->calling().digits());
+
+	switch (this->service().type()) {
+		case L3CMServiceType::MobileOriginatedCall:
+			cdr.cdrType = "MOC";
+			labelmoc:
+			if (mConnectTime == 0 && ! makeCMR) { goto labelIgnore; }
+			cdr.cdrFromImsi = this->subscriber().mImsi;
+			if (SipDialog *dialog = this->getDialog()) {
+				// MOC do not know the IMSI of the phone number they are calling.
+				//cdr.cdrToImsi = dialog->sipRemoteUsername();	// This is the phone number, not the imsi.
+				if (dialog->dsPeer()) cdr.cdrPeer = dialog->dsPeer()->mipName;
+			}
+			if (cdr.cdrFromNumber.empty()) {
+				cdr.cdrFromNumber = lookupPhoneNumber(cdr.cdrFromImsi);
+			}
+			break;
+		case L3CMServiceType::EmergencyCall:
+			cdr.cdrType = "Emergency";
+			goto labelmoc;
+			break;
+		case L3CMServiceType::ShortMessage:
+			if (this->mMessage.size() == 0 && ! makeCMR) { goto labelIgnore; }
+			cdr.cdrType = "MOSMS";
+			goto labelmoc;
+			break;
+		case L3CMServiceType::MobileTerminatedShortMessage:
+			if (this->mMessage.size() == 0 && ! makeCMR) { goto labelIgnore; }
+			cdr.cdrType = "MTSMS";
+			goto labelmtc;
+			break;
+
+		case L3CMServiceType::UndefinedType:
+		case L3CMServiceType::SupplementaryService:
+		case L3CMServiceType::VoiceCallGroup:
+		case L3CMServiceType::VoiceBroadcast:
+		case L3CMServiceType::LocationService:
+		case L3CMServiceType::LocationUpdateRequest:
+		case L3CMServiceType::HandoverCall: // The handover code sets the type to MobileOriginatedCall or MobileTerminatedCall so we should not see this.
+			break;
+
+		case L3CMServiceType::MobileTerminatedCall:
+			cdr.cdrType = "MTC";
+			labelmtc:
+			if (mConnectTime == 0 && ! makeCMR) { goto labelIgnore; }
+			cdr.cdrToImsi = this->subscriber().mImsi;
+			if (SipDialog *dialog2 = this->getDialog()) {
+				cdr.cdrFromImsi = dialog2->sipRemoteUsername();
+				if (0 == strncasecmp(cdr.cdrFromImsi.c_str(),"IMSI",4)) {
+					cdr.cdrFromImsi = cdr.cdrFromImsi.substr(4);
+				}
+				if (dialog2->dsPeer()) cdr.cdrPeer = dialog2->dsPeer()->mipName;
+			}
+			if (cdr.cdrToNumber.empty()) {
+				cdr.cdrToNumber = lookupPhoneNumber(cdr.cdrToImsi);
+			}
+			break;
+	};
+
+	if (cdr.cdrType == "") {
+		LOG(ERR) << "Unrecognized service, no CDR generated:"<<this->service();
+		labelIgnore:
+		delete cdrp;
+		return NULL;
+	}
+
+	cdr.cdrTid = this->tranID();
+	cdr.cdrConnectTime = this->mConnectTime;
+	cdr.cdrDuration = cdr.cdrConnectTime ? time(NULL) - cdr.cdrConnectTime : 0;
+	cdr.cdrMessageSize = this->mMessage.size();
+	cdr.cdrCause = this->mFinalDisposition;
+	if (HandoverEntry *hp = this->getHandoverEntry(false)) {
+		cdr.cdrFromHandover = sockaddr2string(&hp->mInboundPeer,false);
+		cdr.cdrToHandover = sockaddr2string(&hp->mOutboundPeer,false);
+	}
+	return cdrp;
+}
+
+void L3CDR::cdrWriteHeader(FILE *pf)
+{
+	// Fields must match type and order in cdrWriteEntry()
+	typedef struct {const char *name; const char *type;} Field;
+	static Field fields[] = {
+		{"Type","string"},
+		{"Transaction-id","integer"},
+		{"To-IMSI","string"},	// usually empty for MOC.
+		{"From-IMSI","string"},
+		{"To-number","string"},
+		{"From-number","string"},
+		{"Peer","string"},
+		{"Start-time","integer"},	// standard unix time.
+		// Connect duration, as opposed to total time, in seconds.  0 means call never successfully connected.
+		{"Connect-Duration","integer"},
+		{"Message-size","integer"},	// Only for SMS.
+		{"To-Handover","string"},	// TODO
+		{"From-Handover","string"},
+		{"Termination-Side","char"},		// R or L for remote or local side.
+		{"Termination-Cause","integer"},
+		{NULL,NULL}
+	};
+	// Print the field names.
+	for (Field *field = fields; field->name; field++) {
+		if (field != fields) fputc(',',pf);
+		fprintf(pf,"%s",field->name);
+	}
+	fputc('\n',pf);
+	// Print the field types.
+	for (Field *field = fields; field->type; field++) {
+		if (field != fields) fputc(',',pf);
+		fprintf(pf,"%s",field->type);
+	}
+	fputc('\n',pf);
+	fflush(pf);
+}
+
+void L3CDR::cdrWriteEntry(FILE *pf)
+{
+	fprintf(pf,"%s,%u,",cdrType.c_str(),cdrTid);
+	fprintf(pf,"%s,%s,",cdrToImsi.c_str(),cdrFromImsi.c_str());
+	fprintf(pf,"%s,%s,",cdrToNumber.c_str(),cdrFromNumber.c_str());
+	fprintf(pf,"%s,",cdrPeer.c_str());
+	fprintf(pf,"%lu,%lu,",cdrConnectTime,cdrDuration);
+	fprintf(pf,"%d,",cdrMessageSize);
+	fprintf(pf,"%s,%s,",cdrToHandover.c_str(),cdrFromHandover.c_str());	// handover to, from
+	fprintf(pf,"%c",(cdrCause.mtcInstigator == TermCause::SideLocal) ? 'L' : 'R');	// termination side
+	fprintf(pf,"%d",cdrCause.tcGetValue());	// termination cause
+	fprintf(pf,"\n");
+	fflush(pf);	// Write to disk in case OpenBTS crashes.
+}
+
+// Open a new file whenever the date changes.
+void CdrService::cdrOpenFile()
+{
+	time_t now = time(NULL);
+	struct tm tm;
+	localtime_r(&now,&tm);
+	if (tm.tm_yday == cdrCurrentDay) {
+		// We already tried to open the file.  Either we succeeded or not, but we wont try to open it on every transaction.
+		return;
+	}
+	if (mpf) { fclose(mpf); mpf = NULL; }
+	cdrCurrentDay = tm.tm_yday;
+	string date = format("%04d-%02d-%02d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday);
+
+	const char *dirname = "/var/log/OpenBTS";	// TODO: make this a config option.
+	mkdir(dirname,0777);	// Doesnt hurt to do this even if unnecessary.
+
+	string btsid = gConfig.getStr("SIP.Local.IP");	// Default bts id to the local IP address.
+	string filename = format("%s/OpenBTS_%s_%s.cdr",dirname,btsid,date);
+	mpf = fopen(filename.c_str(),"a");
+	// Dont re-write the header if we are appending to an existing file.
+	if (mpf && 0 == ftell(mpf)) { L3CDR::cdrWriteHeader(mpf); }
+}
+
+void*CdrService::cdrServiceLoop(void*arg)
+{
+	CdrService *self = static_cast<CdrService*>(arg);
+	while (!gBTS.btsShutdown()) {
+		L3CDR *cdr = self->mCdrQueue.read();	// Blocking read.
+		self->cdrOpenFile();	// We may have to open a new file if the date changed.
+		if (self->mpf) { cdr->cdrWriteEntry(self->mpf); }
+		delete cdr;
+	}
+	return NULL;
+}
+
+void CdrService::cdrServiceStart()
+{
+	if (!cdrServiceRunning) {
+		cdrServiceRunning = true;
+		cdrServiceThread.start(cdrServiceLoop,this);
+	}
+}
+
+};	// namespace
 
 // vim: ts=4 sw=4

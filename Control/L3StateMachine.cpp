@@ -4,7 +4,7 @@
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -14,12 +14,14 @@
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 */
+// Written by Pat Thompson
 #define LOG_GROUP LogGroup::Control		// Can set Log.Level.Control for debugging
 #include "L3StateMachine.h"
 #include "L3CallControl.h"
 #include "L3TranEntry.h"
 #include "L3MobilityManagement.h"
 #include "L3MMLayer.h"
+#include "L3Handover.h"
 #include <GSMLogicalChannel.h>
 #include <GSML3Message.h>
 #include <GSML3CCMessages.h>
@@ -27,7 +29,7 @@
 #include <GSML3MMMessages.h>
 #include <SMSMessages.h>
 #include <GSMConfig.h>
-#include <RRLPServer.h>
+#include <Globals.h>
 #include <typeinfo>
 
 using namespace GSM;
@@ -36,8 +38,8 @@ namespace Control {
 // See documentation as class MachineStatus.
 MachineStatus MachineStatusOK = MachineStatus(MachineStatus::MachineCodeOK);
 MachineStatus MachineStatusPopMachine = MachineStatus(MachineStatus::MachineCodePopMachine);
-MachineStatus MachineStatusQuitTran = MachineStatus(MachineStatus::MachineCodeQuitTran);
-MachineStatus MachineStatusQuitChannel = MachineStatus(MachineStatus::MachineCodeQuitChannel);
+//MachineStatus MachineStatusQuitTran = MachineStatus(MachineStatus::MachineCodeQuitTran);
+//MachineStatus MachineStatusQuitChannel = MachineStatus(MachineStatus::MachineCodeQuitChannel);
 MachineStatus MachineStatusAuthorizationFail = MachineStatus(MachineStatus::MachineCodeQuitChannel);
 MachineStatus MachineStatusUnexpectedState = MachineStatus(MachineStatus::MachineCodeUnexpectedState);
 
@@ -138,9 +140,9 @@ MachineStatus MachineBase::machPush(
 	return this->callMachStart(wCalledProcedure);
 }
 
-MachineStatus MachineBase::closeChannel(L3RRCause cause,Primitive prim)
+MachineStatus MachineBase::closeChannel(RRCause rrcause,Primitive prim,TermCause upstreamCause)
 {
-	LOG(DEBUG);
+	LOG(INFO) << "SIP term info closeChannel L3RRCause: " << rrcause; // SVGDBG
 	// We dont want to set to NullState because we want to differentiate the startup state from the closed state
 	// so that if something new happens (like a SIP dialog message coming in) we wont advance, we'll stay dead.
 	// TODO: Make sure the routines that handle incoming dialog messages check for channel already in a released state.
@@ -148,8 +150,8 @@ MachineStatus MachineBase::closeChannel(L3RRCause cause,Primitive prim)
 	setGSMState(CCState::ReleaseRequest);	// The chanClose below will send the request.
 	// Many handsets never complete the transaction.
 	// So force a shutdown of the channel.
-	channel()->chanClose(cause,prim);
-	return MachineStatusQuitChannel;
+	channel()->chanClose(rrcause,prim,upstreamCause);	// TODO: Remove, now redundant.
+	return MachineStatus::QuitChannel(upstreamCause);
 }
 
 #if UNUSED
@@ -191,7 +193,11 @@ L3LogicalChannel* MachineBase::channel() const {
 
 
 CallState MachineBase::getGSMState() const { return tran()->getGSMState(); }
-void MachineBase::setGSMState(CallState state) { tran()->setGSMState(state); }
+
+void MachineBase::setGSMState(CallState state) {
+	LOG(INFO) << "SIP term info setGSMState state: " << state; // SVGDBG
+	tran()->setGSMState(state);
+}
 
 SIP::SipDialog * MachineBase::getDialog() const { return tran()->getDialog(); }
 void MachineBase::setDialog(SIP::SipDialog*dialog) { return tran()->setDialog(dialog); }
@@ -255,8 +261,6 @@ static bool handleCommonMessages(const L3Message *l3msg, MMContext *mmchan, bool
 			NewPagingResponseHandler(dynamic_cast<const L3PagingResponse*>(l3msg),mmchan);
 			return true;
 		case L3CASE_RR(L3RRMessage::ApplicationInformation):
-			recvRRLP(mmchan, l3msg);
-			return true;
 		case L3CASE_RR(L3RRMessage::RRStatus):
 			handleStatus(l3msg,mmchan);
 			return true;
@@ -266,10 +270,13 @@ static bool handleCommonMessages(const L3Message *l3msg, MMContext *mmchan, bool
 			// TODO: Should we check that this an appropriate time to start it?
 			LURInit(l3msg,mmchan);
 			return true;
-		case L3CASE_MM(L3MMMessage::IMSIDetachIndication):
+		case L3CASE_MM(L3MMMessage::IMSIDetachIndication): {
 			// (pat) TODO, but it is not very important.
-			//IMSIDetachController(dynamic_cast<const L3IMSIDetachIndication*>(l3msg),mmchan);
+			L3MobileIdentity mobid = dynamic_cast<const L3IMSIDetachIndication*>(l3msg)->mobileID();
+			imsiDetach(mobid,mmchan->tsChannel());
+			mmchan->tsChannel()->chanRelease(L3_RELEASE_REQUEST,TermCause::Local(L3Cause::IMSI_Detached));
 			return true;
+			}
 		case L3CASE_MM(L3MMMessage::CMServiceRequest):
 			mmchan->mmcServiceRequests.write(l3msg);
 			//NewCMServiceResponder(dynamic_cast<const L3CMServiceRequest*>(l3msg),dcch);
@@ -278,11 +285,10 @@ static bool handleCommonMessages(const L3Message *l3msg, MMContext *mmchan, bool
 		default:
 			break;
 	}
-	*deletemsg = false;
 	return false;
 }
 
-MachineStatus MachineBase::machineRunState(int state, const GSM::L3Message *l3msg, const SIP::DialogMessage *sipmsg)
+MachineStatus MachineBase::machineRunState(int /*state*/, const GSM::L3Message * /*l3msg*/, const SIP::DialogMessage * /*sipmsg*/)
 {
 	// The state machine must implement one of: machineRunState, machineRunL3Msg or machineRunFrame.
 	assert(0);
@@ -306,7 +312,8 @@ MachineStatus MachineBase::machineRunL3Msg(int state, const GSM::L3Message *l3ms
 MachineStatus handlePrimitive(const L3Frame *frame, L3LogicalChannel *lch)
 {
 	switch (frame->primitive()) {
-	case GSM::ESTABLISH:
+	case L3_ESTABLISH_CONFIRM:
+	case L3_ESTABLISH_INDICATION:
 		// Indicates SABM mode establishment.  The state machines that use machineRunState can ignore these.
 		// The transaction is started by an L3 message like CMServiceRequest.
 		return MachineStatusOK;
@@ -420,36 +427,33 @@ MachineStatus MachineBase::dispatchTimeout(L3Timer*timer)
 		// Answer: It depends on the procedure.  The caller should have done any specific
 		// closing, for example CC message, before exiting the state machine.
 		LOG(INFO) << "Timer "<<timer->tName()<<" timeout";
+		// (pat) TODO: We should not use one error fits all here; the error should be set up when the timer was established.
+		TermCause cause = TermCause::Local(L3Cause::No_User_Responding); // SVG 5/20/14 changed this from InterworkingUnspecified to NoUserResponding
 
 		// If it is an SMS transaction, just drop it.
 		// If it is a CC transaction, lets send a message to try to kill it, which may block for 30 seconds.
 		switch (tran()->servicetype()) {
 		case L3CMServiceType::MobileOriginatedCall:
-		case L3CMServiceType::MobileTerminatedCall:
-			tran()->teCloseCallNow(L3Cause::InterworkingUnspecified);
-			return MachineStatusQuitTran;
-		// Changed 10-24-2013
-		//	if (! tran()->clearingGSM()) {
-		//		// We are bypassing the ReleaseRequest state, which is allowed by GSM 04.08 5.4.2.
-		//		// setGSMState(CCState::ReleaseRequest);
-		//		// (pat) The old forceGSMClearing did not put the l3cause in this message - why not?
-		//		// Note: timer expiry may indicate unresponsive MS so this this may block for 30 seconds.
-		//		return tran()->teCloseCall(L3Cause::InterworkingUnspecified,true);
-		//	}
-		//	break;
+		case L3CMServiceType::MobileTerminatedCall: {
+			LOG(INFO) << "SIP term info dispatchTimeout call teCloseCallNow  servicetype: " << tran()->servicetype(); // SVGDBG
+			tran()->teCloseCallNow(cause,true);
+		}
 		default:
 			break;
 		}
 
 		// Code causes caller to kill the transaction, which will also cancel the dialog if any, which is
 		// partly redundant with the teCloseCall above..
-		return MachineStatusQuitTran;
+		return MachineStatus::QuitTran(cause);
 	} else if (nextState == TimerAbortChan) {
 		LOG(INFO) << "Timer "<<timer->tName()<<" timeout";
 		// This indirectly causes immediate destruction of all transactions on this channel.
-		return closeChannel(L3RRCause::TimerExpired,RELEASE);
+		LOG(INFO) << "SIP term info closeChannel called in dispatchTimeout";
+		// TODO: Error should be set up when timer started.
+		return closeChannel(L3RRCause::Timer_Expired,L3_RELEASE_REQUEST,TermCause::Local(L3Cause::No_User_Responding));
 	} else {
 		assert(0);
+		return MachineStatus::QuitTran(TermCause::Local(L3Cause::L3_Internal_Error));
 	}
 }
 
@@ -495,7 +499,7 @@ static void csl3HandleLCHMsg(GSM::L3Message *l3msg, L3LogicalChannel *lch)
 	// I think previously nothing.   But we are not going to try to aggregate messages from multiple channels in the same MS together.
 	// We assume that all the messages for a single Machine arrive on a single channel+SACCH pair.
 	if (handleCommonMessages(l3msg, lch)) {
-		LOG(DEBUG) << "message handled by handleCommonMessagse"<<LOGVAR(l3msg);
+		LOG(DEBUG) << "message handled by handleCommonMessages"<<LOGVAR(l3msg);
 		delete l3msg;
 		return;
 	}
@@ -518,14 +522,15 @@ static void csl3HandleLCHMsg(GSM::L3Message *l3msg, L3LogicalChannel *lch)
 }
 #endif
 
-// Return true if it was an l3 message or or a primitive that we pass on to state machines, false otherwise.
+// Return true if it was an l3 message or a primitive that we pass on to state machines, false otherwise.
 // After calling us the caller should test chanRunning to see if the channel is still up.
 static bool checkPrimitive(Primitive prim, L3LogicalChannel *lch, int sapi)
 {
 	LOG(DEBUG)<<lch<<LOGVAR(prim);
 	// Process 'naked' primitives.
 	switch (prim) {
-	case GSM::ESTABLISH:
+	case L3_ESTABLISH_CONFIRM:
+	case L3_ESTABLISH_INDICATION:
 		// Indicates SABM mode establishment.
 		// Most state machines can ignore these, but the MT-SMS controller has to wait for channel
 		// establishment so we will pass it on.
@@ -533,29 +538,32 @@ static bool checkPrimitive(Primitive prim, L3LogicalChannel *lch, int sapi)
 		// Pat took out this gReports temporarily because it is delaying channel establishment.
 		// gReports.incr("OpenBTS.GSM.RR.ChannelSeized");
 		return true;
-	case GSM::HANDOVER_ACCESS:
+	case HANDOVER_ACCESS:
 		LOG(ALERT) << "Received HANDOVER_ACCESS on established channel";
 		// TODO: test that this is on TCHFACH not SDCCH.
 		// This does not return until the channel is ready to start running a state machine.
 		//ProcessHandoverAccess(lch);
 		return false;
 
-	case DATA:
-	case UNIT_DATA:
+	case L3_DATA:
+	case L3_UNIT_DATA:
 		return true;
 
-	case ERROR:			///< channel error
+	case MDL_ERROR_INDICATION:			///< channel error
 		// The LAPDM controller was aborted.
 		//gNewTransactionTable.ttLostChannel(lch);
 		//lch->chanLost(); 		// Kill off all the transactions associated with this channel.
 		LOG(ERR) << "Layer3 received ERROR from layer2 on channel "<<lch<<LOGVAR(sapi);
-		lch->chanRelease(RELEASE); 		// Kill off all the transactions associated with this channel.
+
+		// FIXME: This prim needs to be passed to the state machines to abort procedures.
+
+		lch->chanRelease(L3_RELEASE_REQUEST,TermCause::Local(L3Cause::Layer2_Error)); 		// Kill off all the transactions associated with this channel.
 		return false;
 
-	case HARDRELEASE:		///< forced release after an assignment
-		if (sapi == 0) lch->chanRelease(HARDRELEASE); 		// Release the channel.
-		return false;
-	case RELEASE:		///< normal channel release
+	//case HARDRELEASE:		///< forced release after an assignment
+	//	if (sapi == 0) lch->chanRelease(L3_HARDRELEASE_REQUEST); 		// Release the channel.
+	//	return false;
+	case L3_RELEASE_INDICATION:		///< normal channel release
 		//if (lch->mChState == L3LogicalChannel::chReassignPending || lch->mChState == L3LogicalChannel::chReassignComplete) {
 		//	// This is what we wanted.
 		//	// We will exit and the service loop will change the L3LogicahChannel mChState.
@@ -566,17 +574,21 @@ static bool checkPrimitive(Primitive prim, L3LogicalChannel *lch, int sapi)
 		//	// Just drop the channel.
 		//	lch->chanLost();		// Kill off all the transactions associated with this channel.
 		//}
-		if (sapi == 0) lch->chanRelease(RELEASE);
+
+		// FIXME: This prim needs to be passed to the state machines to abort procedures.
+
+		if (sapi == 0) lch->chanRelease(L3_RELEASE_REQUEST,TermCause::Local(L3Cause::Normal_Call_Clearing));
 		return false;
 	default:
 		LOG(ERR) <<lch<<"unhandled primitive: " << prim;		// oops!  But lets warn instead of crashing.
 		// Something horrible happened.
-		lch->chanRelease(RELEASE); 		// Kill off all the transactions associated with this channel.
+		lch->chanRelease(L3_RELEASE_REQUEST,TermCause::Local(L3Cause::L3_Internal_Error)); 		// Kill off all the transactions associated with this channel.
 		//lch->freeContext();
 		return false;
 	}
 }
 
+// Dont delete the frame; caller does that.
 static void csl3HandleFrame(const GSM::L3Frame *frame, L3LogicalChannel *lch)
 {
 	L3Message *l3msg = NULL;
@@ -596,32 +608,13 @@ static void csl3HandleFrame(const GSM::L3Frame *frame, L3LogicalChannel *lch)
 		}
 		bool deleteit;
 		if (l3msg && handleCommonMessages(l3msg, mmchan, &deleteit)) {
-			LOG(DEBUG) << "message handled by handleCommonMessagse"<<LOGVAR(l3msg);
+			LOG(DEBUG) << "message handled by handleCommonMessages"<<LOGVAR(l3msg);
 			if (deleteit) { delete l3msg; }
 			return;
 		}
 	}
 	mmchan->mmDispatchL3Frame(frame,l3msg);
 	if (l3msg) delete l3msg;
-#if UNUSED
-	L3Message *msg = NULL;
-	try {
-		// Even through parseL3 catches L3ReadError, looks to me like this can still throw SMS_READ_ERROR, so catch it:
-		msg = parseL3(*frame);
-	} catch (...) {
-		msg = NULL;
-	}
-	if (msg) {
-		LOG(DEBUG) <<lch <<" received L3 message "<<*msg;
-		csl3HandleLCHMsg(msg,lch);
-	} else {
-		L3PD PD = frame->PD();
-		int MTI = frame->MTI();
-		LOG(ERR) << "unparseable Layer3 message with"<<LOGVAR(PD)<<LOGVAR(MTI);
-		// Give the state machine a chance to do something about an error:
-		lch->chanGetContext(true)->mmDispatchError(PD,MTI,lch);
-	}
-#endif
 }
 
 #if UNUSED
@@ -724,7 +717,9 @@ static unsigned newUpdateCallTraffic(TranEntry *transaction, GSM::TCHFACCHLogica
 		}
 		if (numFlushed) { LOG(DEBUG) <<TCH <<" ulFrame flushed "<<numFlushed <<" in "<<testTimeStart.elapsed() << " msecs"; }
 	}
-	if (GSM::AudioFrame *ulFrame = TCH->recvTCH()) {
+
+
+	if (SIP::AudioFrame *ulFrame = TCH->recvTCH()) {
 		activity += ulFrame->sizeBytes();
 		// Send on RTP.
 		LOG(DEBUG) <<TCH <<LOGVAR(*ulFrame);
@@ -736,7 +731,7 @@ static unsigned newUpdateCallTraffic(TranEntry *transaction, GSM::TCHFACCHLogica
 	// Blocking call.  On average returns 1 time per 20 ms.
 	// Returns non-zero if anything really happened.
 	// Make the rxFrame buffer big enough for G.711.
-	if (GSM::AudioFrame *dlFrame = transaction->rxFrame()) {
+	if (SIP::AudioFrame *dlFrame = transaction->rxFrame()) {
 		activity += dlFrame->sizeBytes();
 		if (activity == 0) { activity++; }	// Make sure we signal activity.
 		LOG(DEBUG) <<TCH <<LOGVAR(*dlFrame);
@@ -762,33 +757,42 @@ static bool checkemMessages(L3LogicalChannel *dcch, int delay)
 
 	MMContext *set = dcch->chanGetContext(true);
 
+	if (set->mmcTerminationRequested) {
+		set->mmcTerminationRequested = false; // Reset the flag superstitiously.
+		dcch->chanClose(L3RRCause::Preemptive_Release,L3_RELEASE_REQUEST,TermCause::Local(L3Cause::Operator_Intervention));
+		return true;
+	}
+
+	// All messages from all host chan saps and from sacch now come in l2recv now.
 	if (GSM::L3Frame *l3frame = dcch->l2recv(delay)) {
-		LOG(DEBUG) <<dcch<< *l3frame;
+		LOG(DEBUG) <<dcch<<" "<< *l3frame;
 		csl3HandleFrame(l3frame, dcch);
 		delete l3frame;
 		return true;	// Go see if it terminated the TranEntry while we were potentially blocked.
 	}
 
-	// How about SAPI 3?
-	if (GSM::L3Frame *l3frame = dcch->l2recv(0,3)) {
-		LOG(DEBUG) <<dcch<< *l3frame;
-		csl3HandleFrame(l3frame, dcch);
-		delete l3frame;
-		return true;	// Go see if it terminated the TranEntry while we were potentially blocked.
-	}
+#if 0
+	// // How about SAPI 3?
+	// if (GSM::L3Frame *l3frame = dcch->l2recv(0,3)) {
+	// 	LOG(DEBUG) <<dcch<< *l3frame;
+	// 	csl3HandleFrame(l3frame, dcch);
+	// 	delete l3frame;
+	// 	return true;	// Go see if it terminated the TranEntry while we were potentially blocked.
+	// }
 
-	// How about SACCH?  These messages are supposed to be prioritized, but we're not bothering.
-	// We need to pass the ESTABLISH primitive to higher layer, specifically, MTSMSMachine.
-	if (L3Frame *aframe = dcch->ml3UplinkQ.readNoBlock()) {
-		//if (IS_LOG_LEVEL(DEBUG)) {
-			//std::ostringstream os; os << *aframe;
-			//WATCHF("Frame on SACCH %s: %s\n",dcch->descriptiveString(),os.str().c_str());
-		//}
-		WATCH("Recv frame on SACCH "<<dcch->descriptiveString()<<" "<<*aframe);
-		csl3HandleFrame(aframe, dcch);
-		delete aframe;
-		return true;	// Go see if it terminated the TranEntry while we were potentially blocked.
-	}
+	// // How about SACCH?  These messages are supposed to be prioritized, but we're not bothering.
+	// // We need to pass the ESTABLISH primitive to higher layer, specifically, MTSMSMachine.
+	// if (L3Frame *aframe = dcch->ml3UplinkQ.readNoBlock()) {
+	// 	//if (IS_LOG_LEVEL(DEBUG)) {
+	// 		//std::ostringstream os; os << *aframe;
+	// 		//WATCHF("Frame on SACCH %s: %s\n",dcch->descriptiveString(),os.str().c_str());
+	// 	//}
+	// 	WATCH("Recv frame on SACCH "<<dcch->descriptiveString()<<" "<<*aframe);
+	// 	csl3HandleFrame(aframe, dcch);
+	// 	delete aframe;
+	// 	return true;	// Go see if it terminated the TranEntry while we were potentially blocked.
+	// }
+#endif
 
 	// Any Dialog messages from the SIP side?
 	// Sadly we cannot process the sip messages in a separate global L3 thread because the TranEntry/procedure may be
@@ -833,13 +837,13 @@ static void l3CallTrafficLoop(L3LogicalChannel *dcch)
 	// Original code used throw...catch but during channel reassignment the channel state is terminated by changing
 	// the state by a different thread, so we just the same method for all cases and terminate by changing the channel state.
 	unsigned alternate = 0;
-	while (dcch->chanRunning()) {
+	while (dcch->chanRunning() && !gBTS.btsShutdown()) {
 		if (tch->radioFailure()) {
 			LOG(NOTICE) << "radio link failure, dropped call"<<LOGVAR(dcch);
 			//gNewTransactionTable.ttLostChannel(dcch);
 			// The radioFailure already waited for the timeout, so now we can immediately drop the channel.
-			dcch->chanRelease(HARDRELEASE); 	// Kill off all the transactions associated with this channel.
-			//tran->getDialog()->dialogCancel(); //was forceSIPClearing
+			dcch->chanRelease(L3_HARDRELEASE_REQUEST,TermCause::Local(L3Cause::Radio_Interface_Failure)); 	// Kill off all the transactions associated with this channel.
+			//tran->getDialog()->dialogCancel(TermCause::TermCodeUnknown, GSM::L3Cause::Unknown_L3_Cause); // was forceSIPClearing
 			//tran->teRemove();
 			return;
 		}
@@ -856,21 +860,23 @@ static void l3CallTrafficLoop(L3LogicalChannel *dcch)
 				// we should keep the channel open until that ends.
 				LOG(NOTICE) << "attempting to use a defunct Transaction"<<LOGVAR(dcch)<<LOGVAR(*tran);
 				// TODO: We should not be closing the channel here; we whould wait 
-				dcch->chanClose(L3RRCause::PreemptiveRelease,RELEASE);
+				dcch->chanClose(L3RRCause::Preemptive_Release,L3_RELEASE_REQUEST,TermCause::Local(L3Cause::No_Transaction_Expected));
 				return;
 			}
 			// TODO: This needs to check all the transactions in the MMContext.
 			// The termination request comes from the CLI or from RadioResource to make room for an SOS call.
-			if (tran->terminationRequested()) {
+			L3Cause::AnyCause termcause = tran->terminationRequested();
+			if (termcause.value != 0) {
 				LOG(DEBUG)<<dcch<<" terminationRequested";
 				tran->terminateHook();		// Gives the L3Procedure state machine a chance to do something first.
-				dcch->chanClose(L3RRCause::PreemptiveRelease,RELEASE);
+				// GSM 4.08 3.4.13.4.1: Use RR Cause PreemptiveRelease if terminated for a higher priority, ie, emergency, call 
+				dcch->chanClose(L3RRCause::Preemptive_Release,L3_RELEASE_REQUEST,TermCause::Local(termcause));
 				return;		// We wont be back.
 			}
 			if (tran->getGSMState() == CCState::HandoverOutbound) {
 				if (outboundHandoverTransfer(tran,dcch)) {
 					LOG(DEBUG)<<dcch<<" outboundHandover";
-					dcch->chanRelease(HARDRELEASE);
+					dcch->chanRelease(L3_HARDRELEASE_REQUEST,TermCause::Local(L3Cause::Handover_Outbound));
 					return;	// We wont be back.
 				}
 			}
@@ -879,10 +885,6 @@ static void l3CallTrafficLoop(L3LogicalChannel *dcch)
 			// TODO: Remove this, redundant with the below.
 			if (tran->checkTimers()) {	// This calls a handler function and resets the timer.
 				LOG(DEBUG) <<dcch <<" after checkTimers";
-				//if (transaction->anyTimerExpired())
-				// Cause 0x66, "recover on timer expiry"
-				//abortCall(transaction,dcch,GSM::L3Cause(0x66));
-				//return true;
 				continue;	// The transaction is probably defunct.
 			}
 		}
@@ -936,6 +938,7 @@ static void l3CallTrafficLoop(L3LogicalChannel *dcch)
 		// If nothing happened, set nextDelay so so we dont burn up the CPU cycles.
 		nextDelay = 20;		// Do not exceed the RTP frame size of 20ms.
 	}
+	LOG(DEBUG) << "final return";
 }
 
 // TODO: When a channel is first opened we should save the CMServiceRequest or LocationUpdateRequest or PagingResponse and initiate
@@ -950,11 +953,13 @@ static void l3CallTrafficLoop(L3LogicalChannel *dcch)
 static void L3SDCCHLoop(L3LogicalChannel*dcch)
 {
 	assert(dcch->chtype() == SDCCHType);
-	while (dcch->chanRunning()) {
+	while (dcch->chanRunning() && !gBTS.btsShutdown()) {
 		if (dcch->radioFailure()) {	// Checks expiry of T3109, set at 30s.
 			LOG(NOTICE) << "radio link failure, dropped call";
 			//gNewTransactionTable.ttLostChannel(dcch);
-			dcch->chanRelease(HARDRELEASE); 	// Kill off all the transactions associated with this channel.
+			// (pat) 5-2014: Changed to RELEASE from HARDRELEASE - even though we can no longer hear the handset,
+			// it might still hear us so we have to deactivate SACCH and wait T3109.
+			dcch->chanRelease(L3_RELEASE_REQUEST,TermCause::Local(L3Cause::Radio_Interface_Failure)); 	// Kill off all the transactions associated with this channel.
 			return;
 		}
 
@@ -980,7 +985,7 @@ void L3DCCHLoop(L3LogicalChannel*dcch, L3Frame *frame)
 
 		dcch->chanSetState(L3LogicalChannel::chEstablished);
 		switch (prim) {
-			case ESTABLISH:
+			case L3_ESTABLISH_INDICATION:
 				break;
 			case HANDOVER_ACCESS:
 				ProcessHandoverAccess(dcch);
@@ -1017,10 +1022,10 @@ void L3DCCHLoop(L3LogicalChannel*dcch, L3Frame *frame)
 			// The RELEASE primitive will block up to 30 seconds, so we NEVER EVER send it from anywhere but right here.
 			// To release the channel, set the channel state to chReleaseRequest and let it come here to release the channel.
 			// FIXME: Actually, LAPDm blocks in this forever until it gets the next ESTABLISH, so this is where the serviceloop really waits.
-			dcch->l3sendp(RELEASE);	// WARNING!  This must be the only place in L3 that sends this primitive.
+			dcch->l3sendp(L3_RELEASE_REQUEST);	// WARNING!  This must be the only place in L3 that sends this primitive.
 			break;
 		case L3LogicalChannel::chRequestHardRelease:
-			dcch->l3sendp(HARDRELEASE);
+			dcch->l3sendp(L3_HARDRELEASE_REQUEST);
 			break;
 		default: break;
 	}

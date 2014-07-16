@@ -1,6 +1,6 @@
 #
 # Copyright 2008, 2009 Free Software Foundation, Inc.
-# Copyright 2011, 2012 Range Networks, Inc.
+# Copyright 2011, 2012, 2014 Range Networks, Inc.
 #
 # This software is distributed under the terms of the GNU Public License.
 # See the COPYING file in the main directory for details.
@@ -27,6 +27,7 @@ AM_CXXFLAGS = -Wall -O3 -g -ldl -lpthread
 noinst_LTLIBRARIES = libGSMShare.la
 
 libGSMShare_la_SOURCES = \
+	L3Enums.cpp \
 	AmrCoder.cpp \
 	GSM503Tables.cpp \
 	ViterbiR204.cpp \
@@ -40,6 +41,7 @@ noinst_PROGRAMS = \
 #	ReportingTest 
 
 noinst_HEADERS = \
+	L3Enums.h \
 	Viterbi.h \
 	ViterbiR204.h \
 	AmrCoder.h \
@@ -47,13 +49,33 @@ noinst_HEADERS = \
 	GSM503Tables.h \
 	A51.h
 
-# (pat 8-2013) I dont know how to properly include the CommonLibs directory using autofoo.  You are welcome to correct this reference.
-ViterbiTest_SOURCES = AMRTest.cpp
-ViterbiTest_LDADD = $(noinst_LTLIBRARIES) ../CommonLibs/libcommon.la
 
+# (pat 8-2013) I don't know how to properly include the CommonLibs directory using autofoo.
+# You are welcome to correct this reference.
+ViterbiTest_SOURCES = ViterbiTest.cpp
+ViterbiTest_LDADD = \
+	$(GLOBALS_LA) \
+	$(noinst_LTLIBRARIES) \
+	../CommonLibs/libcommon.la \
+	$(GSM_LA) \
+	$(COMMON_LA) \
+	$(SQLITE_LA)
+	
 AMRTest_SOURCES = AMRTest.cpp
-AMRTest_LDADD = $(noinst_LTLIBRARIES) ../CommonLibs/libcommon.la
+AMRTest_LDADD = \ 
+	$(GLOBALS_LA) \
+	$(noinst_LTLIBRARIES) \
+	../CommonLibs/libcommon.la \
+	$(GSM_LA) \
+	$(COMMON_LA) \
+	$(SQLITE_LA)
 
 A51Test_SOURCES = A51Test.cpp
-A51Test_LDADD = $(noinst_LTLIBRARIES) ../CommonLibs/libcommon.la
+A51Test_LDADD = \ 
+	$(GLOBALS_LA) \
+	$(noinst_LTLIBRARIES) \
+	../CommonLibs/libcommon.la \
+	$(GSM_LA) \
+	$(COMMON_LA) \
+	$(SQLITE_LA)
 

@@ -3,7 +3,7 @@
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
-* information for this specific distribuion.
+* information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -24,8 +24,9 @@
 
 #include <GSMTransfer.h>
 #include "ControlCommon.h"
+#include "PagingEntry.h"
 #include "L3TranEntry.h"		// Needed because InterthreadQueue deletes its elements on destruction.
-#include "RadioResource.h"		// For Paging
+//#include "RadioResource.h"		// For Paging
 #include "L3Utils.h"
 #include <SIPDialog.h>
 
@@ -73,9 +74,18 @@ class MMUser : public MemCheckMMUser /*: public RefCntBase*/ {
 	friend class MMLayer;
 	MMState mmuState;
 	MMContext* mmuContext;
-	string mmuImsi;		// Just the imsi, without "IMSI"
-	TMSI_t mmuTmsi;
-	void mmuFree(MMUserMap::iterator *it,CancelCause cause /*= CancelCauseUnknown*/);	// This is the destructor.  It is not public.  Can only delete from gMMLayer because we must lock the universe first.
+
+	protected: string mmuImsi;		// Just the imsi, without "IMSI"
+	public: 	string mmuGetImsi(bool verbose) { return mmuImsi.empty() ? (verbose ? "no-imsi" : "") : mmuImsi; }
+
+	protected:	TMSI_t mmuTmsi;
+				Bool_z mmuDidTmsiCheck;	// Have we looked up the IMSI in the TMSI table yet?
+	public: 	TMSI_t mmuGetTmsi();
+
+	protected:
+	void mmuFree(MMUserMap::iterator *it,TermCause cause /*= TermCauseUnknown*/);	// This is the destructor.  It is not public.  Can only delete from gMMLayer because we must lock the universe first.
+
+	GSM::ChannelType mmuGetInitialChanType() const;
 
 	void MMUserInit() { mmuState = MMStateUndefined; mmuContext = NULL; }
 	public:
@@ -84,7 +94,6 @@ class MMUser : public MemCheckMMUser /*: public RefCntBase*/ {
 
 	void mmuAddMT(TranEntry *tran);
 	//void mmuPageReceived(L3LogicalChannel *chan);
-	string mmuGetImsi(bool verbose) { return mmuImsi.empty() ? (verbose ? "no-imsi" : "") : mmuImsi; }
 	//void mmuClose();		// TODO
 	bool mmuIsAttached() { return mmuContext != NULL; }	// Are we attached to a radio channel?
 	bool mmuIsEmpty();
@@ -111,13 +120,19 @@ class MMContext : public MemCheckMMContext /*: public RefCntBase*/ {
 	MMUser* mmcMMU;
 	//L3Timer TChReassignment;
 
+	void mmcMoveTransactions(MMContext *oldmmc);
 	protected:
 	void mmcUnlink();
 	void mmcLink(MMUser *mmu);
+	time_t mmcOpenTime;
 
 	// These are the Transactions/Procedures that may be active simultaneously:
 	public:
-	UDPSocket *mmcFuzzPort;
+	Bool_z mmcTerminationRequested;
+	NeighborPenalty mmcHandoverPenalty;
+	void chanSetHandoverPenalty(NeighborPenalty &wPenalty) { mmcHandoverPenalty = wPenalty; }
+
+
 
 	enum ActiveTranIndex {
 		TE_first = 0,		// Start of table.
@@ -133,11 +148,11 @@ class MMContext : public MemCheckMMContext /*: public RefCntBase*/ {
 	};
 	RefCntPointer<TranEntry> mmcTE[TE_num];
 	unsigned mNextTI;
-	InterthreadQueue<const L3Message> mmcServiceRequests;
+	InterthreadQueue<const L3Message> mmcServiceRequests;	// Incoming CM Service Request messages.
 	void startSMSTran(TranEntry *tran);
 
 	void MMContextInit();
-	void mmcFree();	// This is the destructor.  It is not public.  Can only delete from gMMLayer because we must lock the MMUserMap first.
+	void mmcFree(TermCause cause);	// This is the destructor.  It is not public.  Can only delete from gMMLayer because we must lock the MMUserMap first.
 
 	public:
 	MMContext(L3LogicalChannel *chan);
@@ -146,6 +161,7 @@ class MMContext : public MemCheckMMContext /*: public RefCntBase*/ {
 	L3LogicalChannel *tsChannel() { return mmcChan; }
 	MMContext *tsDup();
 	void mmcPageReceived() const;
+	time_t mmcDuration() const { return time(NULL) - mmcOpenTime; }
 
 	RefCntPointer<TranEntry> mmGetTran(unsigned ati) const;
 	void mmConnectTran(ActiveTranIndex ati, TranEntry *tran);
@@ -156,7 +172,7 @@ class MMContext : public MemCheckMMContext /*: public RefCntBase*/ {
 	void getTranIds(TranEntryList &tranlist) const;
 	// By returning a RefCntPointer we prevent destruction of the transaction during use by caller.
 	RefCntPointer<TranEntry> tsGetVoiceTran() const { return mmcTE[TE_CS1]; }
-	void tsSetVoiceTran(TranEntry*tran) { mmcTE[TE_CS1] = tran; }
+	//void tsSetVoiceTran(TranEntry*tran) { mmcTE[TE_CS1] = tran; }
 	void mmSetChannel(L3LogicalChannel *wChan) { mmcChan = wChan; }
 	string mmGetImsi(bool verbose);		// If the IMSI is known, return it, else ""
 
@@ -166,7 +182,7 @@ class MMContext : public MemCheckMMContext /*: public RefCntBase*/ {
 	bool mmCheckTimers();		// Return true if anything happened.
 	RefCntPointer<TranEntry> findTran(const L3Frame *frame, const L3Message *l3msg) const;
 	bool mmDispatchL3Frame(const L3Frame *frame, const L3Message *msg);
-	void l3sendm(const GSM::L3Message& msg, const GSM::Primitive& prim=GSM::DATA, SAPI_t SAPI=SAPI0);
+	void l3sendm(const GSM::L3Message& msg, const GSM::Primitive& prim=GSM::L3_DATA, SAPI_t SAPI=SAPI0);
 	void mmcText(std::ostream&os) const;
 };
 std::ostream& operator<<(std::ostream& os, const MMContext&mmc);
@@ -193,23 +209,25 @@ class MMLayer {
 	Signal mmPageSignal;						///< signal to wake the paging loop
 	MMUserMap MMUsers;
 	public:
-	void mmGetPages(NewPagingList_t &pages, bool wait);
+	void mmGetPages(NewPagingList_t &pages);
 	void printPages(std::ostream &os);
 	bool mmPageReceived(MMContext *mmchan, L3MobileIdentity &mobileId);
 	// Add a new MT transaction, and signal the pager to come notice it.
 	void mmAddMT(TranEntry *tran);
-	void mmFreeContext(MMContext *mmc);
+	void mmFreeContext(MMContext *mmc,TermCause cause);
 	// This is called when the MT SIP engine on the other side has sent us another message.
 	// (pat) We could be blocked for several reasons, including paging, waiting for LUR to complete, waiting for channel to change, etc.
 	// But if we are paging, reset the paging timer so we keep paging.
 	void mmMTRepage(const string imsi);	// Reset the paging timer so we continue paging.
 	void mmAttachByImsi(L3LogicalChannel *chan, string imsi);
+	bool mmTerminateByImsi(string imsi);
 	//bool mmStartMTDialog(SIP::SipDialog*dialog, SIP::SipMessage*invite);
 	MMUser *mmFindByImsi(string imsi, bool create=false);
 	MMUser *mmFindByTmsi(uint32_t tmsi);
 	MMUser *mmFindByMobileId(L3MobileIdentity&mid);
 	void printMMUsers(std::ostream&os, bool onlyUnattached);
 	void printMMInfo(std::ostream&os);
+	string mmGetNeighborTextByImsi(string imsi, bool full);
 	string printMMInfo();
 
 	// Is the single MTC slot busy?

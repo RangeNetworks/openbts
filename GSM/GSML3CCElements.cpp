@@ -3,8 +3,9 @@
 */
 /*
 * Copyright 2008, 2009, 2014 Free Software Foundation, Inc.
+* Copyright 2014 Range Networks, Inc.
 *
-* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribuion.
+* This software is distributed under multiple licenses; see the COPYING file in the main directory for licensing information for this specific distribution.
 *
 * This use of this software may be subject to additional restrictions.
 * See the LEGAL file in the main directory for details.
@@ -15,7 +16,7 @@
 
 */
 
-
+#define LOG_GROUP LogGroup::GSM		// Can set Log.Level.GSM for debugging
 
 
 #include "GSML3CCElements.h"
@@ -357,7 +358,7 @@ void L3CallingPartyBCDNumber::text(ostream& os) const
 }
 
 
-void L3Cause::parseV(const L3Frame& src, size_t &rp , size_t expectedLength)
+void L3CauseElement::parseV(const L3Frame& src, size_t &rp , size_t expectedLength)
 {
 	size_t pos = rp;
 	rp += 8*expectedLength;
@@ -375,7 +376,7 @@ void L3Cause::parseV(const L3Frame& src, size_t &rp , size_t expectedLength)
 } 
 
 
-void L3Cause::writeV(L3Frame& dest, size_t &wp) const
+void L3CauseElement::writeV(L3Frame& dest, size_t &wp) const
 {
 	// Write Octet3.
 	dest.writeField(wp,0x0e,4);
@@ -387,10 +388,10 @@ void L3Cause::writeV(L3Frame& dest, size_t &wp) const
 }
 
 
-void L3Cause::text(ostream& os) const
+void L3CauseElement::text(ostream& os) const
 {
 	os << "location=" << mLocation;
-	os << " cause=0x" << hex << mCause << dec;
+	os << " cause=0x" << hex << mCause << dec <<" "<<L3Cause::CCCause2Str(mCause);
 }
 
 
@@ -452,6 +453,22 @@ void L3KeypadFacility::writeV(L3Frame& dest, size_t &wp) const
 void L3KeypadFacility::text(ostream& os) const
 {
 	os << hex << "0x" << mIA5 << dec;
+}
+
+// We shouldnt ever read in a Signal IE, but here it is anyway.
+void L3Signal::parseV(const L3Frame& src, size_t &rp)
+{
+	mSignalValue = src.readField(rp,8);
+}
+
+void L3Signal::writeV(L3Frame& dest, size_t &wp) const
+{
+	dest.writeField(wp,mSignalValue,8);
+}
+
+void L3Signal::text(ostream& os) const
+{
+	os << format("Signal(0x%x)",mSignalValue);
 }
 
 };
