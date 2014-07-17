@@ -150,6 +150,46 @@ bool PhysicalStatus::setPhysical(const SACCHLogicalChannel* chan,
 		}
 	}
 
+	MSPhysReportInfo *phys = chan->getPhysInfo();
+	if (gConfig.getStr("NodeManager.API.PhysicalStatus").compare("0.1") == 0) {
+		std::stringstream tao;
+		tao << chan->typeAndOffset();
+
+		JsonBox::Object eData;
+		eData["channel"]["IMSI"] = JsonBox::Value(chan->hostChan()->chanGetImsi(true));
+		eData["channel"]["ARFCN"] = JsonBox::Value((int)chan->ARFCN());
+		eData["channel"]["uplinkFrameErrorRate"] = JsonBox::Value(chan->FER());
+		eData["channel"]["carrierNumber"] = JsonBox::Value((int)chan->CN());
+		eData["channel"]["timeslotNumber"] = JsonBox::Value((int)chan->TN());
+		eData["channel"]["typeAndOffset"] = JsonBox::Value(tao.str());
+		eData["burst"]["RSSI"] = JsonBox::Value(phys->getRSSI());
+		eData["burst"]["RSSP"] = JsonBox::Value(phys->getRSSP());
+		eData["burst"]["actualMSTimingAdvance"] = JsonBox::Value(phys->actualMSTiming());
+		eData["burst"]["actualMSPower"] = JsonBox::Value(phys->actualMSPower());
+		eData["burst"]["timingError"] = JsonBox::Value(phys->timingError());
+		eData["reports"]["servingCell"]["RXLEVEL_FULL_dBm"] = JsonBox::Value(measResults.RXLEV_FULL_SERVING_CELL_dBm());
+		eData["reports"]["servingCell"]["RXLEVEL_SUB_dBm"] = JsonBox::Value(measResults.RXLEV_SUB_SERVING_CELL_dBm());
+		eData["reports"]["servingCell"]["RXQUALITY_FULL_BER"] = JsonBox::Value(measResults.RXQUAL_FULL_SERVING_CELL_BER());
+		eData["reports"]["servingCell"]["RXQUALITY_SUB_BER"] = JsonBox::Value(measResults.RXQUAL_SUB_SERVING_CELL_BER());
+
+		JsonBox::Array neighbors;
+		unsigned nCount = measResults.NO_NCELL();
+		if (nCount != 0 && nCount != 7) {
+			for (unsigned i = 0; i < nCount; i++) {
+				int freq = (int)measResults.BCCH_FREQ_NCELL(i);
+				if (freq) {
+					JsonBox::Object neighbor;
+					neighbor["BCCH_FREQ"] = JsonBox::Value(freq);
+					neighbor["RXLEVEL_dBm"] = JsonBox::Value(measResults.RXLEV_NCELL_dBm(i));
+					neighbor["BSIC"] = JsonBox::Value((int)measResults.BSIC_NCELL(i));
+					neighbors.push_back(neighbor);
+				}
+			}
+		}
+		eData["reports"]["neighboringCells"] = JsonBox::Array(neighbors);
+
+		gNodeManager.publishEvent("PhysicalStatus", "0.1", eData);
+	}
 
 
 #if RN_DISABLE_PHYSICAL_DB
