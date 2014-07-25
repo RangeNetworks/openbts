@@ -688,6 +688,8 @@ void MMUser::mmuAddMT(TranEntry *tran)
 	mmuPageTimer.future(gConfig.GSM.Timer.T3113);
 	switch (tran->servicetype()) {
 	case L3CMServiceType::MobileTerminatedCall:
+		mmuMTCq.push_back(tran);
+		break;
 	case L3CMServiceType::MobileTerminatedShortMessage:
 		mmuMTSMSq.push_back(tran);
 		break;
