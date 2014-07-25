@@ -15,6 +15,43 @@
 
 #ifndef __POWER_CONTROL__
 #define __POWER_CONTROL__
+
+#include <iostream>
+
+#include <Timeval.h>
+#include <Threads.h>
+
+// forward declaration
+//class Timeval;
+
+// Make it all inline for now - no change to automake
+
+class ARFCNManager;
+
+
+namespace GSM {
+
+
+class PowerManager {
+
+  private:
+	ARFCNManager* mRadio;
+	volatile int mAtten;	///< current attenuation.
+	void pmSetAttenDirect(int atten);
+
+  public:
+	PowerManager() : mAtten(-9999) {}
+	void pmStart();
+	void pmSetAtten(int atten);
+	int power() { return -mAtten; }
+};
+
+extern PowerManager gPowerManager;
+
+
+}	// namespace GSM
+
+
 #endif // __POWER_CONTROL__
 
 // vim: ts=4 sw=4

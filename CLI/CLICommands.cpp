@@ -1304,8 +1304,42 @@ static CLIStatus chans(int argc, char **argv, ostream& os)
 #endif
 
 
+const char *powerHelp = "[atten] -- report or set current output power attentuation.";
 
+static bool powerCheckAttenValidity(const char *configOptionName,int atten, ostream&os)
+{
+	if (atten < 0) {
+		os << "power value(s) are attenuation and must not be negative"<<endl;
+		return false;
+	}
+	if (!gConfig.isValidValue(configOptionName, atten)) {
+		os << "Invalid new value for atten.  It must be in range (";
+		os << gConfig.mSchema[configOptionName].getValidValues() << ")" << endl;
+		return false;
+	}
+	return true;
+}
 
+static CLIStatus powerCommand(int argc, char **argv, ostream& os)
+{
+	if (argc>3) { return BAD_NUM_ARGS; }
+
+	if (argc > 1) {
+		int min = atoi(argv[1]);
+		int max = min;
+
+		if (!powerCheckAttenValidity("GSM.Radio.PowerManager.MinAttenDB", min, os)) { return BAD_VALUE; }
+		if (!powerCheckAttenValidity("GSM.Radio.PowerManager.MaxAttenDB", max, os)) { return BAD_VALUE; }
+
+		gConfig.set("GSM.Radio.PowerManager.MinAttenDB",min);
+		gConfig.set("GSM.Radio.PowerManager.MaxAttenDB",max);
+
+		gPowerManager.pmSetAtten(min);
+	}
+
+	os << "current downlink power " << gPowerManager.power() << " dB wrt full scale" << endl;
+	return SUCCESS;
+}
 
 
 static CLIStatus rxgain(int argc, char** argv, ostream& os)
@@ -1586,7 +1620,7 @@ void Parser::addCommands()
 	addCommand("stats", stats,"[patt] OR clear -- print all, or selected, performance counters, OR clear all counters.");
 	addCommand("handover", handover,handoverHelp);
 	addCommand("memstat", memStat, "-- internal testing command: print memory use stats.");
-
+	addCommand("power", powerCommand, powerHelp);
 }
 
 

@@ -105,6 +105,7 @@ void GSMConfig::gsmStart()
 		// Start gprs.
 		GPRS::gprsStart();
 	}
+	gPowerManager.pmStart();
 	// Do not call this until the paging channels are installed.
 	PagerStart();
 
