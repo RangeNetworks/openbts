@@ -3189,7 +3189,6 @@ void OpenBTSConfig::configUpdateKeys()
 
 	SAVE_NUMERIC_KEY(GSM.Handover.History.Max);
 	//not implemented: SAVE_NUMERIC_KEY(GSM.Handover.Penalty.Damping);
-	SAVE_NUMERIC_KEY(GSM.Handover.Noise.Factor);
 
 	SAVE_NUMERIC_KEY(GSM.Handover.RXLEV_DL.Target);
 	SAVE_NUMERIC_KEY(GSM.Handover.RXLEV_DL.History);
