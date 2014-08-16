@@ -11,5 +11,5 @@ Section: comm
 Priority: optional
 Architecture: any
 Essential: no
-Depends: sqlite3, libusb-1.0-0, libortp8, libc6, pkg-config, libzmq3, liba53, libreadline6, libssl1.0.0
+Depends: sqlite3, libusb-1.0-0, libortp-dev, libc6, pkg-config, libzmq3, liba53, libreadline6, libssl1.0.0
 Description: Range Networks - OpenBTS GSM+GPRS Radio Access Network Node
