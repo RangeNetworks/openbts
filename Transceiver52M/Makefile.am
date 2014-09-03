@@ -118,9 +118,22 @@ else
 endif
 endif
 
+#uhd wins
+if UHD
 install: transceiver
 	@mkdir -p "$(DESTDIR)/OpenBTS/"
 	install transceiver "$(DESTDIR)/OpenBTS/"
+else
+if USRP1
+install: transceiver
+	@mkdir -p "$(DESTDIR)/usr/local/share/usrp/rev4/"
+	install std_inband.rbf "$(DESTDIR)/usr/local/share/usrp/rev4/"
+	@mkdir -p "$(DESTDIR)/OpenBTS/"
+	install transceiver "$(DESTDIR)/OpenBTS/"
+else
+#we should never be here, as one of the above mustbe defined for us to build
+endif
+endif
 
 MOSTLYCLEANFILES +=
 
