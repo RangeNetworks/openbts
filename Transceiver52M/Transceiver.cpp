@@ -118,6 +118,7 @@ bool Transceiver::init()
     DFEForward[i] = NULL;
     DFEFeedback[i] = NULL;
     channelEstimateTime[i] = mTransmitDeadlineClock;
+    mHandoverActive[i] = false;
   }
 
   return true;
@@ -266,6 +267,9 @@ Transceiver::CorrType Transceiver::expectedCorrType(GSM::Time currTime)
   
   unsigned burstTN = currTime.TN();
   unsigned burstFN = currTime.FN();
+
+  if (mHandoverActive[burstTN])
+    return RACH;
 
   switch (mChanType[burstTN]) {
   case NONE:
@@ -593,10 +597,8 @@ void Transceiver::driveControl()
       sprintf(response,"RSP HANDOVER 1 %d",timeslot);
     }
     else {
-      //mHandoverActive[ARFCN][timeslot] = true;
-      //sprintf(response,"RSP HANDOVER 0 %d",timeslot);
-      //handover fails! -kurtis
-      sprintf(response,"RSP HANDOVER 1 %d",timeslot);
+      mHandoverActive[timeslot] = true;
+      sprintf(response,"RSP HANDOVER 0 %d",timeslot);
     }
   }
   else if (strcmp(command,"NOHANDOVER")==0) {
@@ -608,10 +610,8 @@ void Transceiver::driveControl()
       sprintf(response,"RSP NOHANDOVER 1 %d",timeslot);
     }
     else {
-      //mHandoverActive[ARFCN][timeslot] = false;
-      //sprintf(response,"RSP NOHANDOVER 0 %d",timeslot);
-      //hanover fails! -kurtis
-      sprintf(response,"RSP NOHANDOVER 1 %d",timeslot);
+      mHandoverActive[timeslot] = false;
+      sprintf(response,"RSP NOHANDOVER 0 %d",timeslot);
     }
   }
   else if (strcmp(command,"SETSLOT")==0) {
@@ -700,7 +700,7 @@ bool Transceiver::driveTransmitPriorityQueue()
 
   radioVector *newVec = fixRadioVector(newBurst,RSSI,currTime);
 
-  if (false && fillerFlag) {
+  if (fillerFlag) {
 	setFiller(newVec,false,true);
   } else {
 	mTransmitPriorityQueue.write(newVec);

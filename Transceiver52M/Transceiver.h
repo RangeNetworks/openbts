@@ -133,6 +133,7 @@ private:
   unsigned mTSC;                       ///< the midamble sequence code
   int fillerModulus[8];                ///< modulus values of all timeslots, in frames
   signalVector *fillerTable[102][8];   ///< table of modulated filler waveforms for all timeslots
+  bool mHandoverActive[8];
   unsigned mMaxExpectedDelay;            ///< maximum expected time-of-arrival offset in GSM symbols
 
   GSM::Time    channelEstimateTime[8]; ///< last timestamp of each timeslot's channel estimate
