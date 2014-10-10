@@ -106,6 +106,8 @@ class MMUser : public MemCheckMMUser /*: public RefCntBase*/ {
 std::ostream& operator<<(std::ostream& os, const MMUser&mmu);
 std::ostream& operator<<(std::ostream& os, const MMUser*mmu);
 
+typedef std::vector< RefCntPointer<TranEntry> > TranEntryVector;
+
 // This is the set of actively runnning TranEntrys on an L3LogicalChannel.
 // TODO: The MM operations should run directly on the MMContext, not in a TranEntry.
 DEFINE_MEMORY_LEAK_DETECTOR_CLASS(MMContext,MemCheckMMContext)
@@ -164,6 +166,7 @@ class MMContext : public MemCheckMMContext /*: public RefCntBase*/ {
 	time_t mmcDuration() const { return time(NULL) - mmcOpenTime; }
 
 	RefCntPointer<TranEntry> mmGetTran(unsigned ati) const;
+	void mmGetTranList( TranEntryVector &tranlist);
 	void mmConnectTran(ActiveTranIndex ati, TranEntry *tran);
 	void mmConnectTran(TranEntry *tran);
 	void mmDisconnectTran(TranEntry *tran);

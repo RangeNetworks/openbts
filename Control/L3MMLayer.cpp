@@ -268,6 +268,16 @@ void MMUser::mmuFree(MMUserMap::iterator *piter, TermCause cause)	// Some caller
 	delete this;
 }
 
+void MMContext::mmGetTranList(TranEntryVector &tranlist)
+{
+	tranlist.clear();	// Be sure.
+	ScopedLock lock(gMMLock,__FILE__,__LINE__);
+	for (unsigned i = TE_first; i < TE_num; i++) {
+		RefCntPointer<TranEntry> tranp = mmGetTran(i);
+		if (! tranp.isNULL()) { tranlist.push_back(tranp); }
+	}
+}
+
 
 bool MMContext::mmCheckSipMsgs()
 {
@@ -277,11 +287,17 @@ bool MMContext::mmCheckSipMsgs()
 	// messages during the stress test.  Ticket #1905 reports a crash that looks like using a transaction here while
 	// it is being deleted.  Since I have separated layer2 from layer3 with InterthreadQueues since the last test,
 	// I am re-enabling this global lock to attempt to fix the crash.
-	ScopedLock lock(gMMLock,__FILE__,__LINE__);	// I think this is unnecessary, but be safe.
+	// (pat) 10-10-2014 update: Holding the global lock here appears to cause system lockups as reported in St Pierre.  Not sure why.
+	// So here is the revised plan: The gMMLock will be used only temporarily to protect access to the list, then we will
+	// drop the global lock and attempt to invoke lockAndInvokeSipMsgs, which will be modified to check that the transaction
+	// has not been deleted in the interim period - the mL3RewriteLock in the transaction prevents collisions at that transaction level.
+	// ScopedLock lock(gMMLock,__FILE__,__LINE__);
+	TranEntryVector tranlist;
+	mmGetTranList(tranlist);
 	bool result = false;
-	for (unsigned i = TE_first; i < TE_num; i++) {
-		RefCntPointer<TranEntry> tranp = mmGetTran(i);
-		if (! tranp.isNULL()) { result |= tranp->lockAndInvokeSipMsgs(); }
+	for (TranEntryVector::iterator it = tranlist.begin(); it != tranlist.end(); it++) {
+		TranEntry *tranp = (*it).self();
+		result |= tranp->lockAndInvokeSipMsgs();
 	}
 	return result;
 }
@@ -292,12 +308,14 @@ bool MMContext::mmCheckTimers()
 	// As an interim measure, just dont lock this and hope for the best.
 	//ScopedLock lock(gMMLock,__FILE__,__LINE__);	// I think this is unnecessary; the channel cannot change when this is called, but be safe.
 	// Check MM timers.
+	TranEntryVector tranlist;
+	mmGetTranList(tranlist);
 
 	// checkTimers locks the transaction if any timer needs servicing.
 	bool result = false;
-	for (unsigned i = TE_first; i < TE_num; i++) {
-		RefCntPointer<TranEntry> tranp = mmGetTran(i);
-		if (! tranp.isNULL()) { result |= tranp->checkTimers(); }
+	for (TranEntryVector::iterator it = tranlist.begin(); it != tranlist.end(); it++) {
+		TranEntry *tranp = (*it).self();
+		result |= tranp->checkTimers();
 	}
 	return result;
 }
@@ -996,7 +1014,7 @@ void MMContext::mmcFree(TermCause cause)
 		for (unsigned tries = 0; tries < 3; tries++) {
 			if (mmcTE[i] != NULL) { mmcTE[i]->teCancel(cause); }	// Removes the transaction from mmcTE via mmDisconnectTran
 		}
-		assert(mmcTE[i] == NULL);	// teCancel removed it.
+		assert(mmcTE[i].self() == NULL);	// teCancel removed it.
 	}
 	LOG(DEBUG)<<"MMContext DELETE "<<(void*)this;
 	delete this;

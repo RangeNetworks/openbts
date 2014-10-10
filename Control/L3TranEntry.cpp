@@ -93,6 +93,8 @@ static const char* createNewTransactionTable = {
 
 
 
+static std::list< RefCntPointer<TranEntry> > sDeletedTranEntrys;
+
 
 
 HandoverEntry::HandoverEntry(const TranEntry *tran) :
@@ -646,6 +648,10 @@ CallState TranEntryProtected::getGSMState() const
 
 void TranEntryProtected::setGSMState(CallState wState)
 {
+	if (mGSMState == CCState::TranDeleted) {
+		// Shouldnt happen but be sure: never change state from deleted to anything else.
+		return;
+	}
 	//ScopedLock lock(mLock,__FILE__,__LINE__);
 	mStateTimer.now();
 
@@ -1441,6 +1447,7 @@ bool TranEntry::lockAndStart(MachineBase *wProc, GSM::L3Message *l3msg)
 // For example if lch is FACCH, we cannot send anything downstrem on that.
 bool TranEntry::lockAndInvokeL3Msg(const GSM::L3Message *l3msg /*, const L3LogicalChannel *lch*/)
 {
+	if (this->getGSMState() == CCState::TranDeleted) { return false; }	// (pat) Paranoid check that TranEntry still extant.
 	LOG(DEBUG);
 	bool result = false;
 	RefCntPointer<TranEntry> saver = this;
@@ -1457,6 +1464,7 @@ bool TranEntry::lockAndInvokeL3Msg(const GSM::L3Message *l3msg /*, const L3Logic
 // l3msg may be NULL for primitives or unparseable messages.
 bool TranEntry::lockAndInvokeFrame(const L3Frame *frame, const L3Message *l3msg)
 {
+	if (this->getGSMState() == CCState::TranDeleted) { return false; }	// (pat) Paranoid check that TranEntry still extant.
 	LOG(DEBUG) << l3msg;
 	bool result = false;
 	RefCntPointer<TranEntry> saver = this;
@@ -1476,6 +1484,7 @@ bool TranEntry::lockAndInvokeFrame(const L3Frame *frame, const L3Message *l3msg)
 // Caller responsible for deleting the sipmsg.
 bool TranEntry::lockAndInvokeSipMsg(const SIP::DialogMessage *sipmsg)
 {
+	if (this->getGSMState() == CCState::TranDeleted) { return false; }	// (pat) Paranoid check that TranEntry still extant.
 	bool result = false;
 	RefCntPointer<TranEntry> saver = this;
 	{	ScopedLock lock(mL3RewriteLock,__FILE__,__LINE__);
@@ -1503,6 +1512,8 @@ bool TranEntry::lockAndInvokeSipMsgs()
 
 bool TranEntry::lockAndInvokeTimeout(L3Timer *timer)
 {
+	if (this->getGSMState() == CCState::TranDeleted) { return false; }	// (pat) Paranoid check that TranEntry still extant.
+
 	// handleMachineStatus may unlink the transaction; this reference prevents the transaction
 	// from being deleted until this routine exists.  Without this, the ScopedLock tries to reference the deleted transaction.
 	bool result = false;
@@ -1620,14 +1631,24 @@ void TranEntry::teRemove(TermCause cause)
 	// will not destroy itself while a transaction still points at it.  Taking the transaction
 	// out of the TransactionTable prevents the dialog from finding the transaction any longer.
 	// However to prevent a race we must do this after using the dialog, which we did above.
-	setGSMState(CCState::NullState);	// redundant, transaction is being deleted.
+	setGSMState(CCState::TranDeleted);	// (pat 10-10-2014) Now we use this to mark the TranEntry as deleted.
 	gNewTransactionTable.ttRemove(this->tranID());
 
 	while (currentProcedure()) {
-		delete tran()->tePopMachine();
+		delete this->tePopMachine();
 	}
 
+	sDeletedTranEntrys.push_back(RefCntPointer<TranEntry>(this));
+
 	if (mContext) { mContext->mmDisconnectTran(this); }	// DANGER: this deletes the transaction as a side effect.
+	mContext = NULL;
+
+	while (sDeletedTranEntrys.size() > 100) {
+		RefCntPointer<TranEntry> tran = sDeletedTranEntrys.front();
+		sDeletedTranEntrys.pop_front();
+		// The act of moving it from the list deletes the reference count and causes it to be deleted.
+		LOG(DEBUG) << "Deleting transaction:"<<tran->tranID();
+	}
 }
 
 // Send closure messages for a transaction that is known to be a CS transaction, using the specified CC cause.
@@ -1635,9 +1656,13 @@ void TranEntry::teRemove(TermCause cause)
 // To close all transactions on a channel, see L3LogicalChannel::chanClose()
 void TranEntry::teCloseCallNow(TermCause cause, bool sendCause)
 {
-	LOG(INFO) << "SIP term info closeCallNow cause: " << cause; // SVGDBG
+	//LOG(INFO) << "SIP term info closeCallNow cause: " << cause; // SVGDBG
 	WATCHINFO("CloseCallNow"<<LOGVAR2("cause",cause)<<" "<<channel()->descriptiveString());
 	LOG(DEBUG) <<LOGVAR(cause) << this << gMMLayer.printMMInfo();
+	if (tran()->getGSMState() == CCState::TranDeleted) { 	// (pat) Paranoid check that TranEntry still extant.
+		LOG(ERR) << "detected closeCall on deleted transaction";
+		return;
+	}
 
 	tran()->teCloseDialog(cause); // Redundant with teRemove, but I want to be sure we terminate the dialog regardless of bugs.
 	if (isL3TIValid() && tran()->getGSMState() != CCState::NullState && tran()->getGSMState() != CCState::ReleaseRequest) {

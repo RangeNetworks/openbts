@@ -109,6 +109,8 @@ struct CCState {
 		HandoverProgress = 104,
 		HandoverOutbound = 105,
 		//BusyReject,		// pat removed, not used
+
+		TranDeleted
 	};
 	static const char* callStateString(CallState state);
 	static bool isInCall(CallState state);
