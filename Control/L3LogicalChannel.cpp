@@ -305,7 +305,7 @@ void L3LogicalChannel::reassignComplete()
 	} // release lock
 
 	// FIXME: There is a race for the new channel to get its ESTABLISH before this old one gets this hardrelease.
-	sleep(1);
+	msleep(400);
 	chanSetState(chRequestHardRelease);	// Done with this channel.
 	//chanSetState(L3LogicalChannel::chReassignComplete);	// Redundant with sending the HARDRELEASE, this will cause the service loop to exit.
 }
