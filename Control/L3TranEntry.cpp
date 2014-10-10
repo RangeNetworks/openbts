@@ -1638,6 +1638,9 @@ void TranEntry::teRemove(TermCause cause)
 		delete this->tePopMachine();
 	}
 
+	// If the TranEntry never got into an MMContext, ie, deleted from MMUser::MMFree, this is the first time it has been
+	// put under RefCntPointer control - from this point on it will be deleted when the last reference count disappears,
+	// which is the pop_front out of the sDeletedTranEntrys below.
 	sDeletedTranEntrys.push_back(RefCntPointer<TranEntry>(this));
 
 	if (mContext) { mContext->mmDisconnectTran(this); }	// DANGER: this deletes the transaction as a side effect.

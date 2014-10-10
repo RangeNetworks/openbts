@@ -251,8 +251,9 @@ void MMUser::mmuFree(MMUserMap::iterator *piter, TermCause cause)	// Some caller
 	LOG(DEBUG) << "MMUser DELETE "<<(void*)this <<LOGVAR(!!piter);
 	// At this point the only pointer to the transaction is in the InterthreadQueue.
 	// Once the transaction moves to the MMContext it will be put in a RefCntPointer.
-	while (TranEntry *tran = mmuMTCq.pop_frontr()) { tran->teCancel(cause); delete tran; }
-	while (TranEntry *tran = mmuMTSMSq.pop_frontr()) { tran->teCancel(cause); delete tran; }
+	// 10-10-2014: Formerly we needed to delete tran here, but now it is done inside teCancel.
+	while (TranEntry *tran = mmuMTCq.pop_frontr()) { tran->teCancel(cause); }
+	while (TranEntry *tran = mmuMTSMSq.pop_frontr()) { tran->teCancel(cause); }
 
 	if (piter) {		// It is just an efficiency issue to use the iterator if we already have one.
 		gMMLayer.MMUsers.erase(*piter);
@@ -1203,7 +1204,7 @@ MMUser *MMLayer::mmFindByMobileId(L3MobileIdentity&mid)
 // When called from the paging thread loop this function is responsible for noticing expired MMUsers and deleting them.
 void MMLayer::mmGetPages(NewPagingList_t &pages)
 {
-	//LOG(DEBUG) <<LOGVAR(MMUsers.size());
+	LOG(DEBUG) <<"before "<<LOGVAR(MMUsers.size());
 
 	assert(pages.size() == 0);	// Caller passes us a new list each time.
 
@@ -1235,6 +1236,7 @@ void MMLayer::mmGetPages(NewPagingList_t &pages)
 			pages.push_back(tmp);
 		}
 	}
+	LOG(DEBUG) <<"after "<<LOGVAR(MMUsers.size());
 	if (pages.size()) LOG(DEBUG) <<LOGVAR(pages.size());
 }
 
