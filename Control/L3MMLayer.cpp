@@ -1204,12 +1204,12 @@ MMUser *MMLayer::mmFindByMobileId(L3MobileIdentity&mid)
 // When called from the paging thread loop this function is responsible for noticing expired MMUsers and deleting them.
 void MMLayer::mmGetPages(NewPagingList_t &pages)
 {
-	LOG(DEBUG) <<"before "<<LOGVAR(MMUsers.size());
 
 	assert(pages.size() == 0);	// Caller passes us a new list each time.
 
 	{
 		ScopedLock lock(gMMLock,__FILE__,__LINE__);
+		LOG(DEBUG) <<"before "<<LOGVAR(MMUsers.size());
 		pages.reserve(MMUsers.size());
 		for (MMUserMap::iterator it = MMUsers.begin(); it != MMUsers.end(); ) {
 			MMUser *mmu = it->second;
@@ -1227,7 +1227,9 @@ void MMLayer::mmGetPages(NewPagingList_t &pages)
 				// because that implies we know that the user is at the BTS, but if it did not answer the page, we do not.
 				// Paul at Null Team recommended 504.
 				// FIXME URGENTLY:  Dont do an mmFree within the gMMLock, although we need to make sure it does not disappear.
-				mmu->mmuFree(&thisone,TermCause::Local(L3Cause::No_Paging_Response));
+				//mmu->mmuFree(&thisone,TermCause::Local(L3Cause::No_Paging_Response));
+				// (pat 10-10-2014) Stop passing the iterator, supersitiously.
+				mmu->mmuFree(NULL,TermCause::Local(L3Cause::No_Paging_Response));
 				continue;
 			}
 			// TODO: We could add a check for a "provisional IMSI" 
@@ -1235,8 +1237,8 @@ void MMLayer::mmGetPages(NewPagingList_t &pages)
 			NewPagingEntry tmp(mmu->mmuGetInitialChanType(), mmu->mmuImsi);
 			pages.push_back(tmp);
 		}
+		LOG(DEBUG) <<"after "<<LOGVAR(MMUsers.size());
 	}
-	LOG(DEBUG) <<"after "<<LOGVAR(MMUsers.size());
 	if (pages.size()) LOG(DEBUG) <<LOGVAR(pages.size());
 }
 
