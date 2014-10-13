@@ -841,7 +841,7 @@ vector< vector<string> > TMSITable::tmsiTabView(int verbosity, bool rawFlag, uns
 void TMSITable::tmsiTabDump(int verbosity,bool rawFlag, ostream& os, bool showAll, bool taboption) const
 {
 	// Dump the TMSI table.
-	unsigned maxrows = showAll ? 2^31 : 100;
+	unsigned maxrows = showAll ? 10000000 : 100;
 	vector< vector<string> > view = tmsiTabView(verbosity, rawFlag, maxrows);
 
 #if unused
