@@ -243,6 +243,7 @@ void L1Encoder::rollForward()
 	// This implements GSM 05.02 Clause 7 for the transmit side.
 	mPrevWriteTime = mNextWriteTime;
 	mTotalFrames++;
+	ScopedLock lock(mWriteTimeLock,__FILE__,__LINE__);	// (pat) Protects getNextWriteTime.
 	mNextWriteTime.rollForward(mMapping.frameMapping(mTotalFrames),mMapping.repeatLength());
 }
 
@@ -316,7 +317,6 @@ const L1Decoder* L1Encoder::sibling() const
 	return mParent->decoder();
 }
 
-
 void L1Encoder::resync(bool force)
 {
 	// If the encoder's clock is far from the current BTS clock,
@@ -328,9 +328,18 @@ void L1Encoder::resync(bool force)
 		mNextWriteTime = now;
 		mNextWriteTime.TN(mTN);
 		mTotalFrames = 0;	// (pat 4-2014) Make sure we start at beginning of mapping.
-		mNextWriteTime.rollForward(mMapping.frameMapping(mTotalFrames),mMapping.repeatLength());
+		{ ScopedLock lock(mWriteTimeLock,__FILE__,__LINE__);	// (pat) Protects getNextWriteTime.
+		  mNextWriteTime.rollForward(mMapping.frameMapping(mTotalFrames),mMapping.repeatLength());
+		}
 		OBJLOG(DEBUG) <<"L1Encoder RESYNC "<< " next=" << mNextWriteTime << " now=" << now;
 	}
+}
+
+Time L1Encoder::getNextWriteTime()
+{
+	resync();
+	ScopedLock lock(mWriteTimeLock,__FILE__,__LINE__);
+	return mNextWriteTime;
 }
 
 
@@ -2279,7 +2288,9 @@ void TCHFACCHL1Encoder::dispatch()
 	// Most channels do not need this, becuase they are entirely data-driven
 	// from above.  TCH/FACCH, however, must feed the interleaver on time.
 	if (!encActive()) {
-		mNextWriteTime += 26;
+		{ ScopedLock lock(mWriteTimeLock,__FILE__,__LINE__);	// (pat) Protects getNextWriteTime.
+		  mNextWriteTime += 26;
+		}
 		gBTS.clock().wait(mNextWriteTime);
 		return;
 	}

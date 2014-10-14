@@ -110,6 +110,7 @@ class L1Encoder {
 	//@}
 
 	/**@name Multithread access control and data shared across threads. */
+	// (pat) It is not being used effectively.
 	//@{
 	mutable Mutex mEncLock;
 	//@}
@@ -126,6 +127,9 @@ class L1Encoder {
 	unsigned mTotalFrames;			///< total frames sent since last open()
 	GSM::Time mPrevWriteTime;		///< timestamp of previous generated burst
 	GSM::Time mNextWriteTime;		///< timestamp of next generated burst
+
+	// (pat 10-2014) Another thread calls getNextWriteTime so we must protect places that write to mNextWriteTime.
+	mutable Mutex mWriteTimeLock;
 
 	volatile bool mRunning;			///< true while the service loop is running
 	Bool_z mEncActive;				///< true between open() and close()
@@ -210,7 +214,7 @@ class L1Encoder {
 	const L1FEC* parent() const { return mParent; }
 	L1FEC* parent() { return mParent; }
 
-	GSM::Time getNextWriteTime() { resync(); return mNextWriteTime; }
+	GSM::Time getNextWriteTime();
 
 	protected:
 
