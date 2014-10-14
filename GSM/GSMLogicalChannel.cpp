@@ -324,7 +324,7 @@ void SACCHLogicalChannel::l2sendf(const L3Frame& frame)
 
 L3Frame * L2LogicalChannel::l2recv(unsigned timeout_ms)
 {
-	LOG(DEBUG);
+	//LOG(DEBUG);
 	L3Frame *result = mL3Out.read(timeout_ms);
 	if (result) WATCHINFO("l2recv " << this <<LOGVAR2("sap",result->getSAPI()) <<LOGVAR(result));
 	return result;

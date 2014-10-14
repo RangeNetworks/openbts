@@ -133,13 +133,13 @@ struct RachCompareAdapter {
 	/** Compare the objects pointed to, not the pointers themselves. */
 	// (pat) This is used when a RachInfo is placed in a priority_queue.
 	// Return true if rach1 should appear before rach2 in the priority_queue,
-	// meaning that rach1 will be serviced before rach2.
+	// meaning that rach2 will be serviced before rach1, since the stupid C++ priority_queue pops from the END of the queue.
 	bool operator()(const RachInfo *rach1, const RachInfo *rach2) {
 		assert(!rach1->mChan == !rach2->mChan);	// In any given queue, all raches have mChan, or none.
 		if (rach1->mChan) {
-			return rach1->mReadyTime < rach2->mReadyTime;
+			return rach1->mReadyTime > rach2->mReadyTime;
 		} else {
-			return rach1->mWhen < rach2->mWhen;
+			return rach1->mWhen > rach2->mWhen;
 		}
 	}
 };

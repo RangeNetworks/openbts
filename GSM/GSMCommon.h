@@ -316,7 +316,7 @@ extern const unsigned RACHWaitSParamCombined[16];
 /**@name Modulus operations for frame numbers. */
 //@{
 /** The GSM hyperframe is largest time period in the GSM system, GSM 05.02 4.3.3. */
-// It is 2715648
+// It is 2715648 or 3 hours, 28 minutes, 53 seconds
 const uint32_t gHyperframe = 2048UL * 26UL * 51UL;
 
 /** Get a clock difference, within the modulus, v1-v2. */
