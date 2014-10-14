@@ -193,20 +193,22 @@ static L2LogicalChannel *preallocateChForRach(RachInfo *rach, bool *deleteMe)
 	LCH->lcstart();
 	rach->mChan = LCH;
 	Time sacchStart = LCH->getSACCH()->getNextWriteTime();
+	rach->mReadyTime = sacchStart;
 	// There is a race whether the thread that runs SACCH can run before sacchStart time, and if not
 	// the SACCH will not be transmitted at this time.
 	// Therefore, if sacchStart time is close, add a whole sacch frame, 104 frames == 480ms.
 	now = gBTS.time();	// Must update this because getTCH blocked.
-	int diff = sacchStart - now;	// Returns number of 4.8ms frames.
+	int diff = rach->mReadyTime - now;	// Returns number of 4.8ms frames.  // positive diff is in the future.
 	if (diff <  26) {	// very conservative.
-		sacchStart += 104;
+		// (pat) We are making SURE the SACCH has transmitted a frame before we tell the handset to use the channel.
+		// (pat) Not sure this is necessary.
+		rach->mReadyTime += 104;
 	}
-	if (sacchStart - now < 0) {
+	if (rach->mReadyTime < now + 26) {	// negative diff means sacchStart is still in the past.
 		// Should never happen.
-		sacchStart = now + 104;
+		rach->mReadyTime = now + 104;
 	}
-	rach->mReadyTime = sacchStart;
-	LOG(DEBUG) <<LOGVAR(sacchStart)<<LOGVAR(now)<<LOGVAR(diff);
+	LOG(DEBUG) "RACH "<<LOGVAR(sacchStart)<<LOGVAR(now)<<LOGVAR(diff)<<LOGVAR2("readyTime",rach->mReadyTime);
 	return LCH;
 }
 
@@ -214,10 +216,6 @@ void enqueueRach(RachInfo *rip)
 {
 	// TODO: Phones next to the base station will include the operator's.
 	// We should service them first, even if they are just LUR.
-
-	// This is too chatty.
-	//LOG(INFO) << "**Incoming Burst**"<<LOGVAR(lur)<<LOGVAR(gprs)
-			//<<LOGVAR(when)<<LOGVAR(age)<<LOGVAR2("TE",timingError)<<LOGVAR(RSSI)<<LOGHEX(RA);
 
 	bool deleteMe = false;
 	preallocateChForRach(rip,&deleteMe);
