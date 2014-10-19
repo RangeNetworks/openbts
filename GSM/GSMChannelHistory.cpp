@@ -198,7 +198,7 @@ bool ChannelHistory::neighborAddMeasurements(SACCHLogicalChannel* SACCH,const L3
 		int thisBSCI = measurements->BSIC_NCELL(i);
 		int arfcn = gNeighborTable.getARFCN(thisFreq);
 		if (arfcn < 0) {
-			LOG(INFO) << "Measurement report with invalid freq index:" << thisFreq << " arfcn:" << arfcn;  // SVGDBG seeing this error
+			LOG(INFO) << "Measurement report with invalid freq index:" << thisFreq << " arfcn:" << arfcn;  // SVGDBG seeing this error  (pat) Maybe fixed 10-17-2014 by ticket #1915
 			continue;
 		}
 		this->neighborAddMeasurement(sampleTime.FN(),(unsigned)arfcn,thisBSCI,thisRxLevel);

@@ -329,6 +329,7 @@ bool NeighborTable::ntAddInfo(NeighborEntry &newentry)
 	NeighborTableMap::iterator mit = mNeighborMap.find(newentry.mIPAddress);
 	if (mit == mNeighborMap.end()) {
 		LOG(NOTICE) << "Ignoring unsolicited 'RSP NEIGHBOR_PARAMS' from " << newentry.mIPAddress;
+		return false;	// (pat) Added 10-17-2014.  Oops.
 	}
 	NeighborEntry &oldentry = mit->second;
 	// (pat) Added test to see if C0 or BCC changed.  That would not change the beacon but we need to recheck for conflicts
@@ -498,6 +499,7 @@ void NeighborTable::setHoldOff(string ipaddress, unsigned seconds)
 	NeighborTableMap::iterator mit = mNeighborMap.find(ipaddress);
 	if (mit == mNeighborMap.end()) {
 		LOG(NOTICE) << "Can not set holdoff for unknown IP address:"<<ipaddress;
+		return;	// (pat) Added 10-17-2014.  Oops.
 	}
 	NeighborEntry &entry = mit->second;
 	entry.mHoldoff = time(NULL) + seconds;
