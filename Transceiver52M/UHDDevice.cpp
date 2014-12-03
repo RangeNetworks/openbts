@@ -33,7 +33,7 @@
 #endif
 
 #define B2XX_CLK_RT      26e6
-#define B2XX_BASE_RT     GSMRATE
+#define X3XX_CLK_RT      104e6
 #define B100_BASE_RT     400000
 #define USRP2_BASE_RT    390625
 #define TX_AMPL          0.3
@@ -44,6 +44,7 @@ enum uhd_dev_type {
 	USRP2,
 	B100,
 	B2XX,
+	X3XX,
 	UMTRX,
 	NUM_USRP_TYPES,
 };
@@ -73,6 +74,8 @@ static struct uhd_dev_offset uhd_offsets[NUM_USRP_TYPES * 2] = {
 	{ B100,  4, 7.9307e-5 },
 	{ B2XX,  1, 9.9692e-5 },
 	{ B2XX,  4, 6.9248e-5 },
+	{ X3XX,  1, 1.5360e-4 },
+	{ X3XX,  4, 1.1264e-4 },
 	{ UMTRX, 1, 9.9692e-5 },
 	{ UMTRX, 4, 7.3846e-5 },
 };
@@ -107,6 +110,7 @@ static double select_rate(uhd_dev_type type, int sps)
 
 	switch (type) {
 	case USRP2:
+	case X3XX:
 		return USRP2_BASE_RT * sps;
 	case B100:
 		return B100_BASE_RT * sps;
@@ -474,7 +478,8 @@ bool uhd_device::parse_dev_type()
 {
 	std::string mboard_str, dev_str;
 	uhd::property_tree::sptr prop_tree;
-	size_t usrp1_str, usrp2_str, b100_str, b200_str, b210_str, umtrx_str;
+	size_t usrp1_str, usrp2_str, b100_str, b200_str,
+	       b210_str, x300_str, x310_str, umtrx_str;
 
 	prop_tree = usrp_dev->get_device()->get_tree();
 	dev_str = prop_tree->access<std::string>("/name").get();
@@ -485,6 +490,8 @@ bool uhd_device::parse_dev_type()
 	b100_str = mboard_str.find("B100");
 	b200_str = mboard_str.find("B200");
 	b210_str = mboard_str.find("B210");
+	x300_str = mboard_str.find("X300");
+	x310_str = mboard_str.find("X310");
 	umtrx_str = dev_str.find("UmTRX");
 
 	if (usrp1_str != std::string::npos) {
@@ -504,6 +511,10 @@ bool uhd_device::parse_dev_type()
 		dev_type = B2XX;
 	} else if (b210_str != std::string::npos) {
 		dev_type = B2XX;
+	} else if (x300_str != std::string::npos) {
+		dev_type = X3XX;
+	} else if (x310_str != std::string::npos) {
+		dev_type = X3XX;
 	} else if (usrp2_str != std::string::npos) {
 		dev_type = USRP2;
 	} else if (umtrx_str != std::string::npos) {
@@ -583,6 +594,7 @@ int uhd_device::open(const std::string &args, bool extref)
 	case B100:
 		return RESAMP_64M;
 	case USRP2:
+	case X3XX:
 		return RESAMP_100M;
 	}
 
