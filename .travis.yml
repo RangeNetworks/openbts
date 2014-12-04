@@ -18,7 +18,7 @@ before_install:
  - sudo apt-get install -qq libortp-dev libusb-1.0-0-dev libreadline-dev
  - git clone https://github.com/RangeNetworks/liba53.git
  - cd liba53
- - dpkg-buildpackage
+ - dpkg-buildpackage -us -uc
  - cd ..
  - sudo dpkg -i liba53*.deb 
  - git clone https://github.com/RangeNetworks/libcoredumper.git
@@ -34,5 +34,5 @@ before_install:
 #  - sh bootstrap.sh
 
 script:
-  - dpkg-buildpackage
+  - dpkg-buildpackage -us -uc
 
