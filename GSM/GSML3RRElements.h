@@ -471,6 +471,8 @@ public:
 		:mTypeAndOffset(TDMA_MISC),
 		mTN(0),mTSC(0),mHFlag(0),mARFCN(0),mMAIO(0),mHSN(0)
 	{ }
+
+	bool initialized() { return mTypeAndOffset != TDMA_MISC; }
 	
 
 	size_t lengthV() const  { return 3; }
@@ -964,14 +966,15 @@ class L3CipheringModeSetting : public L3ProtocolElement
 	protected:
 
 	bool mCiphering;
-	int mAlgorithm;  // algorithm is A5/mAlgorithm
+	int mAlgorithm;  // algorithm is A5/mAlgorithm, 1 means A5_1, which is encoded in the IE as 0.
 
 	public:
 
+	// Pass in the algorithm number, ie 1 means A5_1, 2 means A5_2, etc.
 	L3CipheringModeSetting(bool wCiphering, int wAlgorithm)
 		:mCiphering(wCiphering), mAlgorithm(wAlgorithm)
 	{
-		// assert(wAlgorithm >= 1 && wAlgorithm <= 7);
+		// devassert(wAlgorithm >= 1 && wAlgorithm <= 7);
 	}
 
 	size_t lengthV() const;

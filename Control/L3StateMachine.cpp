@@ -29,6 +29,7 @@
 #include <GSML3MMMessages.h>
 #include <SMSMessages.h>
 #include <GSMConfig.h>
+#include <RRLPServer.h>
 #include <Globals.h>
 #include <typeinfo>
 
@@ -261,6 +262,7 @@ static bool handleCommonMessages(const L3Message *l3msg, MMContext *mmchan, bool
 			NewPagingResponseHandler(dynamic_cast<const L3PagingResponse*>(l3msg),mmchan);
 			return true;
 		case L3CASE_RR(L3RRMessage::ApplicationInformation):
+			return true;
 		case L3CASE_RR(L3RRMessage::RRStatus):
 			handleStatus(l3msg,mmchan);
 			return true;

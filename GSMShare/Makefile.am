@@ -21,11 +21,11 @@
 
 include $(top_srcdir)/Makefile.common
 
-AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES)
-AM_CXXFLAGS = -Wall -O3 -g -ldl -lpthread
-
 noinst_LTLIBRARIES = libGSMShare.la
 
+# AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES)
+# AM_CXXFLAGS = -Wall -O3 -g -ldl -lpthread
+libGSMShare_la_CXXFLAGS = $(AM_CXXFLAGS) -O3
 libGSMShare_la_SOURCES = \
 	L3Enums.cpp \
 	AmrCoder.cpp \
@@ -49,33 +49,26 @@ noinst_HEADERS = \
 	GSM503Tables.h \
 	A51.h
 
-
-# (pat 8-2013) I don't know how to properly include the CommonLibs directory using autofoo.
-# You are welcome to correct this reference.
 ViterbiTest_SOURCES = ViterbiTest.cpp
 ViterbiTest_LDADD = \
 	$(GLOBALS_LA) \
 	$(noinst_LTLIBRARIES) \
-	../CommonLibs/libcommon.la \
 	$(GSM_LA) \
 	$(COMMON_LA) \
 	$(SQLITE_LA)
 	
 AMRTest_SOURCES = AMRTest.cpp
-AMRTest_LDADD = \ 
+AMRTest_LDADD = \
 	$(GLOBALS_LA) \
 	$(noinst_LTLIBRARIES) \
-	../CommonLibs/libcommon.la \
 	$(GSM_LA) \
 	$(COMMON_LA) \
 	$(SQLITE_LA)
 
 A51Test_SOURCES = A51Test.cpp
-A51Test_LDADD = \ 
+A51Test_LDADD = \
 	$(GLOBALS_LA) \
 	$(noinst_LTLIBRARIES) \
-	../CommonLibs/libcommon.la \
 	$(GSM_LA) \
 	$(COMMON_LA) \
 	$(SQLITE_LA)
-

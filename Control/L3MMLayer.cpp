@@ -273,7 +273,11 @@ bool MMContext::mmCheckSipMsgs()
 {
 	// Update: We cannot hold the global lock while invoking state machines because they can block.
 	// As an interim measure, just dont lock this and hope for the best.
-	//ScopedLock lock(gMMLock,__FILE__,__LINE__);	// I think this is unnecessary, but be safe.
+	// (pat) Update 9-19-2014: Formerly, when this global lock was in place we got the "blocked more than one second at..."
+	// messages during the stress test.  Ticket #1905 reports a crash that looks like using a transaction here while
+	// it is being deleted.  Since I have separated layer2 from layer3 with InterthreadQueues since the last test,
+	// I am re-enabling this global lock to attempt to fix the crash.
+	ScopedLock lock(gMMLock,__FILE__,__LINE__);	// I think this is unnecessary, but be safe.
 	bool result = false;
 	for (unsigned i = TE_first; i < TE_num; i++) {
 		RefCntPointer<TranEntry> tranp = mmGetTran(i);

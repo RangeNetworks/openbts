@@ -21,7 +21,7 @@
 
 include $(top_srcdir)/Makefile.common
 
-AM_CPPFLAGS = -Wall $(STD_DEFINES_AND_INCLUDES)
+#AM_CPPFLAGS = -Wall $(STD_DEFINES_AND_INCLUDES)
 #AM_CXXFLAGS = -O2 -g
 
 noinst_LTLIBRARIES = libGSM.la

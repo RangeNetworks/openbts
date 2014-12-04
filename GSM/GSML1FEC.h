@@ -140,7 +140,7 @@ class L1Encoder {
 	public:
 
 	EncryptionType mEncrypted;
-	int mEncryptionAlgorithm;
+	int mEncryptionAlgorithm;	// Algorithm number, ie 1 means A5_1, 2 means A5_2, etc.
 
 	/**
 		The basic encoder constructor.
@@ -332,7 +332,7 @@ class L1Decoder {
 	//ViterbiR2O4 mVCoder;	///< nearly all GSM channels use the same convolutional code
 
 	EncryptionType mEncrypted;
-	int mEncryptionAlgorithm;
+	int mEncryptionAlgorithm;	// Algorithm number, ie 1 means A5_1, 2 means A5_2, etc.
 	unsigned char mKc[8];
 	int mFN[8];
 
@@ -1482,9 +1482,8 @@ class CBCHL1Encoder : public XCCHL1Encoder {
 
 	public:
 
-	CBCHL1Encoder(const TDMAMapping& wMapping,
-			L1FEC* wParent)
-		:XCCHL1Encoder(0,0,wMapping,wParent)
+	CBCHL1Encoder(int wCN, int wTN, const TDMAMapping& wMapping, L1FEC* wParent)
+		:XCCHL1Encoder(wCN,wTN,wMapping,wParent)
 	{}
 
 	/** Override sendFrame to meet sync requirements of GSM 05.02 6.5.4. */
@@ -1523,10 +1522,10 @@ class CBCHL1FEC : public L1FEC {
 
 	public:
 
-	CBCHL1FEC(const MappingPair& wMapping)
+	CBCHL1FEC(int wCN, int wTN, const MappingPair& wMapping)
 		:L1FEC()
 	{
-		mEncoder = new CBCHL1Encoder(wMapping.downlink(),this);
+		mEncoder = new CBCHL1Encoder(wCN,wTN,wMapping.downlink(),this);
 	}
 	//string debugId() const { static string id; return id.size() ? id : (id=format("CBCHL1FEC %s ",descriptiveString())); }
 };

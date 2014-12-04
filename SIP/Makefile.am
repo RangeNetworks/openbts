@@ -22,11 +22,12 @@
 include $(top_srcdir)/Makefile.common
 
 # Previously: -I$(ORTP_INCLUDEDIR) $(ORTP_CPPFLAGS)
-AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES)
-AM_CXXFLAGS = -Wall -Wextra
+# AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES)
+# AM_CXXFLAGS = -Wall -Wextra
 
 noinst_LTLIBRARIES = libSIP.la
 
+libSIP_la_CXXFLAGS = $(AM_CXXFLAGS) -Wextra
 libSIP_la_SOURCES = \
 	SIPRtp.cpp \
 	SIPParse.cpp \

@@ -1,0 +1,4 @@
+#!/bin/bash
+
+exec /OpenBTS/OpenBTSCLI -p 49300 -t 127.0.0.1 -d $*
+

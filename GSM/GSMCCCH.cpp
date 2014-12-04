@@ -336,7 +336,9 @@ bool CCCHLogicalChannel::processRaches()
 //		// Nothing available?
 //		if (!LCH) {
 //			failure:
+#if 0
 //			return false;
+#endif
 //		}
 
 		if (! rach->mChan) {

@@ -421,9 +421,14 @@ void L3SIType4RestOctets::writeText(std::ostream& os) const
 
 L3SystemInformationType4::L3SystemInformationType4()
 	:L3RRMessageRO(),
-	mHaveCBCH(gConfig.getStr("Control.SMSCB.Table").length() != 0),
-	mCBCHChannelDescription(SDCCH_4_2,0,gConfig.getNum("GSM.Identity.BSIC.BCC"),gConfig.getNum("GSM.Radio.C0"))
-{ }
+	mHaveCBCH(false)
+{
+	// Dont advertise CBCH unless and until we have a valid channel description for it.
+	if (isCBSEnabled() && gBTS.mCBCHDescription.initialized()) {
+		mHaveCBCH = true;
+		mCBCHChannelDescription = gBTS.mCBCHDescription;
+	}
+}
 
 
 size_t L3SystemInformationType4::l2BodyLength() const

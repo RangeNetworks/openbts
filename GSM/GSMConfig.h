@@ -50,6 +50,11 @@ class SDCCHList : public std::vector<SDCCHLogicalChannel*> {};
 class TCHList : public std::vector<TCHFACCHLogicalChannel*> {};
 typedef std::vector<L2LogicalChannel*> L2ChanList;
 
+struct TimeSlot {
+	int mCN, mTN;
+	TimeSlot(int wCN,int wTN) : mCN(wCN), mTN(wTN) {}
+};
+
 /**
 	This object carries the top-level GSM air interface configuration.
 	It serves as a central clearinghouse to get access to everything else in the GSM code.
@@ -218,11 +223,10 @@ class GSMConfig {
 
 	/**@ Manage the CBCH. */
 	//@{
-
+	L3ChannelDescription mCBCHDescription;
 	/** The add method is not mutex protected and should only be used during initialization. */
-	void addCBCH(CBCHLogicalChannel *wCBCH)
-		{ assert(mCBCH==NULL); mCBCH=wCBCH; }
-
+	void addCBCH(CBCHLogicalChannel *wCBCH) { assert(mCBCH==NULL); mCBCH=wCBCH; }
+	void createCBCH(ARFCNManager *radio, TypeAndOffset type, int CN, int TN);
 	CBCHLogicalChannel* getCBCH() { return mCBCH; }
 	//@}
 
@@ -283,6 +287,8 @@ class GSMConfig {
 
 
 extern int gNumC7s, gNumC1s;
+
+extern bool isCBSEnabled();
 
 
 };	// GSM

@@ -724,13 +724,14 @@ ConfigurationKeyMap getConfigurationKeys()
 	map[tmp.getName()] = tmp;
 	}
 
+	// It is CBS [Cell Broadcast Service].
 	{ ConfigurationKey tmp("Control.SMSCB.Table","",
 		"",
 		ConfigurationKey::CUSTOMERWARN,
 		ConfigurationKey::FILEPATH_OPT,// audited
 		"",
-		true,
-		"File path for SMSCB scheduling database.  "
+		true,	// static because the channel is started in GSMConfig at init time.
+		"File path for CBS [Cell Broadcast Service] scheduling database.  "
 			"By default, this feature is disabled.  "
 			"To enable, specify a file path for the database e.g. /var/run/SMSCB.db.  "
 			"To disable again, execute \"unconfig Control.SMSCB.Table\"."
@@ -3171,6 +3172,17 @@ ConfigurationKeyMap getConfigurationKeys()
 		"0:100(5)",// educated guess
 		true,
 		"Probability (0-100) of dropping any inbound or outbound SIP packet to test robustness."
+	);
+	map[tmp.getName()] = tmp;
+	}
+
+	{ ConfigurationKey tmp("Control.CDR.Dirname","", // (pat) Added 7-2014.
+		"filename",
+		ConfigurationKey::DEVELOPER,
+		ConfigurationKey::FILEPATH_OPT,
+		"",
+		true,
+		"If set, CDR (Call Data Records) are placed in this directory.  A good choice is /var/log/OpenBTS.  "
 	);
 	map[tmp.getName()] = tmp;
 	}

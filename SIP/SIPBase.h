@@ -389,6 +389,7 @@ struct SipCallbacks {
 	}
 };
 
+extern string OpenBTSUserAgent();
 
 };
 #endif

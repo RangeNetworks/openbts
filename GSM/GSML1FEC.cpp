@@ -397,6 +397,8 @@ bool imsi2kc(string wIMSI, unsigned char *wKc)
 	for (size_t p = 0; p < kc.length(); p += 2) {
 		*dst++ = (unhex(kc[p]) << 4) | (unhex(kc[p+1]));
 	}
+	// Dont leave this message in production code:
+	LOG(DEBUG) << format("decrypt maybe imsi=%s Kc=%s",wIMSI.c_str(),kc.c_str());
 	return true;
 }
 
@@ -409,6 +411,7 @@ bool L1Decoder::decrypt_maybe(string wIMSI, int wA5Alg)
 	if (!imsi2kc(wIMSI, mKc)) return false;
 	mEncrypted = ENCRYPT_MAYBE;
 	mEncryptionAlgorithm = wA5Alg;
+	LOG(DEBUG) << format("decrypt maybe imsi=%s algorithm=%d",wIMSI.c_str(),mEncryptionAlgorithm);
 	return true;
 }
 
@@ -817,10 +820,13 @@ void XCCHL1Decoder::decrypt()
 		int t2 = fn % 26;
 		int t3 = fn % 51;
 		int count = (t1<<11) | (t3<<5) | t2;
+		LOG(DEBUG) <<LOGVAR(fn) <<LOGVAR(count);
 		if (mEncryptionAlgorithm == 1) {
 			A51_GSM(mKc, 64, count, block1, block2);
-		} else {
+		} else if (mEncryptionAlgorithm == 3) {
 			A53_GSM(mKc, 64, count, block1, block2);
+		} else {
+			devassert(0);
 		}
 		for (int j = 0; j < 114; j++) {
 			if ((block2[j/8] & (0x80 >> (j%8)))) {
@@ -1186,8 +1192,10 @@ void L1Encoder::transmit(BitVector2 *mI, BitVector2 *mE, const int *qbits)
 			int count = (t1<<11) | (t3<<5) | t2;
 			if (mEncryptionAlgorithm == 1) {
 				A51_GSM(kc, 64, count, block1, block2);
-			} else {
+			} else if (mEncryptionAlgorithm == 3) {
 				A53_GSM(kc, 64, count, block1, block2);
+			} else {
+				devassert(0);
 			}
 			for (int i = 0; i < 114; i++) {
 				int b = p ? (random() & 0xFFFFFF) < p : 0;
@@ -1672,8 +1680,10 @@ void TCHFACCHL1Decoder::decrypt(int B)
 		int count = (t1<<11) | (t3<<5) | t2;
 		if (mEncryptionAlgorithm == 1) {
 			A51_GSM(mKc, 64, count, block1, block2);
-		} else {
+		} else if (mEncryptionAlgorithm == 3) {
 			A53_GSM(mKc, 64, count, block1, block2);
+		} else {
+			devassert(0);
 		}
 		for (int j = 0; j < 114; j++) {
 			if ((block2[j/8] & (0x80 >> (j%8)))) {
@@ -2355,8 +2365,10 @@ void TCHFACCHL1Encoder::dispatch()
 			int count = (t1<<11) | (t3<<5) | t2;
 			if (mEncryptionAlgorithm == 1) {
 				A51_GSM(kc, 64, count, block1, block2);
-			} else {
+			} else if (mEncryptionAlgorithm == 3) {
 				A53_GSM(kc, 64, count, block1, block2);
+			} else {
+				devassert(0);
 			}
 			for (int i = 0; i < 114; i++) {
 				int b = p ? (random() & 0xFFFFFF) < p : 0;
@@ -2674,6 +2686,7 @@ void SACCHL1Encoder::sendFrame(const L2Frame& frame)
 
 void CBCHL1Encoder::sendFrame(const L2Frame& frame)
 {
+	OBJLOG(DEBUG);
 	// Sync to (FN/51)%8==0 at the start of a new block.
 	if (frame.peekField(4,4)==0) {
 		mNextWriteTime.rollForward(mMapping.frameMapping(0),51*8);

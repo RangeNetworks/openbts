@@ -610,25 +610,28 @@ class TCHFACCHLogicalChannel : public L2LogicalChannel {
 	See GSM 04.12 3.3.1.
 */
 // (pat) This uses one SDCCH slot, so it has a SACCH that doesnt do anything.
+// It must be based on L2LogicalChannel because it has a SACCH, but all the relevant methods
+// in L2LogicalChannel are overwritten so messages pass straight through to 
 class CBCHLogicalChannel : public L2LogicalChannel {
-
-	protected:
-
-	/*
-		The CBCH should be written be a single thread.
-		The input interface is *not* multi-thread safe.
-	*/
+	// The CBCH should be written be a single thread.
+	// The input interface is *not* multi-thread safe.
 	public:
 
-	CBCHLogicalChannel(const CompleteMapping& wMapping);
+	CBCHLogicalChannel(int wCN, int wTN, const CompleteMapping& wMapping);
 
 	void l2sendm(const L3SMSCBMessage& msg);
+	void l2sendm(const L3Message&) { devassert(0); }	// No other messages supported.
 
-	void l2sendm(const L3Message&) { devassert(0); }
+	void l2sendf(const L3Frame& frame);
+
+	void cbchOpen();
 
 	ChannelType chtype() const { return CBCHType; }
 
+	// unneeded: void writeToL1(const L2Frame& frame) { mL1->writeHighSide(frame); }
 
+	void writeLowSide(const L2Frame&) { assert(0); }	// There is no uplink.
+	L3Frame * l2recv(unsigned, unsigned) { devassert(0); return NULL; }
 };
 
 

@@ -22,8 +22,8 @@
 
 include $(top_srcdir)/Makefile.common
 
-AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES)
-AM_CXXFLAGS = -Wall
+# AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES)
+# AM_CXXFLAGS = -Wall
 
 EXTRA_DIST = README.Control
 
@@ -47,7 +47,8 @@ libcontrol_la_SOURCES = \
 	TMSITable.cpp \
 	ControlTransfer.cpp \
 	DCCHDispatch.cpp \
-	SMSCB.cpp
+	CBS.cpp \
+	RRLPServer.cpp
 
 
 # TODO - move CollectMSInfo.cpp and RRLPQueryController.cpp to RRLP directory.
@@ -68,4 +69,7 @@ noinst_HEADERS = \
 	L3Utils.h \
 	ControlCommon.h \
 	ControlTransfer.h \
-	TMSITable.h
+	TMSITable.h \
+	TMSITable.h \
+	CBS.h \
+	RRLPServer.h

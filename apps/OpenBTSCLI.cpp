@@ -220,13 +220,6 @@ int main(int argc, char *argv[])
 		}
 	}
 
-    // Note that this only works if we are communicating across localhost.
-    // TODO: Fix this so we can push the file across the socket if done
-    // remotely.
-    // Don't do this if running the single line configuration methods, we
-    // will assume running from an external script is mostly a testing
-    // thing, not a deployment thing for an actual base station.
-
 	if (sCommand.c_str()[0] == '\0') {
 		banner();
 		printf("Connecting to %s:%d...\n", target, port);

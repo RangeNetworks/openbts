@@ -25,6 +25,7 @@
 #include <GSML3MMMessages.h>
 #include <Reporting.h>
 #include <Globals.h>
+#include <GSML3CommonElements.h>
 
 #include <string>
 #include <iostream>
@@ -907,7 +908,7 @@ void TMSITable::setIMEI(string IMSI, string IMEI)
 
 bool TMSITable::classmark(const char* IMSI, const GSM::L3MobileStationClassmark2& classmark)
 {
-	int A5Bits = (classmark.A5_1()<<2) + (classmark.A5_2()<<1) + classmark.A5_3();
+	int A5Bits = classmark.getA5Bits();
 	char query[100];
 	snprintf(query,100,
 		"UPDATE TMSI_TABLE SET A5_SUPPORT=%u,ACCESSED=%u,POWER_CLASS=%u "
@@ -918,11 +919,12 @@ bool TMSITable::classmark(const char* IMSI, const GSM::L3MobileStationClassmark2
 }
 
 
+// Return 0 for no encryption, or the algorithm number, ie, 1 means A5_1, 2 means A5_2, etc.
 unsigned getPreferredA5Algorithm(unsigned A5Bits)
 {
-	if (A5Bits&1) return 3;
-	// if (A5Bits&2) return 2; not supported
-	if (A5Bits&4) return 1;
+	if (A5Bits & GSM::EncryptionAlgorithm::Bit5_3) return 3;
+	// if (A5Bits & GSM::EncryptionAlgorithm::Bit5_2) return 2;	// not supported
+	if (A5Bits & GSM::EncryptionAlgorithm::Bit5_1) return 1;
 	return 0;
 }
 

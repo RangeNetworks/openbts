@@ -24,8 +24,8 @@ include $(top_srcdir)/Makefile.common
 EXTRA_DIST = \
 	README.CLI 
 
-AM_CXXFLAGS = -Wall
-AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES)
+# AM_CXXFLAGS = -Wall
+# AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES)
 
 noinst_LTLIBRARIES = libcli.la
 

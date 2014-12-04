@@ -810,7 +810,7 @@ CPMessage * parseSMS( const GSM::L3Frame& frame );
    @param hexstring RPData encoded into hex-string.
    @return Pointer to parsed RPData or NULL on error.
 */
-RPData *hex2rpdata(const char *hexstring);
+// unused: RPData *hex2rpdata(const char *hexstring);
 
 /**
 	Parse a TPDU.

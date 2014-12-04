@@ -50,7 +50,7 @@ unsigned char* write_it(unsigned v, unsigned char *s) {
 }
 
 
-const double RAD1Device::LO_OFFSET = 6.0e6;
+const double RAD1Device::LO_OFFSET = 9.0e6;
 
 const double RAD1Device::masterClockRate = (double) 52.0e6;
 

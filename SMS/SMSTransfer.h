@@ -81,8 +81,8 @@ class RLFrame : public GSM::L3Frame
 		:L3Frame(source), mPrimitive(wPrimitive)
 	{ }
 #endif
-	RLFrame(size_t bitsNeeded=0) :L3Frame(GSM::L3_DATA,bitsNeeded) { /*RLFrameInit();*/ }
-	RLFrame(const BitVector2& source) :L3Frame(GSM::SAPIUndefined,source) { /*RLFrameInit();*/ }
+	RLFrame(size_t bitsNeeded=0) :L3Frame(GSM::L3_DATA,bitsNeeded,GSM::SAPI3) { /*RLFrameInit();*/ }
+	RLFrame(const BitVector2& source) :L3Frame(GSM::SAPI3,source) { /*RLFrameInit();*/ }
 	void text(std::ostream& os) const;
 
 #if UNUSED_PRIMITIVE
@@ -112,8 +112,8 @@ class TLFrame : public GSM::L3Frame
 		:L3Frame(source), mPrimitive(wPrimitive)
 	{ }
 #endif
-	TLFrame(size_t bitsNeeded=0) :L3Frame(GSM::L3_DATA,bitsNeeded) { /*TLFrameInit();*/ }
-	TLFrame(const BitVector2& source) :L3Frame(GSM::SAPIUndefined,source) { /*TLFrameInit();*/ }
+	TLFrame(size_t bitsNeeded=0) :L3Frame(GSM::L3_DATA,bitsNeeded,GSM::SAPI3) { /*TLFrameInit();*/ }
+	TLFrame(const BitVector2& source) :L3Frame(GSM::SAPI3,source) { /*TLFrameInit();*/ }
 
 #if UNUSED_PRIMITIVE
 	SMSPrimitive primitive() const { return mPrimitive; }

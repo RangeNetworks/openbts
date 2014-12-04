@@ -182,6 +182,7 @@ static BestNeighbor HandoverDecision(const L3MeasurementResults* measurements, S
 	}
 	LOG(DEBUG) << LOGVAR(penalty);
 
+	// This uses RLXLEV_DL.History to comute the neighbor RXLEV
 	BestNeighbor bestn = chp->neighborFindBest(penalty);
 	if (! bestn.mValid) { return NoHandover(bestn); }
 
@@ -305,7 +306,7 @@ bool outboundHandoverTransfer(TranEntry* transaction, L3LogicalChannel *TCH)
 	// default TA value defined in GSM 5.10 6.6, which is 0.
 	// We use a 0 value in OutboundPowerCmd which is max power.
 	HandoverEntry *hop = transaction->getHandoverEntry(true);
-	L3Frame HandoverCommand(hop->mHexEncodedL3HandoverCommand.c_str());
+	L3Frame HandoverCommand(SAPI0, hop->mHexEncodedL3HandoverCommand.c_str());
 	LOG(INFO) <<TCH<<" sending handover command";
 	TCH->l3sendf(HandoverCommand);
 

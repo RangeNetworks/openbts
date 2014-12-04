@@ -1,5 +1,5 @@
-openbts (5.0) unstable; urgency=low
+openbts (5.0-master) unstable; urgency=low
 
     * Test
 
- -- Donald C. Kirker <donald.kirker@rangenetworks.com>  Mon, 22 Apr 2013 00:11:00 -0700
+ -- Range Packager <buildmanager@rangenetworks.com>  Mon, 15 Sep 2014 17:42:42 -0700

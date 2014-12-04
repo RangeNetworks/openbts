@@ -742,7 +742,7 @@ L3Cause::AnyCause TranEntry::terminationRequested()
 // This is run in BS1 to create the handover string to send to BS2.
 // The string must contain everything about the SIP side of the session.
 // Everything needed to be known about the radio side of the session was transferred as an L3 HandoverCommand.
-string TranEntry::handoverString(string peer) const
+string TranEntry::handoverString(string peer,string cause) const
 {
 	// This string is a set of key-value pairs.
 	// It needs to carry all of the information of the GSM Abis Handover Request message,
@@ -761,6 +761,7 @@ string TranEntry::handoverString(string peer) const
 	os << " L3TI=" << mL3TI;
 	if (mCalled.digits()[0]) os << " called=" << mCalled.digits();
 	if (mCalling.digits()[0]) os << " calling=" << mCalling.digits();
+	if (cause.size()) os << " cause=" << cause;
 
 	const SipBase *sip = Unconst(this)->getDialog();
 	os << " REFER=" << sip->dsHandoverMessage(peer);
@@ -1402,25 +1403,33 @@ bool TranEntry::handleMachineStatus(MachineStatus status)
 // If no proc is specified here, assume that teSetProcedure was called previously and start the currentProcedure.
 bool TranEntry::lockAndStart(MachineBase *wProc)
 {
-	ScopedLock lock(mL3RewriteLock,__FILE__,__LINE__);
-	if (wProc) {
-		teSetProcedure(wProc,false);
-		devassert(wProc == currentProcedure());
-	} else {
-		wProc = currentProcedure();
-		devassert(wProc);	// Someone set the currentProcedure before calling this method.
+	bool result = false;
+	RefCntPointer<TranEntry> saver = this;
+	{	ScopedLock lock(mL3RewriteLock,__FILE__,__LINE__);
+		if (wProc) {
+			teSetProcedure(wProc,false);
+			devassert(wProc == currentProcedure());
+		} else {
+			wProc = currentProcedure();
+			devassert(wProc);	// Someone set the currentProcedure before calling this method.
+		}
+		result = handleMachineStatus(wProc->callMachStart(wProc));
 	}
-	return handleMachineStatus(wProc->callMachStart(wProc));
+	return result;
 }
 
 
 // Start a procedure by passing it this L3 message:
 bool TranEntry::lockAndStart(MachineBase *wProc, GSM::L3Message *l3msg)
 {
-	ScopedLock lock(mL3RewriteLock,__FILE__,__LINE__);
-	teSetProcedure(wProc,false);
-	devassert(wProc == currentProcedure());
-	return handleMachineStatus(wProc->dispatchL3Msg(l3msg));
+	bool result = false;
+	RefCntPointer<TranEntry> saver = this;
+	{	ScopedLock lock(mL3RewriteLock,__FILE__,__LINE__);
+		teSetProcedure(wProc,false);
+		devassert(wProc == currentProcedure());
+		result = handleMachineStatus(wProc->dispatchL3Msg(l3msg));
+	}
+	return result;
 }
 
 #if UNUSED
@@ -1433,21 +1442,15 @@ bool TranEntry::lockAndStart(MachineBase *wProc, GSM::L3Message *l3msg)
 bool TranEntry::lockAndInvokeL3Msg(const GSM::L3Message *l3msg /*, const L3LogicalChannel *lch*/)
 {
 	LOG(DEBUG);
-	ScopedLock lock(mL3RewriteLock,__FILE__,__LINE__);
-#if ORIGINAL
-	// Look up the message in the Procedure message table.
-	int state = mCurrentProcedure->findMsgMap(l3msg->PD(),l3msg->MTI());
-	if (state == -1) {
-		// If state is -1, message is not mapped and is ignored by us.
-		return false;	// Message was not wanted by this Procedure.
+	bool result = false;
+	RefCntPointer<TranEntry> saver = this;
+	{	ScopedLock lock(mL3RewriteLock,__FILE__,__LINE__);
+		if (MachineBase *proc = currentProcedure()) {
+			LOG(DEBUG) <<"sending l3msg to"<<LOGVAR(proc) <<LOGVAR(l3msg);
+			result = handleMachineStatus(proc->dispatchL3Msg(l3msg));
+		}
 	}
-	teProcInvoke(state,l3msg,NULL);
-#endif
-	if (MachineBase *proc = currentProcedure()) {
-		LOG(DEBUG) <<"sending l3msg to"<<LOGVAR(proc) <<LOGVAR(l3msg);
-		return handleMachineStatus(proc->dispatchL3Msg(l3msg));
-	}
-	return false;
+	return result;
 }
 #endif
 
@@ -1455,29 +1458,32 @@ bool TranEntry::lockAndInvokeL3Msg(const GSM::L3Message *l3msg /*, const L3Logic
 bool TranEntry::lockAndInvokeFrame(const L3Frame *frame, const L3Message *l3msg)
 {
 	LOG(DEBUG) << l3msg;
-	ScopedLock lock(mL3RewriteLock,__FILE__,__LINE__);
-	if (MachineBase *proc = currentProcedure()) {
-		LOG(DEBUG) <<"sending frame to"<<LOGVAR(proc) <<LOGVAR(frame);
-		return handleMachineStatus(proc->dispatchFrame(frame,l3msg));
+	bool result = false;
+	RefCntPointer<TranEntry> saver = this;
+	{
+		ScopedLock lock(mL3RewriteLock,__FILE__,__LINE__);
+		if (MachineBase *proc = currentProcedure()) {
+			LOG(DEBUG) <<"sending frame to"<<LOGVAR(proc) <<LOGVAR(frame);
+			result = handleMachineStatus(proc->dispatchFrame(frame,l3msg));
+		} else {
+			LOG(INFO) <<"Received message for transaction with no state machine. "<<this<<*frame;	// Should never happen.
+		}
 	}
-	LOG(ERR) <<"Received message for transaction with no state machine. "<<this<<*frame;	// Should never happen.
-	return false;
+	return result;
 }
 
 // Return true if the message had a handler.
 // Caller responsible for deleting the sipmsg.
 bool TranEntry::lockAndInvokeSipMsg(const SIP::DialogMessage *sipmsg)
 {
-	ScopedLock lock(mL3RewriteLock,__FILE__,__LINE__);
-#if ORIGINAL
-	int state = mCurrentProcedure->mSipHandlerState;
-	if (state >= 0) { return teProcInvoke(state,NULL,sipmsg); }
-	return MachineStatusUnexpectedMessage;
-#endif
-	if (MachineBase *proc = currentProcedure()) {
-		return handleMachineStatus(proc->dispatchSipDialogMsg(sipmsg));
+	bool result = false;
+	RefCntPointer<TranEntry> saver = this;
+	{	ScopedLock lock(mL3RewriteLock,__FILE__,__LINE__);
+		if (MachineBase *proc = currentProcedure()) {
+			result = handleMachineStatus(proc->dispatchSipDialogMsg(sipmsg));
+		}
 	}
-	return false;
+	return result;
 }
 
 bool TranEntry::lockAndInvokeSipMsgs()
@@ -1497,12 +1503,18 @@ bool TranEntry::lockAndInvokeSipMsgs()
 
 bool TranEntry::lockAndInvokeTimeout(L3Timer *timer)
 {
+	// handleMachineStatus may unlink the transaction; this reference prevents the transaction
+	// from being deleted until this routine exists.  Without this, the ScopedLock tries to reference the deleted transaction.
+	bool result = false;
+	RefCntPointer<TranEntry> saver = this;
+
 	LOG(DEBUG) << LOGVAR2("timer",timer->tName()) << this;
-	ScopedLock lock(mL3RewriteLock,__FILE__,__LINE__);
-	if (MachineBase *proc = currentProcedure()) {
-		return handleMachineStatus(proc->dispatchTimeout(timer));
+	{	ScopedLock lock(mL3RewriteLock,__FILE__,__LINE__);
+		if (MachineBase *proc = currentProcedure()) {
+			result = handleMachineStatus(proc->dispatchTimeout(timer));
+		}
 	}
-	return false;
+	return result;
 }
 
 void TranEntry::terminateHook()
@@ -1592,9 +1604,16 @@ void TranEntry::teRemove(TermCause cause)
 	//	dialog->dialogCancel(cause, l3Cause);		// Does nothing if dialog not yet started.
 	//}
 
-	if (L3CDR *cdr = this->createCDR(false,cause)) {
-		gCdrService.cdrServiceStart();
-		gCdrService.cdrAdd(cdr);
+	// (pat 9-29-2014) Harry was seeing intermittent crashes in the code below.
+	// Crash was inside sqlite when calling gConfig.getStr() from cdrServiceStart(), which would appear to be a memory corruption
+	// in something immediately preceding, but unknown what it could be.
+	// I cannot find any problems, but this is the only new addition, so to be safe, we will completely avoid this code
+	// unless specifically enabled by setting Control.CDR.Dirname.
+	if (gConfig.getStr("Control.CDR.Dirname").size()) {
+		if (L3CDR *cdr = this->createCDR(true,cause)) {
+			gCdrService.cdrServiceStart();
+			gCdrService.cdrAdd(cdr);
+		}
 	}
 
 	// It is important to make this transaction no longer point at the dialog, because the dialog
@@ -1724,12 +1743,17 @@ L3CDR *TranEntry::createCDR(bool makeCMR, TermCause cause)	// If true, make a CM
 			goto labelmtc;
 			break;
 
+		case L3CMServiceType::LocationUpdateRequest:
+			if (! makeCMR) { goto labelIgnore; }
+			cdr.cdrType = "LUR";
+			cdr.cdrFromImsi = this->subscriber().mImsi;
+			break;
+
 		case L3CMServiceType::UndefinedType:
 		case L3CMServiceType::SupplementaryService:
 		case L3CMServiceType::VoiceCallGroup:
 		case L3CMServiceType::VoiceBroadcast:
 		case L3CMServiceType::LocationService:
-		case L3CMServiceType::LocationUpdateRequest:
 		case L3CMServiceType::HandoverCall: // The handover code sets the type to MobileOriginatedCall or MobileTerminatedCall so we should not see this.
 			break;
 
@@ -1816,7 +1840,7 @@ void L3CDR::cdrWriteEntry(FILE *pf)
 	fprintf(pf,"%lu,%lu,",cdrConnectTime,cdrDuration);
 	fprintf(pf,"%d,",cdrMessageSize);
 	fprintf(pf,"%s,%s,",cdrToHandover.c_str(),cdrFromHandover.c_str());	// handover to, from
-	fprintf(pf,"%c",(cdrCause.mtcInstigator == TermCause::SideLocal) ? 'L' : 'R');	// termination side
+	fprintf(pf,"%c,",(cdrCause.mtcInstigator == TermCause::SideLocal) ? 'L' : 'R');	// termination side
 	fprintf(pf,"%d",cdrCause.tcGetValue());	// termination cause
 	fprintf(pf,"\n");
 	fflush(pf);	// Write to disk in case OpenBTS crashes.
@@ -1833,11 +1857,13 @@ void CdrService::cdrOpenFile()
 		return;
 	}
 	if (mpf) { fclose(mpf); mpf = NULL; }
+	string dirname = gConfig.getStr("Control.CDR.Dirname");
+	if (0 == dirname.size()) { return; }	// Disabled if the Control.CDR.Dirname is empty.
+
 	cdrCurrentDay = tm.tm_yday;
 	string date = format("%04d-%02d-%02d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday);
 
-	const char *dirname = "/var/log/OpenBTS";	// TODO: make this a config option.
-	mkdir(dirname,0777);	// Doesnt hurt to do this even if unnecessary.
+	mkdir(dirname.c_str(),0777);	// Doesnt hurt to do this even if unnecessary.
 
 	string btsid = gConfig.getStr("SIP.Local.IP");	// Default bts id to the local IP address.
 	string filename = format("%s/OpenBTS_%s_%s.cdr",dirname,btsid,date);
@@ -1851,6 +1877,7 @@ void*CdrService::cdrServiceLoop(void*arg)
 	CdrService *self = static_cast<CdrService*>(arg);
 	while (!gBTS.btsShutdown()) {
 		L3CDR *cdr = self->mCdrQueue.read();	// Blocking read.
+		if (!cdr) { continue; }	// paranoid, but maybe happens during shutdown.
 		self->cdrOpenFile();	// We may have to open a new file if the date changed.
 		if (self->mpf) { cdr->cdrWriteEntry(self->mpf); }
 		delete cdr;
@@ -1860,8 +1887,13 @@ void*CdrService::cdrServiceLoop(void*arg)
 
 void CdrService::cdrServiceStart()
 {
-	if (!cdrServiceRunning) {
-		cdrServiceRunning = true;
+	bool startme = false;
+	{	ScopedLock lock(cdrLock);	// This is probably paranoid overkill.
+		if (!cdrServiceRunning) {
+			startme = cdrServiceRunning = true;
+		}
+	}
+	if (startme) {
 		cdrServiceThread.start(cdrServiceLoop,this);
 	}
 }

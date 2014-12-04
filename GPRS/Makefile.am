@@ -21,13 +21,10 @@
 
 include $(top_srcdir)/Makefile.common
 
-AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES)
-
-#AM_CXXFLAGS = -O0 -g
-CXXFLAGS = -g -O2
+# AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES)
+# CXXFLAGS = -g -O2
 
 noinst_LTLIBRARIES = libGPRS.la
-
 
 libGPRS_la_SOURCES = \
 	MSInfo.cpp \

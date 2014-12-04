@@ -38,6 +38,7 @@
 #include "SIP2Interface.h"
 #include "SIPUtility.h"
 #include "SIPRtp.h"
+#include "config.h"		// For VERSION
 
 #undef WARNING
 
@@ -124,6 +125,15 @@ bool SipBaseProtected::sipIsStuck() const
 	}
 }
 
+static unsigned nextInviteCSeqNum() 	// formerly: random()%600;
+{
+	static unsigned seqNum = 0;
+	if (seqNum == 0) {
+		seqNum = random() & 0xfffff;	// Any old number will do.
+	}
+	return ++seqNum;
+}
+
 DialogStateVars::DialogStateVars()
 {
 	// generate a tag now.
@@ -133,7 +143,9 @@ DialogStateVars::DialogStateVars()
 	//mLocalTag=make_tag();
 
 	// set our CSeq in case we need one
-	mLocalCSeq = gSipInterface.nextInviteCSeqNum(); 	// formerly: random()%600;
+	// (pat 8-1-2014) We do not want to contaminate class SipBase with an external reference to gSipInterface 
+	//mLocalCSeq = gSipInterface.nextInviteCSeqNum(); 	// formerly: random()%600;
+	mLocalCSeq = nextInviteCSeqNum(); 	// formerly: random()%600;
 }
 
 string DialogStateVars::dsToString() const
@@ -492,6 +504,14 @@ SipCallbacks::writePrivateHeaders_functype SipCallbacks::writePrivateHeaders_cal
 
 void SipCallbacks::writePrivateHeaders(SipMessage *msg, const L3LogicalChannel *l3chan) {
 	if (writePrivateHeaders_callback) { writePrivateHeaders_callback(msg,l3chan); }
+}
+
+string OpenBTSUserAgent()
+{
+	// FIXME: This is broken...
+	static const char* userAgent1 = "OpenBTS " VERSION " Build Date " TIMESTAMP_ISO;
+	string userAgent = string(userAgent1);
+	return userAgent;
 }
 
 };

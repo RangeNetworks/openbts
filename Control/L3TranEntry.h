@@ -219,7 +219,7 @@ class TranEntryProtected
 // Call Data Record, created from a TranEntry.
 // The information we dont know is left empty.
 struct L3CDR {
-	string cdrType;	// MOC, MTC, Emergency
+	string cdrType;	// MOC, MTC, Emergency.
 	TranEntryId cdrTid;
 	string cdrToImsi, cdrFromImsi;
 	string cdrToNumber, cdrFromNumber;
@@ -237,6 +237,7 @@ struct L3CDR {
 // pat added 6-2014.
 // This is sent L3CDR records.  It writes them to a file.
 class CdrService {
+	Mutex cdrLock;
 	InterthreadQueue<L3CDR> mCdrQueue;
 	Thread cdrServiceThread;
 	FILE *mpf;
@@ -305,6 +306,7 @@ class TranEntry : public MemCheckTranEntry, public RefCntBase, public TranEntryP
 	std::string mMessage;					///< text message payload
 	std::string mContentType;				///< text message payload content type
 	//@}
+
 
 	TermCause mFinalDisposition;		// How transaction ended.
 
@@ -492,7 +494,7 @@ class TranEntry : public MemCheckTranEntry, public RefCntBase, public TranEntryP
 	string text() const;
 
 	/** Genrate an encoded string for handovers. */
-	std::string handoverString(string peer) const;
+	std::string handoverString(string peer,string cause) const;
 
 	private:
 

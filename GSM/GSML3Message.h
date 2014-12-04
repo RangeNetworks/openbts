@@ -93,6 +93,7 @@ class L3Message {
 	/**
 		Generate an L3Frame for this message.
 		The caller is responsible for deleting the memory.
+		(pat) TODO: This is called only from RRLPServer, and apparently unnecessarily.  Get rid of this.
 	*/
 	L3Frame* frame(GSM::Primitive prim=L3_DATA) const;
 

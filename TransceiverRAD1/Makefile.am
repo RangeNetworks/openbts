@@ -21,10 +21,11 @@
 
 include $(top_srcdir)/Makefile.common
 
-DESTDIR := 
+DESTDIR = 
 
-AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES) $(USB_INCLUDES) $(WITH_INCLUDES)
-AM_CXXFLAGS = -DOMNITHREAD_POSIX=1 -lusb-1.0 -ldl -lpthread
+# (oley) could not find a place where USB_INCLUDES or WITH_INCLUDES would be defined
+# AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES) $(USB_INCLUDES) $(WITH_INCLUDES)
+# AM_CXXFLAGS = -DOMNITHREAD_POSIX=1 -lusb-1.0 -ldl -lpthread
 
 EXTRA_DIST = \
 	README \
@@ -32,10 +33,11 @@ EXTRA_DIST = \
 
 noinst_LTLIBRARIES = libtransceiver.la
 
+libtransceiver_la_CXXFLAGS = $(AM_CXXFLAGS) -DOMNITHREAD_POSIX=1 -lusb-1.0
 libtransceiver_la_SOURCES = \
-	rnrad1Core.cpp                   \
-        fusb.cpp                         \
-        rnrad1Rx.cpp                     \
+	rnrad1Core.cpp \
+        fusb.cpp \
+        rnrad1Rx.cpp \
         rnrad1Tx.cpp \
 	radioInterface.cpp \
 	sigProcLib.cpp \
@@ -56,17 +58,17 @@ noinst_PROGRAMS = \
 	PowerScanner
 
 noinst_HEADERS = \
-        ad9862.h                        \
-	bytesex.h			\
-	commands.h			\
-        fusb.h                          \
-        fpga_regs.h                     \
-        ids.h                           \
-        i2c.h                           \
-        interfaces.h                    \
-        spi.h				\
-        rnrad1Core.h			\
-	rnrad1.h			\
+        ad9862.h \
+	bytesex.h \
+	commands.h \
+        fusb.h \
+        fpga_regs.h \
+        ids.h \
+        i2c.h \
+        interfaces.h \
+        spi.h \
+        rnrad1Core.h \
+	rnrad1.h \
 	Complex.h \
 	radioInterface.h \
 	radioDevice.h \

@@ -520,8 +520,6 @@ MachineStatus MTSMSMachine::machineRunState1(int state,const L3Frame*frame,const
 		// SABM was started by us and handset simultaneously, so we just dont bother with making ESTABLISH_CONFIRM separate.
 		case L3CASE_PRIMITIVE(L3_ESTABLISH_INDICATION):
 		case L3CASE_PRIMITIVE(L3_ESTABLISH_CONFIRM): {
-			//step1:
-
 			// Step 1
 			// Send the first message.
 			// CP-DATA, containing RP-DATA.

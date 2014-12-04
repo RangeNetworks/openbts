@@ -328,7 +328,7 @@ void L3LogicalChannel::chanLost()
 void L3LogicalChannel::chanRelease(Primitive prim,TermCause cause)
 {
 	OBJLOG(DEBUG) << prim;
-	chanFreeContext(cause);
+	//chanFreeContext(cause);
 	switch (prim) {
 		case L3_HARDRELEASE_REQUEST:
 			chanSetState(L3LogicalChannel::chRequestHardRelease);

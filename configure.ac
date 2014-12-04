@@ -19,41 +19,45 @@ dnl You should have received a copy of the GNU General Public License
 dnl along with this program.  If not, see <http://www.gnu.org/licenses/>.
 dnl
 
-AC_INIT(openbts,5.0.0-prealpha)
-AC_PREREQ(2.57)
-AC_CONFIG_SRCDIR([config/Makefile.am])
-AC_CONFIG_AUX_DIR([.])
-AC_CONFIG_MACRO_DIR([config])
-AM_CONFIG_HEADER(config.h)
+AC_PREREQ([2.57])
+# must be AC_INIT([openbts], [5.0-master])
+AC_INIT(openbts,5.0-master) 
 
 AC_CANONICAL_BUILD
 AC_CANONICAL_HOST
 AC_CANONICAL_TARGET
 
-AM_INIT_AUTOMAKE
+AC_CONFIG_AUX_DIR([.])
+AM_INIT_AUTOMAKE([-Wno-portability])
+AC_CONFIG_HEADERS([config.h])
+AC_CONFIG_MACRO_DIR([config])
+AC_CONFIG_SRCDIR([apps/OpenBTS.cpp]) # was AC_CONFIG_SRCDIR([config/Makefile.am])
 
 dnl Checks for programs.
-AM_PROG_AS
-AC_PROG_CXX
+: ${CXXFLAGS=""} ## remove auto setting of CXXFLAGS = -g -O2
+AC_PROG_CXX 
+AC_PROG_AWK
+AC_PROG_CC
+AC_PROG_INSTALL
 AC_PROG_LN_S
 AC_PROG_MAKE_SET
-AC_PROG_INSTALL
-AC_PATH_PROG([RM_PROG], [rm])
-#AC_PROG_AWK
-#AC_PROG_CC
-#AC_PROG_CPP
-#AC_PROG_RANLIB
+AM_PROG_AS ## GNU radio
+AC_PATH_PROG([RM_PROG], [rm])  ## GNU radio
+# (oley) uncomment if any libraries are being generated
+# AC_PROG_RANLIB	
 
-AC_LIBTOOL_WIN32_DLL
+# AC_LIBTOOL_WIN32_DLL
+# AC_PROG_LIBTOOL
+LT_INIT
+
 AC_ENABLE_SHARED	dnl do build shared libraries
 AC_DISABLE_STATIC	dnl don't build static libraries
-AC_PROG_LIBTOOL
 
 dnl Checks for header files.
 AC_HEADER_STDC
 dnl This is required for GnuRadio includes to understand endianess correctly:
 AC_CHECK_HEADERS([byteswap.h])
-#AC_CHECK_HEADERS([arpa/inet.h fcntl.h inttypes.h limits.h malloc.h netdb.h netinet/in.h stddef.h stdint.h stdlib.h string.h sys/file.h sys/ioctl.h sys/mount.h sys/param.h sys/socket.h sys/time.h syslog.h unistd.h utime.h])
+# AC_CHECK_HEADERS([arpa/inet.h fcntl.h inttypes.h limits.h malloc.h netdb.h netinet/in.h stddef.h stdint.h stdlib.h string.h sys/file.h sys/ioctl.h sys/mount.h sys/param.h sys/socket.h sys/time.h syslog.h unistd.h utime.h])
 
 dnl Checks for typedefs, structures, and compiler characteristics.
 AC_C_CONST
@@ -106,8 +110,7 @@ fi
 AC_CHECK_LIB(zmq, zmq_init, ,[AC_MSG_ERROR([Cannot link with -lzmq. Install the libzmq3-dev package manually or run $ sudo ./NodeManager/install_libzmq.sh])])
 AC_MSG_CHECKING([whether libzmq installation works])
 AC_LINK_IFELSE([AC_LANG_PROGRAM([#include <zmq.h>],
-                                [zmq_init(1);])
-               ],
+                                [zmq_init(1);])],
                [AC_MSG_RESULT([yes])],
                [AC_MSG_ERROR([no. Install the libzmq3-dev package manually or run $ sudo ./NodeManager/install_libzmq.sh])])
 
@@ -124,47 +127,13 @@ AS_IF([gcc -I=/usr/local/include -o config/test_ortp_version config/test_ortp_ve
 	AC_MSG_RESULT([>= 0.22.0])
 	],
 	[AC_MSG_RESULT([< 0.22.0])])
-dnl Check for other misc libs
-#AC_CHECK_LIB([c], [main])
-#AC_CHECK_LIB([dl], [main])
-#AC_CHECK_LIB([pthread], [main])
-#AC_CHECK_LIB([readline], [main])
-#AC_CHECK_LIB([sqlite3], [main])
-#AC_CHECK_LIB([usrp], [main])
 
-dnl Checks for typedefs, structures, and compiler characteristics.
-#AC_HEADER_STDBOOL
-#AC_TYPE_UID_T
-#AC_C_INLINE
-#AC_TYPE_INT16_T
-#AC_TYPE_INT32_T
-#AC_TYPE_INT64_T
-#AC_TYPE_INT8_T
-#AC_TYPE_MODE_T
-#AC_TYPE_OFF_T
-#AC_TYPE_PID_T
-#AC_TYPE_SIZE_T
-#AC_TYPE_SSIZE_T
-#AC_CHECK_MEMBERS([struct stat.st_blksize])
-#AC_TYPE_UINT16_T
-#AC_TYPE_UINT32_T
-#AC_TYPE_UINT64_T
-#AC_TYPE_UINT8_T
+dnl Check for other misc libs
+# AC_CHECK_LIB([sqlite3], [main])
 
 dnl Check for glibc-specific network functions
-AC_CHECK_FUNC(gethostbyname_r, [AC_DEFINE(HAVE_GETHOSTBYNAME_R, 1, Define if libc implements gethostbyname_r)])
-AC_CHECK_FUNC(gethostbyname2_r, [AC_DEFINE(HAVE_GETHOSTBYNAME2_R, 1, Define if libc implements gethostbyname2_r)])
-
-dnl Checks for library functions.
-#AC_FUNC_ALLOCA
-#AC_FUNC_ERROR_AT_LINE
-#AC_FUNC_FORK
-#AC_FUNC_MALLOC
-#AC_FUNC_MMAP
-#AC_FUNC_REALLOC
-#AC_FUNC_STRERROR_R
-#AC_FUNC_STRTOD
-#AC_CHECK_FUNCS([bzero clock_gettime dup2 fdatasync floor gethostbyname getpagesize gettimeofday inet_ntoa localtime_r memchr memmove memset mkdir munmap pow regcomp rint select setenv socket sqrt strcasecmp strchr strdup strerror strncasecmp strpbrk strrchr strstr strtol strtoul sysinfo utime])
+AC_CHECK_FUNC(gethostbyname_r, [AC_DEFINE(HAVE_GETHOSTBYNAME_R, 1, [Define if libc implements gethostbyname_r])])
+AC_CHECK_FUNC(gethostbyname2_r, [AC_DEFINE(HAVE_GETHOSTBYNAME2_R, 1, [Define if libc implements gethostbyname2_r])])
 
 dnl Output files
 AC_CONFIG_FILES([\
@@ -189,5 +158,4 @@ AC_CONFIG_FILES([\
     NodeManager/Makefile \
     Scanning/Makefile \
 ])
-
 AC_OUTPUT

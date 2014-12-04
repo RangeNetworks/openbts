@@ -234,7 +234,7 @@ ConfigurationKeyMap getConfigurationKeys()
 	map[tmp->getName()] = *tmp;
 	delete tmp;
 
-	// (pat 4-2014) Added this to fix problems with "radio dropouts" and the solution was to change this to larger number (5).
+	// (pat 4-2014) Added this after having problems with "radio dropouts" and the solution was to change this to larger number (5).
 	{ ConfigurationKey tmp("TRX.LatencyBumpUp","1",
 		"time measured in GSM timeslots",
 		ConfigurationKey::DEVELOPER,

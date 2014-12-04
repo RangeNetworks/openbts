@@ -180,6 +180,16 @@ class L3MobileStationClassmark1 : public L3ProtocolElement {
 
 };
 
+
+// (pat) Added 9-2014.  Encoding for encryption algorithms.
+struct EncryptionAlgorithm {
+	// These bits define a mask of supported encryption algorithms.
+	enum {
+		Bit5_1 = 1,
+		Bit5_2 = 2,
+		Bit5_3 = 4
+	};
+};
 /**
 	Mobile Station Classmark 2, GSM 04.08 10.5.1.5
 */
@@ -213,9 +223,19 @@ class L3MobileStationClassmark2 : public L3ProtocolElement {
 	void text(std::ostream&) const;
 
 	// These return true if the encryption type is supported.
+	private:
 	bool A5_1() const { return mA5_1==0; }
 	bool A5_2() const { return mA5_2!=0; }
 	bool A5_3() const { return mA5_3!=0; }
+	public:
+	// (pat) Pre-9-2014 encoding: int getA5Bits() const { return (A5_1()<<2) + (A5_2()<<1) + A5_3(); }
+	int getA5Bits() const {
+		int result = 0;
+		if (A5_1()) { result |= EncryptionAlgorithm::Bit5_1; }
+		if (A5_2()) { result |= EncryptionAlgorithm::Bit5_2; }
+		if (A5_3()) { result |= EncryptionAlgorithm::Bit5_3; }
+		return result;
+	}
 
 	// Returns the power class, based on power capability encoding.
 	int powerClass() const { return mRFPowerCapability+1; }

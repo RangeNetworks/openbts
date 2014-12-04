@@ -45,6 +45,7 @@
 //#include <SIPDialog.h>
 #include <SIPExport.h>
 #include <Regexp.h>
+#include "RRLPServer.h"
 using namespace GSM;
 
 
@@ -251,7 +252,6 @@ MMSharedData *LUBase::ludata() const
 	if (!tran()->mMMData) { tran()->mMMData = new MMSharedData; }
 	return tran()->mMMData;
 }
-
 
 
 // TODO: Reject cause should be determined in a more central location, probably sipauthserve.
@@ -806,11 +806,14 @@ MachineStatus LUAuthentication::machineRunState(int state, const GSM::L3Message*
 			const L3MobileStationClassmark2& classmark = resp->classmark();
 			// We are storing the A5Bits for later use by CC, which is probably unnecessary because
 			// it is included in the CC message.
-			int A5Bits = (classmark.A5_1()<<2) + (classmark.A5_2()<<1) + classmark.A5_3();
+			int A5Bits = classmark.getA5Bits();
 			ludata()->store.setClassmark(A5Bits,classmark.powerClass());
 			//gTMSITable.classmark(getImsiCh(),classmark);	// This one is going away; we'll update once later.
 
 			if (gConfig.getBool("GSM.Cipher.Encrypt")) {
+				// (pat) 9-2014 hack: GSML1FEC gets the Kc directly out of the tmsi table so we need to flush to the physical table
+				// before sending the ciphering mode command.
+				gTMSITable.tmsiTabUpdate(getImsi(),&ludata()->store);
 				//int encryptionAlgorithm = gTMSITable.getPreferredA5Algorithm(getImsi().c_str());
 				int encryptionAlgorithm = getPreferredA5Algorithm(A5Bits);
 				if (!encryptionAlgorithm) {
@@ -820,10 +823,17 @@ MachineStatus LUAuthentication::machineRunState(int state, const GSM::L3Message*
 					channel()->l3sendm(GSM::L3CipheringModeCommand(
 						GSM::L3CipheringModeSetting(true, encryptionAlgorithm),
 						GSM::L3CipheringModeResponse(false)));
+					// We are now waiting for the cihering mode comlete command...
+					return MachineStatusOK;	// The TMMCancel timer is running.
 				} else {
 					LOG(DEBUG) << "no ki: NOT sending Ciphering Mode Command on " << *channel() << " for " << getImsiName();
 				}
 			}
+			return callMachStart(new LUFinish(tran()));
+		}
+
+		case L3CASE_RR(CipheringModeComplete): {
+			// The fact the message arrived means success.  We hope.  Even if that were not true, we should proceed anyway.
 			return callMachStart(new LUFinish(tran()));
 		}
 

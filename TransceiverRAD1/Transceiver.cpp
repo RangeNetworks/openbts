@@ -993,7 +993,7 @@ void Demodulator::driveDemod(bool wSingleARFCN)
   if (!wSingleARFCN) {
     while  (!demodBurst) {
       RadioClock *radioClock = (mRadioInterface->getClock());
-      radioClock->wait();
+      //radioClock->wait();
       demodBurst = mDemodFIFO->get();
     }
   }

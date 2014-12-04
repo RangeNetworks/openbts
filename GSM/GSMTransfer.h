@@ -716,8 +716,8 @@ class L3Frame : public BitVector {		// (pat) This is in Layer3, common to UMTS a
 	explicit L3Frame(Primitive wPrimitive) :BitVector((size_t)0),mPrimitive(wPrimitive),mSapi(SAPI0),mL2Length(0) { f3init(); }
 	explicit L3Frame(SAPI_t wSapi, Primitive wPrimitive) :BitVector((size_t)0),mPrimitive(wPrimitive),mSapi(wSapi),mL2Length(0) { f3init(); }
 
-	explicit L3Frame(Primitive wPrimitive, size_t len)
-		:BitVector(len),mPrimitive(wPrimitive),mSapi(SAPI0),mL2Length(len)
+	explicit L3Frame(Primitive wPrimitive, size_t len, SAPI_t wSapi=SAPI0)
+		:BitVector(len),mPrimitive(wPrimitive),mSapi(wSapi),mL2Length(len)
 	{ f3init(); }
 
 	/** Put raw bits into the frame. */
@@ -751,10 +751,12 @@ class L3Frame : public BitVector {		// (pat) This is in Layer3, common to UMTS a
 	explicit L3Frame(const L3Message& msg, Primitive wPrimitive=L3_DATA, SAPI_t sapi=SAPI0);
 
 	/** Get a frame from a hex string. */
-	explicit L3Frame(const char*);
+	explicit L3Frame(SAPI_t sapi, const char*);
 
 	/** Get a frame from raw binary. */
-	explicit L3Frame(const char*, size_t len);
+	// pat removed 9-8-2014 because it is unused.  If you put it back in, add an explicit SAPI argument to make sure it is distguished
+	// from the other constructors.
+	//explicit L3Frame(const char*, size_t len);
 
 	/** Protocol Discriminator, GSM 04.08 10.2. */
 	L3PD PD() const { return (L3PD)peekField(4,4); }

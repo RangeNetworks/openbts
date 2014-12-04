@@ -492,7 +492,7 @@ L3ImmediateAssignment *gprsPageCcchStart(
 void sendAssignmentCcch(
 	PDCHL1FEC *pacch,	// The PACCH channel where the MS will be directed to send its answer.
 	TBF *tbf,			// The TBF that wants to initiate a downlink transfer to the MS.
-	std::ostream *os)	// not supported in C_RELEASE.
+	std::ostream *os)
 {
 	MSInfo *ms = tbf->mtMS;
 	string imsi = ms->sgsnFindImsiByHandle(ms->msGetHandle());

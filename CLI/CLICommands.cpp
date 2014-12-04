@@ -46,6 +46,7 @@
 #include <Peering.h>
 #include <GSMRadioResource.h>
 #include <NodeManager.h>
+#include <CBS.h>
 
 std::string getARFCNsString(unsigned band);
 
@@ -282,6 +283,139 @@ static CLIStatus tmsis(int argc, char** argv, ostream& os)
 	return SUCCESS;
 }
 
+static const char *cbsHelp = "-- List or add Cell Broadcast Service messages.\n"
+	"	Syntax: cbs [list | add | delete | clear] [-options] [\"message\"]\n"
+	"	Options correspond to message parameters in GSM 3.41 9.3.2.\n"
+	"	-gs <code> -- geograhical scope (0=immediate, 1=PLMN wide, 2=Location Area Wide, 3=Cell Wide)\n"
+	"	-code <number> -- Message code\n"
+	"	-un <number> -- Message update number.  The gs + code + un make up the message serial number.\n"
+	"	-id <number> -- Message Identifier (which is really the message type)\n"
+	// (pat) We dont support lanugages yet.  There are three different ways to specify them so this simple idea is not good enough;
+	// There is an interface to the language below, but it is not hooked up in the CBS code.
+	//"	-lang <language> -- 2 character USC2 language specification as per from GSM 3.38 section 5, or - to reset.\n"
+	"	-row <row> -- OpenBTS row number of message in database; used only to delete a specific message.\n"
+	"	-l -- list: longer listing.\n"
+	"	-tab -- list: separate list output with tabs instead of spaces.\n"
+	;
+static CLIStatus cbscmd(int argc, char** argv, ostream& os)
+{
+	if (gConfig.getStr("Control.SMSCB.Table").size() == 0) {
+		os << "Warning: CBS service is currently disabled by Control.SMSCB.Table option";
+	}
+	string text, subcmd;
+	if (argc > 1 && argv[1][0] != '-') {
+		subcmd = string(argv[1]);
+		argc--; argv++;
+	}
+	map<string,string> options = cliParse(argc,argv,os,"-l -tab -gs: -code: -un: -id: -lang: -row:");
+	//for (int i = 0; i < argc; i++) { printf("argv[%d]=%s\n",i,argv[i]); }
+
+	if (subcmd == "" && argc) {		// allow options before or after subcmd.
+		subcmd = string(argv[0]);
+		argc--; argv++;
+	}
+	if (argc) {
+		text = string(argv[0]);
+		argc--; argv++;
+	}
+	if (argc) return BAD_NUM_ARGS;
+
+
+	// Load up a CBMessage from the command line arguments.
+	CBMessage temp;	// Message template.
+	{
+		string gs = options["-gs"];
+		string code = options["-code"];
+		string un = options["-un"];
+		string id = options["-id"];
+		string lang = options["-lang"];
+		string row = options["-row"];
+
+		if (gs.size()) {
+			if (!  temp.setGS(atoi(gs.c_str()))) {
+				os << "invalid -gs value; ";
+				return BAD_VALUE;
+			}
+		}
+		if (code.size()) { temp.setMessageCode(atoi(code.c_str())); }
+		if (un.size()) { temp.setUpdateNumber(atoi(un.c_str())); }
+		if (id.size()) { temp.setMessageId(atoi(id.c_str())); }
+		if (row.size()) { temp.setRow(atoi(row.c_str())); }
+		if (lang.size()) {
+			if (! temp.setLanguage(lang)) {
+				os << "invalid -lang value; ";
+				return BAD_VALUE;
+			}
+		}
+		if (text.size()) { temp.setMessageText(text); }
+	}
+	bool tabSeparated = !!options.count("-tab");
+	bool verbose = !!options.count("-l");
+	string errMsg;
+
+	
+	// Do something.
+	if (subcmd == "clear") {
+		// clear (delete) all messages.
+		if (argc) return BAD_NUM_ARGS;
+		CBSClearMessages();
+	} else if (subcmd == "delete") {
+		// delete matching messages
+		int cnt = CBSDeleteMessage(temp);
+		if (cnt) {
+			os << "Deleted "<<cnt<<" CBS messages.\n";
+		} else {
+			os << "CBS message not found.\n";
+		}
+	} else if (subcmd == "add") {
+		// add message
+		if (CBSAddMessage(temp,errMsg)) {
+			os << "CBS message successfully added.\n";
+		} else {
+			os << "CBS message not added:"<<errMsg<<"\n";
+		}
+	} else if (subcmd == "list" || subcmd == "") {
+		// list messages.
+		vector<CBMessage> msgs;
+		CBSGetMessages(msgs,text);
+		prettyTable_t tab;
+		vector<string> vh;
+		if (verbose) {
+			tab.push_back(stringSplit(vh,"row gs msg  update msg  send  send text")); vh.clear();
+			tab.push_back(stringSplit(vh,"_   _  code number id   count age      ")); vh.clear();
+			tab.push_back(stringSplit(vh,"--- -- ---- ------ ---- ----- ---- ----")); vh.clear();
+		} else {
+			tab.push_back(stringSplit(vh,"row text")); vh.clear();
+			tab.push_back(stringSplit(vh,"--- ----")); vh.clear();
+		}
+		time_t now = time(NULL);
+		for (vector<CBMessage>::iterator it = msgs.begin(); it != msgs.end(); it++) {
+			CBMessage &msg = *it;
+			vh.clear();
+			vh.push_back(format("%d",(unsigned)msg.mRowId));
+			if (verbose) {
+				vh.push_back(format("%u",(unsigned)msg.mGS));
+				vh.push_back(format("%u",(unsigned)msg.mMessageCode));
+				vh.push_back(format("%u",(unsigned)msg.mUpdateNumber));
+				vh.push_back(format("%u",(unsigned)msg.mMessageId));
+				// No language support yet, so dont show it.
+				//string lang = msg.getLanguage();
+				//vh.push_back(lang.size() ? lang : string("-"));
+				vh.push_back(format("%u",(unsigned)msg.mSendCount));
+				vh.push_back(format("%d",msg.mSendTime?(int)(now - msg.mSendTime) : -1));
+			}
+			vh.push_back(msg.mMessageText);
+			tab.push_back(vh);
+			//msg.cbtext(os);
+			//os << "\n";
+		}
+		printPrettyTable(tab,os,tabSeparated);
+	} else {
+		return BAD_VALUE;
+	}
+	return SUCCESS;
+}
+
 int isIMSI(const char *imsi)
 {
 	if (!imsi)
@@ -309,7 +443,7 @@ static CLIStatus sendsimple(int argc, char** argv, ostream& os)
 	const char *txtBuf = rest.c_str();
 
 	if (!isIMSI(IMSI)) {
-		os << "Invalid IMSI. Enter 15 digits only.";
+		os << "Invalid IMSI. Enter 15 digits only.  ";
 		return BAD_VALUE;
 	}
 
@@ -903,16 +1037,8 @@ static CLIStatus page(int argc, char **argv, ostream& os)
 	return SUCCESS;
 }
 
-static GSM::ChannelType translateChannelType(string channelName)
-{
-	if (0==strcasecmp(channelName.c_str(),"sdcch")) {
-		return GSM::SDCCHType;
-	} else if (0==strcasecmp(channelName.c_str(),"tch")) {
-		return GSM::TCHFType;
-	} else {
-		throw CLIParseError(format("invalid channel -type argument: %s",channelName));
-	}
-}
+
+
 
 
 // Return the Transaction Id or zero is an invalid value.
@@ -1304,6 +1430,8 @@ static CLIStatus chans(int argc, char **argv, ostream& os)
 #endif
 
 
+
+
 const char *powerHelp = "[atten] -- report or set current output power attentuation.";
 
 static bool powerCheckAttenValidity(const char *configOptionName,int atten, ostream&os)
@@ -1620,6 +1748,8 @@ void Parser::addCommands()
 	addCommand("stats", stats,"[patt] OR clear -- print all, or selected, performance counters, OR clear all counters.");
 	addCommand("handover", handover,handoverHelp);
 	addCommand("memstat", memStat, "-- internal testing command: print memory use stats.");
+	addCommand("cbs", cbscmd, cbsHelp);
+
 	addCommand("power", powerCommand, powerHelp);
 }
 

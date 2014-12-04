@@ -120,7 +120,9 @@ void L2LogicalChannelBase::startl1()
 void L2SAPMux::flushL3In()
 {
 	while (L3Frame *l3f = mL3In.readNoBlock()) {
-		LOG(ERR)<< "channel closure caused message to be discarded:"<<l3f<<" "<<descriptiveString();
+		if (l3f->primitive() != L3_RELEASE_REQUEST && l3f->primitive() != L3_HARDRELEASE_REQUEST) {
+			LOG(ERR)<< "channel closure caused message to be discarded:"<<l3f<<" "<<descriptiveString();
+		}
 		delete l3f;
 	}
 }
@@ -235,7 +237,10 @@ void L2SAPMux::sapWriteFromL3(const L3Frame& frame)
 {
 	LOG(DEBUG) <<LOGVAR(frame);
 	SAPI_t sap = frame.getSAPI();
-	assert(sap == SAPI0 || sap == SAPI3 || sap == SAPI0Sacch || sap == SAPI3Sacch);
+	if (!(sap == SAPI0 || sap == SAPI3 || sap == SAPI0Sacch || sap == SAPI3Sacch)) {
+		devassert(0);
+		sap = SAPI0;	// This is a bug fix to avoid a crash.
+	}
 	unsigned sapi = SAP2SAPI(sap);
 	devassert(mL2[sapi]);
 	if (!mL2[sapi]) { return; }	// Not initialized yet?  Should never happen.
@@ -265,6 +270,7 @@ void L2LogicalChannel::startNormalRelease()
 void L2LogicalChannel::l2sendf(const L3Frame& frame)
 {
 	SAPI_t sap = frame.getSAPI();
+	assert(sap == SAPI0 || sap == SAPI3 || sap == SAPI0Sacch || sap == SAPI3Sacch);
 	WATCHINFO("l2sendf "<<channelDescription() <<LOGVAR(sap) <<LOGVAR(chtype()) <<" " <<frame);
 	if (SAPIsSacch(sap)) { getSACCH()->l2sendf(frame); return; }
 	switch (frame.primitive()) {
@@ -901,12 +907,12 @@ TCHFACCHLogicalChannel::TCHFACCHLogicalChannel(
 
 
 
-CBCHLogicalChannel::CBCHLogicalChannel(const CompleteMapping& wMapping)
+CBCHLogicalChannel::CBCHLogicalChannel(int wCN, int wTN, const CompleteMapping& wMapping)
 {
-	mL1 = new CBCHL1FEC(wMapping.LCH());
+	mL1 = new CBCHL1FEC(wCN, wTN, wMapping.LCH());
 	L2DL *sap0 = new CBCHL2;
 	sapInit(sap0,NULL);
-	mSACCH = new SACCHLogicalChannel(0,0,wMapping.SACCH(),this);
+	mSACCH = new SACCHLogicalChannel(wCN,wTN,wMapping.SACCH(),this);
 	connect(mL1);
 }
 
@@ -916,6 +922,24 @@ void CBCHLogicalChannel::l2sendm(const L3SMSCBMessage& msg)
 	L3Frame frame(L3_UNIT_DATA,88*8);
 	msg.write(frame);
 	l2sendf(frame);
+}
+
+void CBCHLogicalChannel::l2sendf(const L3Frame& frame)
+{
+	if (mL2[0]) {	// Should always be set, but protects against a race during startup.
+		mL2[0]->l2dlWriteHighSide(frame);
+	}
+}
+
+void CBCHLogicalChannel::cbchOpen()
+{
+	if (mL1) mL1->l1init();		// (pat) L1FEC::l1init()
+	sapStart(); // startl1();
+	devassert(mSACCH);
+	if (mSACCH) {
+		mSACCH->sacchInit();
+		mSACCH->sapStart();
+	}
 }
 
 ostream& operator<<(ostream& os, const L2LogicalChannelBase& chan)

@@ -265,8 +265,15 @@ static char *packettoa(char *result,unsigned char *packet, int len)
 		sprintf(result,"proto=%s %d byte packet seq=%u ack=%u id=%u frag=%u from %s:%d to %s:%d",
 			ip_proto_name(iph->protocol), len, tcph->seq, tcph->ack_seq,
 			iph->id, iph->frag_off,
-			ip_ntoa(iph->saddr,nbuf1),tcph->source,
-			ip_ntoa(iph->daddr,nbuf2),tcph->dest);
+			ip_ntoa(iph->saddr,nbuf1),ntohs(tcph->source),
+			ip_ntoa(iph->daddr,nbuf2),ntohs(tcph->dest));
+	} else if (verbose && iph->protocol == IPPROTO_UDP) {
+		struct udphdr *udph = (struct udphdr*) (packet + 4 * iph->ihl);
+		sprintf(result,"proto=%s %d byte packet id=%u frag=%u from %s:%d to %s:%d",
+			ip_proto_name(iph->protocol), len,
+			iph->id, iph->frag_off,
+			ip_ntoa(iph->saddr,nbuf1),ntohs(udph->source),
+			ip_ntoa(iph->daddr,nbuf2),ntohs(udph->dest));
 	} else {
 		sprintf(result,"proto=%s %d byte packet from %s to %s",
 			ip_proto_name(iph->protocol), len,

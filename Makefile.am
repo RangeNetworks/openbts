@@ -21,13 +21,10 @@
 
 include $(top_srcdir)/Makefile.common
 
-DESTDIR := 
+DESTDIR ?= 
 
-AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES) $(USB_INCLUDES) $(WITH_INCLUDES)
-AM_CXXFLAGS = -Wall -pthread -ldl
-
-#AM_CXXFLAGS = -Wall -O2 -NDEBUG -pthread -ldl
-#AM_CFLAGS = -Wall -O2 -NDEBUG -pthread -ldl
+# must be kept in sync with AC_CONFIG_MACRO_DIR in configure.ac
+ACLOCAL_AMFLAGS = -I config
 
 # Order must be preserved
 _SUBDIRS = \
@@ -36,7 +33,6 @@ _SUBDIRS = \
 	Globals \
 	SIP \
 	GSM \
-	GSMShare \
 	SMS \
 	Scanning \
 	TRXManager \
@@ -46,6 +42,7 @@ _SUBDIRS = \
 	GPRS \
 	SGSNGGSN \
 	CLI \
+	GSMShare \
 	apps \
 	doc
 

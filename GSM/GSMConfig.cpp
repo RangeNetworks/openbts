@@ -38,6 +38,10 @@ extern void PagerStart();
 int GSM::gNumC7s, GSM::gNumC1s;	// Number of C7 and C1 timelots created.
 static bool testStart = false;	// Set this to try testing without the channels started.
 
+bool GSM::isCBSEnabled() {
+	return gConfig.getStr("Control.SMSCB.Table").length() != 0;
+}
+
 
 GSMConfig::GSMConfig()
 	:mCBCH(NULL),
@@ -536,6 +540,24 @@ void GSMConfig::createCombinationI(TransceiverManager& TRX, unsigned CN, unsigne
 class Beacon {};
 
 
+static Thread CBCHControlThread;
+static bool isCBSRunning = false;
+void GSMConfig::createCBCH(ARFCNManager *radio, TypeAndOffset type, int CN, int TN)
+{
+	LOG(INFO) << "creating CBCH for SMSCB";
+	// CBCH is always SDCCH 2 (third one) but may be on any timeslot, depending on beacon type.
+	CBCHLogicalChannel *CBCH = new CBCHLogicalChannel(CN,TN,type == SDCCH_4_2 ? gSDCCH4[2] : gSDCCH8[2]);
+	CBCH->downstream(radio);
+	CBCH->cbchOpen();
+	gBTS.addCBCH(CBCH);
+	if (!isCBSRunning) {	// As of 8-2014, this is only called once so this test is irrelevant.
+		isCBSRunning = true;
+		CBCHControlThread.start((void*(*)(void*))Control::SMSCBSender,NULL);
+	}
+	mCBCHDescription = L3ChannelDescription(type,TN,gConfig.getNum("GSM.Identity.BSIC.BCC"),gConfig.getNum("GSM.Radio.C0")+CN);
+	regenerateBeacon();	// To update SI4 with the new CBCH timeslot.
+}
+
 // Combination-5 beacon has 3 x CCCH + 4 x SDCCH.
 // There can be only one Combination 5 beacon, always on timeslot 0.
 class BeaconC5 : public Beacon {
@@ -544,8 +566,6 @@ class BeaconC5 : public Beacon {
 	BCCHL1FEC BCCH;
 	RACHL1FEC *RACH;
 	CCCHLogicalChannel *CCCH;
-	CBCHLogicalChannel *CBCH;
-	Thread CBCHControlThread;
 	SDCCHLogicalChannel *C0T0SDCCH[4];
 	Thread C0T0SDCCHControlThread[4];
 
@@ -573,8 +593,9 @@ class BeaconC5 : public Beacon {
 		C0T0SDCCH[2] = new SDCCHLogicalChannel(0,0,gSDCCH_4_2);
 		C0T0SDCCH[3] = new SDCCHLogicalChannel(0,0,gSDCCH_4_3);
 
-		// Subchannel 2 used for CBCH if SMSCB enabled.
-		bool SMSCB = (gConfig.getStr("Control.SMSCB.Table").length() != 0);
+		// GSM 5.02 6.4.1: Subchannel 2 used for CBCH if CBS enabled.
+		// (pat) CBCH location is advertised in L3SystemInformationType4.
+		bool SMSCB = isCBSEnabled();
 		for (int i=0; i<4; i++) {
 			if (SMSCB && (i==2)) continue;
 			C0T0SDCCH[i]->downstream(radio);
@@ -584,14 +605,8 @@ class BeaconC5 : public Beacon {
 			gBTS.addSDCCH(C0T0SDCCH[i]);
 		}
 		// Install CBCH if used.
-		// It writes on SDCCH4.
 		if (SMSCB) {
-			LOG(INFO) << "creating CBCH for SMSCB";
-			CBCH = new CBCHLogicalChannel(gSDCCH_4_2);
-			CBCH->downstream(radio);
-			CBCH->lcopen();
-			gBTS.addCBCH(CBCH);
-			CBCHControlThread.start((void*(*)(void*))Control::SMSCBSender,NULL);
+			gBTS.createCBCH(radio,SDCCH_4_2,0,0);
 		}
 	}
 };

@@ -83,6 +83,7 @@ CPMessage * SMS::parseSMS( const GSM::L3Frame& frame )
 	  RPData*
 
  */
+#if UNUSED
 RPData *SMS::hex2rpdata(const char *hexstring)
 {
 	RPData *rp_data = NULL;
@@ -118,6 +119,7 @@ RPData *SMS::hex2rpdata(const char *hexstring)
 
 	return rp_data;
 }
+#endif
 
 TLMessage *SMS::parseTPDU(const TLFrame& TPDU, bool directionUplink)
 {

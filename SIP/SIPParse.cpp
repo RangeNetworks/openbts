@@ -463,8 +463,12 @@ void parseAuthenticate(string stuff, SipParamList &params)
 
 		do  {
 			SipParam param;
-			if (! parser.scanGenericParam(param)) break;
-			params.push_back(param);
+			// (pat 9-2014) sipauthserve incorrrectly puts extra commas in the Authorization string,
+			// and this would reject it.  This has not been a problem because we dont use that field, but lets fix it anyway.
+			// formerly: if (! parser.scanGenericParam(param)) break;
+			if (parser.scanGenericParam(param)) {
+				params.push_back(param);
+			}
 		} while (parser.scanChar(','));
 	} catch(SipParseError) {
 		// error was already logged.

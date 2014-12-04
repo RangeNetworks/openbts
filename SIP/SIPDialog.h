@@ -278,7 +278,6 @@ std::ostream& operator<<(std::ostream& os, const SipDialogRef&);
 std::ostream& operator<<(std::ostream& os, const SipDialog*);
 
 extern SipDialog *gRegisterDialog;
-extern string OpenBTSUserAgent();
 
 };	// namespace
 #endif

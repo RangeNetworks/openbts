@@ -27,7 +27,6 @@
 #include <L3TermCause.h>
 #include <L3StateMachine.h>
 #include <GSML3MMElements.h>	// for L3CMServiceType
-#include "config.h"		// For VERSION
 #include <GSML3CCElements.h>	// for L3Cause
 #include <algorithm>
 
@@ -623,7 +622,12 @@ SipMessage *SipDialog::makeRegisterMsg(DialogType wMethod, const L3LogicalChanne
 				msg->msmAuthorizationValue = format("Digest realm=\"%s\", username=\"%s\", nonce=\"%s\", uri=\"%s\", response=\"%s\", algorithm=MD5, qop=\"auth\" ",
 					realm.c_str(), authUsername.c_str(), RAND.c_str(), authUri.c_str(), response.c_str());
 			} else {
-				msg->msmAuthorizationValue = format("Digest, nonce=%s, uri=%s, response=%s",RAND.c_str(),msid.mImsi.c_str(),SRES);
+				// (pat 9-2014)  These fields are all supposed to be quoted.  It was a mistake not to quote them.
+				// The above code that quotes the fields was used for kazoo, so the unquoted strings are only use for sipauthserve.
+				// Also remove the extraneous leading comma.
+				// RFC3261 says the fields are quoted.
+				//msg->msmAuthorizationValue = format("Digest, nonce=%s, uri=%s, response=%s",RAND.c_str(),msid.mImsi.c_str(),SRES);
+				msg->msmAuthorizationValue = format("Digest nonce=\"%s\", uri=\"%s\", response=\"%s\"",RAND.c_str(),msid.mImsi.c_str(),SRES);
 			}
 		}
 	} else if (wMethod == SIPDTUnregister ) {
@@ -943,7 +947,8 @@ static bool isPhoneNumber(string thing)
 static string removeUriFluff(string thing)
 {
 	if (unsigned first = thing.find('<') != string::npos) {	// Remove the angle brackets.
-		thing = thing.substr(first,thing.find_last_of('>'));
+		thing = thing.substr(first);                        // chop off initial angle bracket.
+		thing = thing.substr(0,thing.find_last_of('>'));    // chop off trailing angle bracket, and anything following.
 	}
 	thing = thing.substr(0,thing.find_last_of('@'));		// Chop off the ip address, if any.
 	const char *str = thing.c_str();
@@ -953,6 +958,7 @@ static string removeUriFluff(string thing)
 	} else if (0 == strncasecmp(str,"sips:",5)) {	// secure not supported, but always hopeful....
 		thing = thing.substr(5);
 	}
+	LOG(DEBUG) <<LOGVAR(thing);
 	return thing;	// Hopefully, what is remaining is a phone number.
 }
 
@@ -1686,13 +1692,6 @@ std::ostream& operator<<(std::ostream& os, const DialogMessage*dmsg)
 }
 
 std::ostream& operator<<(std::ostream& os, const DialogMessage&dmsg) { os << &dmsg; return os; }	// stupid language
-
-string OpenBTSUserAgent()
-{
-	static const char* userAgent1 = "OpenBTS " VERSION " Build Date " TIMESTAMP_ISO;
-	string userAgent = string(userAgent1);
-	return userAgent;
-}
 
 
 };	// namespace

@@ -20,11 +20,12 @@
 #
 
 GPROF_OPTIONS ?=
-CXXFLAGS := -g -O2 -DTIMESTAMP_ISO=`date +'"%Y-%m-%dT%H:%M:%S"'`
-CFLAGS := -g -O2 -DTIMESTAMP_ISO=`date +'"%Y-%m-%dT%H:%M:%S"'`
+AM_CXXFLAGS := -g -O2 -Wall -pthread -ldl -rdynamic -DTIMESTAMP_ISO=`date +'"%Y-%m-%dT%H:%M:%S"'`
+# AM_CFLAGS := -g -O2 -DTIMESTAMP_ISO=`date +'"%Y-%m-%dT%H:%M:%S"'`
 
-AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES) $(USB_INCLUDES) $(WITH_INCLUDES) $(OPENBTS_CPPFLAGS)
-AM_CXXFLAGS = -Wall -pthread -rdynamic -ldl $(OPENBTS_CXXFLAGS)
+# (oley) Each piece has its own set defined in their own */Makefile.am, overwriting these
+AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES) ## $(USB_INCLUDES) $(WITH_INCLUDES) $(OPENBTS_CPPFLAGS)
+# AM_CXXFLAGS = -Wall -pthread -ldl -rdynamic ## $(OPENBTS_CXXFLAGS)
 
 COMMON_INCLUDEDIR = $(top_srcdir)/CommonLibs
 CONTROL_INCLUDEDIR = $(top_srcdir)/Control

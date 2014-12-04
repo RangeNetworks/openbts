@@ -495,11 +495,6 @@ void processArgs(int argc, char *argv[])
 	}
 }
 
-struct TimeSlot {
-	int mCN, mTN;
-	TimeSlot(int wCN,int wTN) : mCN(wCN), mTN(wTN) {}
-};
-
 std::deque<TimeSlot> timeSlotList;
 
 static int initTimeSlots()	// Return how many slots used by beacon.
@@ -956,6 +951,7 @@ vector<string> configurationCrossCheck(const string& key) {
 			warnings.push_back(warning.str());
 			warning.str(std::string());
 		}
+
 
 	// SIP.Local.IP cannot be 127.0.0.1 when any of the SIP.Proxy.* settings are non-localhost
 	} else if (key.compare("SIP.Local.IP") == 0 ||

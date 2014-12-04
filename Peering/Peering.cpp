@@ -88,6 +88,38 @@ string sockaddr2string(const struct sockaddr_in* peer, bool noempty)
 	return format("%s:%d",addrString,(int)ntohs(peer->sin_port));
 }
 
+
+// Return a pointer to arg1, or an empty string.  Remember it is a pointer into the message so it is not terminated.
+static const char *getPeeringMsgArg1(const char *message)
+{
+	const char *arg = strchr(message,' ');
+	if (arg) {
+		while (*arg == ' ') { arg++; }
+		return arg;
+	} else {
+		return message + strlen(message);	// If no argument, return pointer to end of string, not a NULL pointer.
+	}
+}
+
+// (pat 9-2014) Print out peering messages.  We triage the messages depending on the log level.
+// INFO level - Handover messages only.
+// DEBUG level - all messages.
+static void logMessage(const char*sendOrRecv, const struct sockaddr_in* peer, const char *message)
+{
+	const char *arg1 = getPeeringMsgArg1(message);
+	if (0 == strncmp(arg1,"HANDOVER",8)) {
+		LOG(INFO) << "Peering "<<sendOrRecv <<LOGVAR2("peer",sockaddr2string(peer,true)) <<LOGVAR(message);
+		// We used to watch everything except REQ NEI messages: if (strncmp(message,"REQ NEI",7))
+		const char *eol = strchr(message,'\n');
+		WATCHLEVEL(INFO," Peering "<<sendOrRecv <<LOGVAR2("peer",sockaddr2string(peer,true))
+				<<LOGVAR2("message",string(message,eol?eol-message:strlen(message))));	// first line of message; they used to be long.
+	} else {
+		// At DEBUG level log all messages.
+		LOG(DEBUG) << "Peering "<<sendOrRecv<<LOGVAR2("peer",sockaddr2string(peer,true)) <<LOGVAR(message);
+	}
+
+}
+
 void PeerMessageFIFOMap::addFIFO(unsigned transactionID)
 {
 	PeerMessageFIFO* newFIFO = new PeerMessageFIFO;
@@ -192,7 +224,8 @@ void PeerInterface::drive()
 	}
 
 	mReadBuffer[numRead] = '\0';
-	LOG(INFO) << "received " << mReadBuffer;
+	//LOG(INFO) << "received " << mReadBuffer;
+	LOG(DEBUG) << "received " << mReadBuffer;
 
 	process(mSocket.source(),mReadBuffer);
 }
@@ -200,14 +233,15 @@ void PeerInterface::drive()
 
 void PeerInterface::process(const struct sockaddr_in* peer, const char* message)
 {
-	LOG(DEBUG) << message;
-	// The REQ HANDOVER is only watched if it is the first.
-	if (strstr(message,"HANDOVER") && ! strstr(message,"REQ HANDOVER")) WATCH(Utils::timestr() << " Peering recv:"<<message);
+	logMessage("receive",peer,message);
+
 	// neighbor message?
 	if (strncmp(message+3," NEIGHBOR_PARAMS",16)==0)
 		return processNeighborParams(peer,message);
 
 	// must be handover related
+	string peerString = sockaddr2string(peer, true);
+	LOG(INFO) << "received from"<<LOGVAR2("peer",peerString) <<LOGVAR(message);
 
 	// Initial inbound handover request?
 	if (strncmp(message,"REQ HANDOVER ",13)==0)
@@ -446,7 +480,8 @@ void PeerInterface::processHandoverRequest(const struct sockaddr_in* peer, const
 	if (!transaction) {
 		WATCH(Utils::timestr() << " Peering recv:"<<message);
 
-		LOG(INFO) << "initial REQ HANDOVER for " << mobileID << " " << oldTransID;
+		//LOG(INFO) << "initial REQ HANDOVER for " << mobileID << " " << oldTransID;
+		LOG(DEBUG) << "initial REQ HANDOVER for " << mobileID << " " << oldTransID;
 
 		// Get a channel allocation.
 		// For now, we are assuming a full-rate channel.
@@ -662,16 +697,9 @@ void PeerInterface::processHandoverResponse(const struct sockaddr_in* peer, cons
 #endif
 }
 
-
-
-
 void PeerInterface::sendMessage(const struct sockaddr_in* peer, const char *message)
 {
-	LOG(DEBUG) << "sending message: " << message;
-	const char *eol = strchr(message,'\n');
-	if (!strstr(message,"REQ NEI")) {
-		WATCH(Utils::timestr() << " Peering send:"<<string(message,eol?eol-message:strlen(message)));	// first line of message.
-	}
+	logMessage("send",peer,message);
 	ScopedLock lock(mLock);
 	mSocket.send((const struct sockaddr*)peer,message);
 }
@@ -729,13 +757,13 @@ void PeerInterface::sendHandoverFailure(const Control::HandoverEntry *hop, GSM::
 
 bool PeerInterface::sendHandoverRequest(string peer, const RefCntPointer<TranEntry> tran, string cause)
 {
-	string msg = string("REQ HANDOVER ") + tran->handoverString(peer);
-	if (cause.size()) msg += " cause=" + cause;
+	string msg = string("REQ HANDOVER ") + tran->handoverString(peer,cause);
 	struct sockaddr_in peerAddr;
 	if (!resolveAddress(&peerAddr,peer.c_str())) {
 		LOG(ALERT) << "cannot resolve peer address " << peer;
 		return false;
 	}
+	//LOG(INFO) <<LOGVAR(peer) <<LOGVAR(msg);
 	LOG(DEBUG) <<LOGVAR(peer) <<LOGVAR(msg);
 	gPeerInterface.sendMessage(&peerAddr,msg.c_str());
 	return true;

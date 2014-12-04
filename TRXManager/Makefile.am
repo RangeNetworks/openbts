@@ -25,8 +25,8 @@ EXTRA_DIST = \
 	README.TRXManager \
 	clockdump.sh
 
-AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES)
-AM_CXXFLAGS = -Wall
+# AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES)
+# AM_CXXFLAGS = -Wall
 
 noinst_LTLIBRARIES = libtrxmanager.la
 

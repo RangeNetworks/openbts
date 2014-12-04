@@ -22,11 +22,12 @@
 
 include $(top_srcdir)/Makefile.common
 
-AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES)
-AM_CXXFLAGS = -Wall -O3
+# AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES)
+# AM_CXXFLAGS = -Wall -O3
 
 noinst_LTLIBRARIES = libpeering.la
 
+libpeering_la_CXXFLAGS = $(AM_CXXFLAGS) -O3
 libpeering_la_SOURCES = \
 	NeighborTable.cpp \
 	Peering.cpp

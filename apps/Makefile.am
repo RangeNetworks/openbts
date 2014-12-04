@@ -23,7 +23,6 @@ include $(top_srcdir)/Makefile.common
 
 DESTDIR := 
 
-# These variables are defined in ../Makefile.common
 # AM_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES)
 # AM_CXXFLAGS = -Wall -ldl -pthread
 
@@ -31,9 +30,8 @@ noinst_PROGRAMS = \
 	JSONEventsClient \
 	OpenBTS \
 	OpenBTSCLI
-
-OpenBTS_SOURCES = OpenBTS.cpp GetConfigurationKeys.cpp
-OpenBTS_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES)
+noinst_HEADERS = \
+	OpenBTSConfig.h
 
 ourlibs = \
 	$(CLI_LA) \
@@ -51,34 +49,40 @@ ourlibs = \
 	$(NODEMANAGER_LA) \
 	$(ORTP_LIBS)
 
+OpenBTS_SOURCES = OpenBTS.cpp GetConfigurationKeys.cpp
+OpenBTS_LDADD = $(ourlibs) -lcrypto -lssl -ldl -lortp -la53 -lcoredumper 
+OpenBTS_LDFLAGS = $(GPROF_OPTIONS) -rdynamic
+
 clilibs= \
 	$(GLOBALS_LA)
 
-OpenBTS_LDADD = $(ourlibs) -lcrypto -lssl -ldl -lortp -la53 -lcoredumper 
-OpenBTS_LDFLAGS = $(GPROF_OPTIONS) -rdynamic
-noinst_HEADERS = \
-	OpenBTSConfig.h
-
 OpenBTSCLI_SOURCES = OpenBTSCLI.cpp
 OpenBTSCLI_LDADD = $(clilibs) -lreadline
-OpenBTSCLI_CXXFLAGS = -DBUILD_CLI
+OpenBTSCLI_CXXFLAGS = $(AM_CXXFLAGS) -DBUILD_CLI
 
 JSONEventsClient_SOURCES = JSONEventsClient.cpp
-JSONEventsClient_CPPFLAGS = $(STD_DEFINES_AND_INCLUDES)
 JSONEventsClient_LDADD = $(NODEMANAGER_LA)
 
 EXTRA_DIST = \
+	CLI \
 	OpenBTS.example.sql \
-	setUpFiles.sh \
 	openbts.conf \
+	iptables.rules \
+	logrotated.OpenBTS \
+	openbtsconfig \
+	OpenBTSDo \
+	rsyslogd.OpenBTS.conf \
 	generateConfigTable.sh \
 	exportConfigTable.sh \
-	importConfigTable.sh
+	importConfigTable.sh \
+	generateTeX.sh
 
 install: OpenBTS OpenBTSCLI
 	mkdir -p "$(DESTDIR)/OpenBTS/"
 	install OpenBTS "$(DESTDIR)/OpenBTS/"
 	install OpenBTSCLI "$(DESTDIR)/OpenBTS/"
+	install OpenBTSDo "$(DESTDIR)/OpenBTS/"
+	chmod +x "$(DESTDIR)/OpenBTS/OpenBTSDo"
 	install .gdbinit "$(DESTDIR)/OpenBTS/"
 	mkdir -p "$(DESTDIR)/etc/init/"
 	install openbts.conf "$(DESTDIR)/etc/init/"
@@ -88,6 +92,8 @@ install: OpenBTS OpenBTSCLI
 	mkdir -p "$(DESTDIR)/etc/rsyslog.d/"
 	mkdir -p "$(DESTDIR)/etc/logrotate.d/"
 	install rsyslogd.OpenBTS.conf "$(DESTDIR)/etc/rsyslog.d/OpenBTS.conf"
-	install OpenBTS.logrotate "$(DESTDIR)/etc/logrotate.d/OpenBTS"
+	install logrotated.OpenBTS "$(DESTDIR)/etc/logrotate.d/OpenBTS"
 	mkdir -p "$(DESTDIR)/home/openbts/"
+	install CLI "$(DESTDIR)/home/openbts/"
 	install openbtsconfig "$(DESTDIR)/home/openbts/"
+
