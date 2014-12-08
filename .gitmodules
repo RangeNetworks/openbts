@@ -1,8 +1,8 @@
 [submodule "CommonLibs"]
 	path = CommonLibs
 	url = git@github.com:RangeNetworks/CommonLibs.git
-	branch = master
+	branch = 5.0
 [submodule "NodeManager"]
 	path = NodeManager
 	url = git@github.com:RangeNetworks/NodeManager.git
-	branch = master
+	branch = 5.0
