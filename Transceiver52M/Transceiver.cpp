@@ -332,7 +332,7 @@ SoftVector *Transceiver::pullRadioVector(GSM::Time &wTime,
 				      int &timingOffset)
 {
   bool needDFE = false;
-  bool success = false;
+  int success = 0;
   complex amplitude = 0.0;
   float TOA = 0.0, avg = 0.0;
 
@@ -404,10 +404,21 @@ SoftVector *Transceiver::pullRadioVector(GSM::Time &wTime,
   }
   else {
     // RACH burst
-    if (success = detectRACHBurst(*vectorBurst, 6.0, mSPSRx, &amplitude, &TOA))
+    success = detectRACHBurst(*vectorBurst, 6.0, mSPSRx, &amplitude, &TOA);
+    if (success > 0) {
       channelResponse[timeslot] = NULL;
-    else
+    } else if (success == 0) {
       mNoises.insert(avg);
+    } else {
+      if (success == -SIGERR_CLIP) {
+        LOG(ALERT) << "Clipping detected on RACH input";
+      } else {
+        LOG(ALERT) << "Unhandled RACH error";
+      }
+
+      delete rxBurst;
+      return NULL;
+    }
   }
 
   // demodulate burst

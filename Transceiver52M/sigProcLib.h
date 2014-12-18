@@ -36,6 +36,14 @@ enum ConvType {
   UNDEFINED,
 };
 
+enum signalError {
+  SIGERR_NONE,
+  SIGERR_BOUNDS,
+  SIGERR_CLIP,
+  SIGERR_UNSUPPORTED,
+  SIGERR_INTERNAL,
+};
+
 /** the core data structure of the Transceiver */
 class signalVector: public Vector<complex> 
 {
