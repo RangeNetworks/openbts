@@ -2529,6 +2529,7 @@ void SACCHL1Encoder::setMSPower(float orderedPower)
 
 void SACCHL1Encoder::setMSTiming(float orderedTiming)
 {
+	mOrderedMSTiming = orderedTiming;
 	float maxTiming = gConfig.getNum("GSM.MS.TA.Max");
 	if (mOrderedMSTiming<0.0F) mOrderedMSTiming=0.0F;
 	else if (mOrderedMSTiming>maxTiming) mOrderedMSTiming=maxTiming;
