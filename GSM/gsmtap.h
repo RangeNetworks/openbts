@@ -77,11 +77,11 @@
 #define GSMTAP_CHANNEL_SDCCH8	0x08
 #define GSMTAP_CHANNEL_TCH_F	0x09
 #define GSMTAP_CHANNEL_TCH_H	0x0a
-#define GSMTAP_CHANNEL_CBCH51	0x0b
+#define GSMTAP_CHANNEL_PACCH	0x0b
 #define GSMTAP_CHANNEL_CBCH52	0x0c
-#define GSMTAP_CHANNEL_PDCH	0x0d		// pats note: This one is not implemented in wireshark.
-#define GSMTAP_CHANNEL_PTCCH	0x0e		// pats note: and neither is this one.
-#define GSMTAP_CHANNEL_PACCH	0x0f		// pats note: This is the one that is implemented.
+#define GSMTAP_CHANNEL_PDCH	0x0d
+#define GSMTAP_CHANNEL_PTCCH	0x0e
+#define GSMTAP_CHANNEL_CBCH51	0x0f
 #define GSMTAP_CHANNEL_ACCH	0x80
 
 /* ====== DO NOT MAKE UNAPPROVED MODIFICATIONS HERE ===== */
