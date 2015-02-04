@@ -2454,10 +2454,10 @@ ConfigurationKeyMap getConfigurationKeys()
 		"dB",
 		ConfigurationKey::FACTORY,
 		ConfigurationKey::VALRANGE,
-		"25:75",// educated guess
+		"0:75",
 		true,
 		"Receiver gain setting in dB.  "
-			"Ideal value is dictated by the hardware; 47 dB for RAD1.  "
+			"Ideal value is dictated by the hardware; 47 dB for RAD1 and 0-10 dB for Ettus hardware.  "
 			"This database parameter is static but the receiver gain can be modified in real time with the CLI \"rxgain\" command.",
 		ConfigurationKey::NODESPECIFIC
 	);
