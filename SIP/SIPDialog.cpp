@@ -437,11 +437,11 @@ void SipMTInviteServerTransactionLayer::MTCSendOK(CodecSet wCodec, const L3Logic
 	mCodec = wCodec;
 	LOG(INFO) <<sdbText();
 	SipMessageReply ok(invite,200,string("OK"),this);
+	setSipState(Connecting);
 	ok.smAddBody(string("application/sdp"),makeSDPAnswer());	// TODO: This should be a reply to the originating SDP offer.
 	// (pat) Chan is NULL when in a weird special handled in dialogCancel.
 	if (chan) SipCallbacks::writePrivateHeaders(&ok,chan);
 	mtWriteLowSide(&ok);
-	setSipState(Connecting);
 	// In RFC-3261 the Transaction Layer no longer handles timers after the OK is sent.
 	// The Transport Layer alone is not capabable of sending the 200 OK reliably because then the
 	// INVITE server transaction ends, and the INVITE client transaction no longer resends INVITEs after
@@ -541,7 +541,7 @@ bool SipMTInviteServerTransactionLayer::mtPeriodicService()
 {
 	if (mTimerG.expired()) {	// Resend timer.
 		if (getSipState() == SSFail || getSipState() == Active) {
-			sipWrite(mLastResponse);
+			sipWrite(&mtLastResponse);
 			mTimerG.setDouble(T2);	// Will send again later.
 		} else {
 			// This could happen if a CANCEL started before the ACK was received.
