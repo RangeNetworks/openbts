@@ -6,6 +6,7 @@
 *.lo
 *.la
 Makefile
+autom4te.cache/
 aclocal.m4
 autom4te.cache
 build-arch-stamp
