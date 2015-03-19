@@ -1,7 +1,7 @@
 [submodule "CommonLibs"]
 	path = CommonLibs
 	url = git@github.com:endaga/CommonLibs.git
-	branch = berkeley
+	branch = master
 [submodule "sqlite3"]
 	path = sqlite3
 	url = git@github.com:RangeNetworks/sqlite3.git
