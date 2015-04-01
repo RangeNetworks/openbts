@@ -177,9 +177,10 @@ bool PhysicalStatus::setPhysical(const SACCHLogicalChannel* chan,
 		if (nCount != 0 && nCount != 7) {
 			for (unsigned i = 0; i < nCount; i++) {
 				int freq = (int)measResults.BCCH_FREQ_NCELL(i);
-				if (freq) {
+				if (freq >= 0) {
 					JsonBox::Object neighbor;
 					neighbor["BCCH_FREQ"] = JsonBox::Value(freq);
+					neighbor["BCCH_ARFCN"] = JsonBox::Value(int(gNeighborTable.ARFCNList()[freq]));
 					neighbor["RXLEVEL_dBm"] = JsonBox::Value(measResults.RXLEV_NCELL_dBm(i));
 					neighbor["BSIC"] = JsonBox::Value((int)measResults.BSIC_NCELL(i));
 					neighbors.push_back(neighbor);
