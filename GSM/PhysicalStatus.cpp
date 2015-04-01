@@ -172,6 +172,18 @@ bool PhysicalStatus::setPhysical(const SACCHLogicalChannel* chan,
 		eData["reports"]["servingCell"]["RXQUALITY_FULL_BER"] = JsonBox::Value(measResults.RXQUAL_FULL_SERVING_CELL_BER());
 		eData["reports"]["servingCell"]["RXQUALITY_SUB_BER"] = JsonBox::Value(measResults.RXQUAL_SUB_SERVING_CELL_BER());
 
+		// Generate the neighbor list
+		std::vector<unsigned> ARFCNList = gNeighborTable.ARFCNList();
+		JsonBox::Array neighborList;
+		unsigned aCount = ARFCNList.size();
+		if (aCount != 0) {
+			for (unsigned i = 0; i < aCount; i++) {
+				neighborList.push_back(JsonBox::Value(int(ARFCNList[i])));
+			}
+		}
+		eData["neighborList"] = JsonBox::Array(neighborList);
+
+		// Neighbor measurement reports
 		JsonBox::Array neighbors;
 		unsigned nCount = measResults.NO_NCELL();
 		if (nCount != 0 && nCount != 7) {
