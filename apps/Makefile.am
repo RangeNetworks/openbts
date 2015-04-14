@@ -93,7 +93,4 @@ install: OpenBTS OpenBTSCLI
 	mkdir -p "$(DESTDIR)/etc/logrotate.d/"
 	install rsyslogd.OpenBTS.conf "$(DESTDIR)/etc/rsyslog.d/OpenBTS.conf"
 	install logrotated.OpenBTS "$(DESTDIR)/etc/logrotate.d/OpenBTS"
-	mkdir -p "$(DESTDIR)/home/openbts/"
-	install CLI "$(DESTDIR)/home/openbts/"
-	install openbtsconfig "$(DESTDIR)/home/openbts/"
 
