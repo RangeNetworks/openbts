@@ -33,7 +33,6 @@
 #endif
 
 #define B2XX_CLK_RT      26e6
-#define X3XX_CLK_RT      104e6
 #define B100_BASE_RT     400000
 #define USRP2_BASE_RT    390625
 #define TX_AMPL          0.3
@@ -53,7 +52,19 @@ struct uhd_dev_offset {
 	enum uhd_dev_type type;
 	int sps;
 	double offset;
+	const std::string desc;
 };
+
+/*
+ * USRP version dependent device timings
+ */
+#ifdef USE_UHD_3_9
+#define B2XX_TIMING_1SPS	1.7153e-4
+#define B2XX_TIMING_4SPS	1.1696e-4
+#else
+#define B2XX_TIMING_1SPS	9.9692e-5
+#define B2XX_TIMING_4SPS	6.9248e-5
+#endif
 
 /*
  * Tx / Rx sample offset values. In a perfect world, there is no group delay
@@ -66,18 +77,18 @@ struct uhd_dev_offset {
  *   USRP1 with timestamps is not supported by UHD.
  */
 static struct uhd_dev_offset uhd_offsets[NUM_USRP_TYPES * 2] = {
-	{ USRP1, 1, 0.0 },
-	{ USRP1, 4, 0.0 },
-	{ USRP2, 1, 1.2184e-4 },
-	{ USRP2, 4, 8.0230e-5 },
-	{ B100,  1, 1.2104e-4 },
-	{ B100,  4, 7.9307e-5 },
-	{ B2XX,  1, 9.9692e-5 },
-	{ B2XX,  4, 6.9248e-5 },
-	{ X3XX,  1, 1.5360e-4 },
-	{ X3XX,  4, 1.1264e-4 },
-	{ UMTRX, 1, 9.9692e-5 },
-	{ UMTRX, 4, 7.3846e-5 },
+	{ USRP1, 1,       0.0, "USRP1 not supported" },
+	{ USRP1, 4,       0.0, "USRP1 not supported"},
+	{ USRP2, 1, 1.2184e-4, "N2XX 1 SPS" },
+	{ USRP2, 4, 8.0230e-5, "N2XX 4 SPS" },
+	{ B100,  1, 1.2104e-4, "B100 1 SPS" },
+	{ B100,  4, 7.9307e-5, "B100 4 SPS" },
+	{ B2XX,  1, B2XX_TIMING_1SPS, "B200 1 SPS" },
+	{ B2XX,  4, B2XX_TIMING_4SPS, "B200 4 SPS" },
+	{ X3XX,  1, 1.5360e-4, "X3XX 1 SPS"},
+	{ X3XX,  4, 1.1264e-4, "X3XX 4 SPS"},
+	{ UMTRX, 1, 9.9692e-5, "UmTRX 1 SPS" },
+	{ UMTRX, 4, 7.3846e-5, "UmTRX 4 SPS" },
 };
 
 static double get_dev_offset(enum uhd_dev_type type, int sps)
@@ -298,6 +309,8 @@ void *async_event_loop(uhd_device *dev)
 		dev->recv_async_msg();
 		pthread_testcancel();
 	}
+
+	return NULL;
 }
 
 /* 
@@ -578,9 +591,11 @@ int uhd_device::open(const std::string &args, bool extref)
 	case USRP2:
 	case X3XX:
 		return RESAMP_100M;
+	case B2XX:
+	case UMTRX:
+	default:
+		return NORMAL;
 	}
-
-	return NORMAL;
 }
 
 bool uhd_device::flush_recv(size_t num_pkts)
