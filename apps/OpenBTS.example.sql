@@ -234,6 +234,7 @@ INSERT OR IGNORE INTO "CONFIG" VALUES('TRX.IP','127.0.0.1',1,0,'IP address of th
 INSERT OR IGNORE INTO "CONFIG" VALUES('TRX.MinimumRxRSSI','-63',0,0,'Bursts received at the physical layer below this threshold are automatically ignored.  Values in dB.  Set at the factory.  Do not adjust without proper calibration.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('TRX.Port','5700',1,0,'IP port of the transceiver application.  Static.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('TRX.RadioFrequencyOffset','128',1,0,'Fine-tuning adjustment for the Transceiver master clock.  Roughly 170 Hz/step.  Set at the factory.  Do not adjust without proper calibration.  Static.');
+INSERT OR IGNORE INTO "CONFIG" VALUES('TRX.Subdevice','',1,0,'Subdevice (Daughterboard) to use on Ettus hardware that supports it');
 INSERT OR IGNORE INTO "CONFIG" VALUES('TRX.Timeout.Clock','10',0,0,'How long to wait during a read operation from the Transceiver before giving up.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('TRX.Timeout.Start','2',0,0,'How long to wait during system startup before checking to see if the Transceiver can be reached.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('TRX.TxAttenOffset','0',1,0,'Hardware-specific gain adjustment for transmitter, matched to the power amplifier, expessed as an attenuation in dB.  Set at the factory.  Do not adjust without proper calibration.  Static.');
