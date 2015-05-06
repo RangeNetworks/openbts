@@ -125,27 +125,9 @@ static double select_rate(uhd_dev_type type, int sps)
 	return -9999.99;
 }
 
-/** Timestamp conversion
-    @param timestamp a UHD or OpenBTS timestamp
-    @param rate sample rate
-    @return the converted timestamp
-*/
-uhd::time_spec_t convert_time(TIMESTAMP ticks, double rate)
-{
-	double secs = (double) ticks / rate;
-	return uhd::time_spec_t(secs);
-}
-
-TIMESTAMP convert_time(uhd::time_spec_t ts, double rate)
-{
-	TIMESTAMP ticks = ts.get_full_secs() * rate;
-	return ts.get_tick_count(rate) + ticks;
-}
-
 /*
     Sample Buffer - Allows reading and writing of timed samples using OpenBTS
-                    or UHD style timestamps. Time conversions are handled
-                    internally or accessable through the static convert calls.
+                    or UHD style timestamps.
 */
 class smpl_buf {
 public:
@@ -630,7 +612,7 @@ bool uhd_device::flush_recv(size_t num_pkts)
 void uhd_device::restart(uhd::time_spec_t ts)
 {
 	uhd::stream_cmd_t cmd = uhd::stream_cmd_t::STREAM_MODE_STOP_CONTINUOUS;
-	usrp_dev->issue_stream_cmd(cmd);
+	rx_stream->issue_stream_cmd(cmd);
 
 	flush_recv(50);
 
@@ -639,7 +621,7 @@ void uhd_device::restart(uhd::time_spec_t ts)
 
 	cmd = uhd::stream_cmd_t::STREAM_MODE_START_CONTINUOUS;
 	cmd.stream_now = true;
-	usrp_dev->issue_stream_cmd(cmd);
+	rx_stream->issue_stream_cmd(cmd);
 }
 
 bool uhd_device::start()
@@ -745,7 +727,7 @@ int uhd_device::readSamples(short *buf, int len, bool *overrun,
 	// Shift read time with respect to transmit clock
 	timestamp += ts_offset;
 
-	ts = convert_time(timestamp, rx_rate);
+	ts = uhd::time_spec_t::from_ticks(timestamp, rx_rate);
 	LOG(DEBUG) << "Requested timestamp = " << ts.get_real_secs();
 
 	// Check that timestamp is valid
@@ -814,7 +796,7 @@ int uhd_device::writeSamples(short *buf, int len, bool *underrun,
 	metadata.has_time_spec = true;
 	metadata.start_of_burst = false;
 	metadata.end_of_burst = false;
-	metadata.time_spec = convert_time(timestamp, tx_rate);
+	metadata.time_spec = uhd::time_spec_t::from_ticks(timestamp, tx_rate);
 
 	*underrun = false;
 
@@ -881,7 +863,7 @@ bool uhd_device::setRxFreq(double wFreq)
 bool uhd_device::recv_async_msg()
 {
 	uhd::async_metadata_t md;
-	if (!usrp_dev->get_device()->recv_async_msg(md))
+	if (!tx_stream->recv_async_msg(md))
 		return false;
 
 	// Assume that any error requires resynchronization
@@ -985,9 +967,9 @@ ssize_t smpl_buf::avail_smpls(TIMESTAMP timestamp) const
 		return time_end - timestamp;
 }
 
-ssize_t smpl_buf::avail_smpls(uhd::time_spec_t timespec) const
+ssize_t smpl_buf::avail_smpls(uhd::time_spec_t ts) const
 {
-	return avail_smpls(convert_time(timespec, clk_rt));
+	return avail_smpls(ts.to_ticks(clk_rt));
 }
 
 ssize_t smpl_buf::read(void *buf, size_t len, TIMESTAMP timestamp)
@@ -1033,7 +1015,7 @@ ssize_t smpl_buf::read(void *buf, size_t len, TIMESTAMP timestamp)
 
 ssize_t smpl_buf::read(void *buf, size_t len, uhd::time_spec_t ts)
 {
-	return read(buf, len, convert_time(ts, clk_rt));
+	return read(buf, len, ts.to_ticks(clk_rt));
 }
 
 ssize_t smpl_buf::write(void *buf, size_t len, TIMESTAMP timestamp)
@@ -1074,7 +1056,7 @@ ssize_t smpl_buf::write(void *buf, size_t len, TIMESTAMP timestamp)
 
 ssize_t smpl_buf::write(void *buf, size_t len, uhd::time_spec_t ts)
 {
-	return write(buf, len, convert_time(ts, clk_rt));
+	return write(buf, len, ts.to_ticks(clk_rt));
 }
 
 std::string smpl_buf::str_status() const
