@@ -480,7 +480,8 @@ uint32_t TMSITable::tmsiTabCreateOrUpdate(
 	ScopedLock lock(sTmsiMutex,__FILE__,__LINE__); // This lock should be redundant - sql serializes access, but it may prevent sql retry failures.
 
 	unsigned oldRawTmsi = tmsiTabGetTMSI(imsi,false);
-	bool isNewRecord = (oldRawTmsi == 0);
+	bool isAuthed = tmsiTabCheckAuthorization(imsi);
+	bool isNewRecord = (isAuthed == 0);
 
 	TSqlQuery *queryp;	// dufus language
 	TSqlInsert foo;
@@ -491,12 +492,12 @@ uint32_t TMSITable::tmsiTabCreateOrUpdate(
 		queryp->append("INSERT INTO TMSI_TABLE (");
 		queryp->addc("IMSI",imsi);
 		queryp->addc("CREATED",now);
-		queryp->addc("ACCESSED",now);
 	} else {
 		queryp = &bar; queryp->reserve(200);
 		// Update existing record.
 		queryp->append("UPDATE TMSI_TABLE SET ");
 	}
+	queryp->addc("ACCESSED",now);
 	uint32_t tmsi = 0;
 
 	if (sendTmsis) {
