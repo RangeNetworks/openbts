@@ -62,6 +62,7 @@ ReportingTable gReports(gConfig.getStr("Control.Reporting.StatsTable").c_str());
 #include <Peering.h>
 #include <GSML3RRElements.h>
 #include <NodeManager.h>
+#include <JSONDB.h>
 
 #include <sys/wait.h>
 
@@ -125,6 +126,9 @@ Peering::NeighborTable gNeighborTable;
 
 /** The remote node manager. */
 NodeManager gNodeManager;
+
+/** The JSONDB for NodeManager. */
+JSONDB gJSONDB;
 
 /** Define a function to call any time the configuration database changes. */
 void purgeConfig(void*,int,char const*, char const*, sqlite3_int64)
@@ -390,48 +394,10 @@ JsonBox::Object nmHandler(JsonBox::Object& request)
 		response["data"]["gsmAGCHQueue"] = JsonBox::Value((int)gBTS.AGCHLoad());
 		response["data"]["gsmPCHQueue"] = JsonBox::Value((int)gBTS.PCHLoad());
 	} else if (command.compare("tmsis") == 0) {
-		int verbosity = 2;
-		bool rawFlag = true;
-		unsigned maxRows = 10000;
-		vector< vector<string> > view = gTMSITable.tmsiTabView(verbosity, rawFlag, maxRows);
-
-		int count = 0;
-		JsonBox::Array a;
-		for (vector< vector<string> >::iterator it = view.begin(); it != view.end(); ++it) {
-			// skip the header line
-			// TODO : use the header line to grab appropriate fields and indexes
-			if (count == 0) {
-				count++;
-				continue;
-			}
-			vector<string> &row = *it;
-			JsonBox::Object o;
-			o["IMSI"] = row.at(0);
-			o["TMSI"] = row.at(1);
-			o["IMEI"] = row.at(2);
-			o["AUTH"] = row.at(3);
-			o["CREATED"] = row.at(4);
-			o["ACCESSED"] = row.at(5);
-			o["TMSI_ASSIGNED"] = row.at(6);
-			o["PTMSI_ASSIGNED"] = row.at(7);
-			o["AUTH_EXPIRY"] = row.at(8);
-			o["REJECT_CODE"] = row.at(9);
-			o["ASSOCIATED_URI"] = row.at(10);
-			o["ASSERTED_IDENTITY"] = row.at(11);
-			o["WELCOME_SENT"] = row.at(12);
-			o["A5_SUPPORT"] = row.at(13);
-			o["POWER_CLASS"] = row.at(14);
-			o["RRLP_STATUS"] = row.at(15);
-			o["OLD_TMSI"] = row.at(16);
-			o["OLD_MCC"] = row.at(17);
-			o["OLD_MNC"] = row.at(18);
-			o["OLD_LAC"] = row.at(19);
-			a.push_back(JsonBox::Value(o));
-		}
-		response["code"] = JsonBox::Value(200);
-		response["data"] = JsonBox::Value(a);
+		request["table"] = JsonBox::Value("tmsi_table");
+		response = gJSONDB.query(request);
 	} else {
-            response["code"] = JsonBox::Value(501);
+		response["code"] = JsonBox::Value(501);
 	}
 
 	return response;
