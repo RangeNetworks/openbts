@@ -277,10 +277,13 @@ bool MMContext::mmCheckSipMsgs()
 	// messages during the stress test.  Ticket #1905 reports a crash that looks like using a transaction here while
 	// it is being deleted.  Since I have separated layer2 from layer3 with InterthreadQueues since the last test,
 	// I am re-enabling this global lock to attempt to fix the crash.
-	ScopedLock lock(gMMLock,__FILE__,__LINE__);	// I think this is unnecessary, but be safe.
+	// (kurtis) Update 6-17-15: This is causing deadlock; it seems that lockAndInvokeSipMsgs may not return
+	// I am disabling this lock and inserting one in that function to protect for the above
+  	//ScopedLock lock(gMMLock,__FILE__,__LINE__);	// I think this is unnecessary, but be safe.
 	bool result = false;
 	for (unsigned i = TE_first; i < TE_num; i++) {
 		RefCntPointer<TranEntry> tranp = mmGetTran(i);
+		//this can apparently hang, as it's a state machine call -kurtis
 		if (! tranp.isNULL()) { result |= tranp->lockAndInvokeSipMsgs(); }
 	}
 	return result;
