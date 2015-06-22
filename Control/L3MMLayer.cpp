@@ -278,7 +278,7 @@ bool MMContext::mmCheckSipMsgs()
 	// it is being deleted.  Since I have separated layer2 from layer3 with InterthreadQueues since the last test,
 	// I am re-enabling this global lock to attempt to fix the crash.
 	// (kurtis) Update 6-17-15: This is causing deadlock; it seems that lockAndInvokeSipMsgs may not return
-	// I am disabling this lock and inserting one in that function to protect for the above
+	// I am disabling this lock. If we see segfaults here, it may be worth pocking down inside of InvokeSipMsgs, which is a utility function
   	//ScopedLock lock(gMMLock,__FILE__,__LINE__);	// I think this is unnecessary, but be safe.
 	bool result = false;
 	for (unsigned i = TE_first; i < TE_num; i++) {
