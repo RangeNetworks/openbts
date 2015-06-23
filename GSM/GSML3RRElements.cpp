@@ -423,7 +423,7 @@ void L3RequestReference::text(ostream& os) const
 {
 	os << hex << "RA=0x" << mRA << dec;	
 	// pat added: This is the frame number recomputed from T1p, T2, T3:
-	unsigned recomputed = 51 * ((mT3-mT2) % 26) + mT3 + 51 * 26 * mT1p;
+	unsigned recomputed = 51 * (((mT3-mT2) % 26 + 26) % 26) + mT3 + 51 * 26 * mT1p;
 	os << " T=" << recomputed;
 	os << " T1'=" << mT1p;
 	os << " T2=" << mT2;
