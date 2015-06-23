@@ -1421,6 +1421,7 @@ void gmmInfoDump(GmmInfo *gmm,std::ostream&os,int options)
 	os << " GMM Context:";
 	os << LOGVAR2("imsi",gmm->mImsi.hexstr());
 	os << LOGHEX2("ptmsi",gmm->mPTmsi);
+	os << LOGVAR2("multislot class",gmm->mGprsMultislotClass);
 	os << LOGHEX2("tlli",gmm->getTlli());
 	os << LOGVAR2("state",GmmState::GmmState2Name(gmm->getGmmState()));
 	time_t now; time(&now);
