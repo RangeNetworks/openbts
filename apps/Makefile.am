@@ -49,7 +49,7 @@ ourlibs = \
 	$(NODEMANAGER_LA) \
 	$(ORTP_LIBS)
 
-OpenBTS_SOURCES = OpenBTS.cpp GetConfigurationKeys.cpp
+OpenBTS_SOURCES = OpenBTS.cpp GetConfigurationKeys.cpp ../NodeManager/JSONDB/JSONDB.cpp
 OpenBTS_LDADD = $(ourlibs) -lcrypto -lssl -ldl -lortp -la53 -lcoredumper 
 OpenBTS_LDFLAGS = $(GPROF_OPTIONS) -rdynamic
 
