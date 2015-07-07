@@ -134,7 +134,7 @@ struct SipMessageAckOrCancel : SipMessage {
 };
 
 struct SipMessageRequestWithinDialog : SipMessage {
-	SipMessageRequestWithinDialog(string reqMethod, SipBase *dialog, string branch="");
+	SipMessageRequestWithinDialog(string reqMethod, SipBase *dialog, bool incrementCSeq, string branch="");
 };
 
 struct SipMessageReply : SipMessage {
