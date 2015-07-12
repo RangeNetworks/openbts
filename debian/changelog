@@ -1,6 +1,7 @@
-openbts-public (5.0.4) UNRELEASED; urgency=medium
+openbts-public (5.0.4) unstable; urgency=medium
 
-  * updates NodeManager to master to fix TMSI table disconnects
+  * updates NodeManager to master to fix TMSI table disconnects and updates
+    CommonLibs
 
  -- Matt Ball <matt@procyon>  Sun, 12 Jul 2015 22:24:11 +0000
 
