@@ -1,3 +1,9 @@
+openbts-public (5.0.4) UNRELEASED; urgency=medium
+
+  * updates NodeManager to master to fix TMSI table disconnects
+
+ -- Matt Ball <matt@procyon>  Sun, 12 Jul 2015 22:24:11 +0000
+
 openbts-public (5.0.3) unstable; urgency=medium
 
   * Fixes issue with CANCEL where it was not using the right Via header
