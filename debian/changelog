@@ -1,3 +1,9 @@
+openbts-public (5.0.5) unstable; urgency=medium
+
+  * optimization for RAD1 transceiver
+
+ -- Omar Ramadan <omar@endaga>  Wed, 15 Jul 2015 20:47:39 +0000
+
 openbts-public (5.0.4) unstable; urgency=medium
 
   * updates NodeManager to master to fix TMSI table disconnects and updates
