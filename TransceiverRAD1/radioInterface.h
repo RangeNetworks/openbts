@@ -84,16 +84,18 @@ class VectorFIFO {
 private:
 
       PointerFIFO mQ;
-      Mutex      mLock;
+      Mutex       mLock;
+      Signal      mSignal;
 
 public:
 
       unsigned size() {return mQ.size();}
 
-      void put(radioVector *ptr) {ScopedLock lock(mLock); mQ.put((void*) ptr);}
+      void put(radioVector *ptr);
 
       radioVector *get() { ScopedLock lock(mLock); return (radioVector*) mQ.get();}
 
+      radioVector *get(bool blocking);
 };
 
 

@@ -989,16 +989,10 @@ void Demodulator::driveDemod(bool wSingleARFCN)
   //radioClock->wait();
 
 
-  demodBurst = mDemodFIFO->get();
-  if (!wSingleARFCN) {
-    while  (!demodBurst) {
-      RadioClock *radioClock = (mRadioInterface->getClock());
-      //radioClock->wait();
-      demodBurst = mDemodFIFO->get();
-    }
-  }
-  else {
-    if (!demodBurst) return;
+  demodBurst = mDemodFIFO->get(true);
+  if (!demodBurst) {
+    LOG(ERR) << "Failed to get radioVector";
+    return;
   }
 
   mMaxExpectedDelay = mTRX->maxDelay();  
