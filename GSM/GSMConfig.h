@@ -253,7 +253,7 @@ class GSMConfig {
 	void addTCH(TCHFACCHLogicalChannel *wTCH) { mTCHPool.push_back(wTCH); }
 	/** Return a pointer to a usable channel. */
 	TCHFACCHLogicalChannel *getTCH(bool forGPRS=false, bool onlyCN0=false);
-	int getTCHGroup(int groupSize,TCHFACCHLogicalChannel **results);
+	int getTCHGroup(int groupSize,TCHFACCHLogicalChannel **results, bool allowC0=true);
 	/** Return true if an TCH is available, but do not allocate it. */
 	size_t TCHAvailable() const;
 	/** Return number of total TCH. */

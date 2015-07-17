@@ -1998,9 +1998,8 @@ void L2MAC::macCheckChannels()
 			int activecn = (int)macActiveChannels() - active0;
 			int nfound, need = minChCn - activecn;
 			TCHFACCHLogicalChannel *results[8];
-			// TODO: Prevent this from allocating from C0 if user misconfigures.
 			while (need > 0) {
-				nfound = gBTS.getTCHGroup(need,results);
+				nfound = gBTS.getTCHGroup(need,results,false);
 				for (int i = 0; (i < nfound) && (need > 0); i++) {
 					macAddOneChannel(results[i]);
 					addedChannels = true;
@@ -2014,26 +2013,6 @@ void L2MAC::macCheckChannels()
 		// PACCH selection and extended uplink TBF both eexpect it.
 		gL2MAC.macPDCHs.sort(chCompareFunc);
 	}
-#if 0
-	int minchans = configGprsChannelsMin();
-	if (minchans > 0) {
-		// We are doing startup.  Allocate the initial channels from CN0.
-		int need = minchans - (int)macActiveChannels();
-		TCHFACCHLogicalChannel *lchan;
-		// Allocate from CN0 first.
-		for ( ; need > 0 && (lchan = gBTS.getTCH(true,true)); need--) {
-			macAddOneChannel(lchan);
-		}
-		// If we still need more, allocate them from the end of the list.
-		int nfound;
-		TCHFACCHLogicalChannel *results[8];
-		for ( ; need > 0 && (nfound = gBTS.getTCHGroup(need,results)); need -= nfound) {
-			for (int i = 0; i < nfound; i++) {
-				macAddOneChannel(results[i]);
-			}
-		}
-	}
-#endif
 
 	// TODO: Switch code to new channel allocator, but this code
 	// will move to where the channels are allocated, not here.

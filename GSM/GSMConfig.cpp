@@ -322,7 +322,7 @@ int testGoodness(vector<ChanType*>& chanList, int lo, int hi)
 // Return the allocated channels in the array pointed to by results and
 // return number of channels found.
 template <class ChanType>
-static unsigned getChanGroup(vector<ChanType*>& chanList, ChanType **results)
+static unsigned getChanGroup(vector<ChanType*>& chanList, ChanType **results, bool allowC0)
 {
 	const unsigned sz = chanList.size();
 	if (sz==0) return 0;
@@ -335,8 +335,9 @@ static unsigned getChanGroup(vector<ChanType*>& chanList, ChanType **results)
 	int bestGoodness = 0;			// goodness of best match
 	for (unsigned i=0; i<sz; i++) {
 		ChanType *chan = chanList[backwards ? sz-i-1 : i];
-		if (chan->inUseByGPRS()) { continue; }
-		if (! chan->recyclable()) { continue; }
+		if (chan->inUseByGPRS()) { continue; } //don't reset here, count it
+		if (! chan->recyclable()) { curN = 0; continue; }
+		if (!allowC0 && !chan->CN()) { curN = 0; continue; }
 		if (bestN == 0) {
 			bestI = i;
 			curN = bestN = 1;
@@ -368,10 +369,10 @@ static unsigned getChanGroup(vector<ChanType*>& chanList, ChanType **results)
 
 // Allocate a group of channels for gprs.
 // See comments at getChanGroup.
-int GSMConfig::getTCHGroup(int /* unused groupSize*/,TCHFACCHLogicalChannel **results)
+int GSMConfig::getTCHGroup(int /* unused groupSize*/,TCHFACCHLogicalChannel **results, bool allowC0)
 {
 	ScopedLock lock(mLock);
-	int nfound = getChanGroup<TCHFACCHLogicalChannel>(mTCHPool,results);
+	int nfound = getChanGroup<TCHFACCHLogicalChannel>(mTCHPool,results, allowC0);
 	for (int i = 0; i < nfound; i++) {
 		results[i]->lcGetL1()->setGPRS(true,NULL);
 	}
