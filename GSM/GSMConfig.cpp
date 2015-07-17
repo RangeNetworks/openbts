@@ -352,7 +352,7 @@ static unsigned getChanGroup(vector<ChanType*>& chanList, ChanType **results)
 					bestGoodness = curGoodness;
 					// optional early termination test
 					//if (bestN >= groupSize && bestIsAdjacent) { goto finished; }
-				}
+			   }
 			} else {
 				curN = 0;
 			}
@@ -361,7 +361,7 @@ static unsigned getChanGroup(vector<ChanType*>& chanList, ChanType **results)
 	}
 	//finished:
 	for (int j = 0; j < bestN; j++) {
-		results[j] = chanList[bestI+j];
+		results[j] = backwards ? chanList[j+sz-bestI-1] : chanList[bestI+j];
 	}
 	return bestN;
 }

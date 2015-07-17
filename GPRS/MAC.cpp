@@ -1999,10 +1999,12 @@ void L2MAC::macCheckChannels()
 			int nfound, need = minChCn - activecn;
 			TCHFACCHLogicalChannel *results[8];
 			// TODO: Prevent this from allocating from C0 if user misconfigures.
-			for (; need > 0 && (nfound = gBTS.getTCHGroup(need,results)); need -= nfound) {
-				for (int i = 0; i < nfound; i++) {
+			while (need > 0) {
+				nfound = gBTS.getTCHGroup(need,results);
+				for (int i = 0; (i < nfound) && (need > 0); i++) {
 					macAddOneChannel(results[i]);
 					addedChannels = true;
+					need--;
 				}
 			}
 		}
