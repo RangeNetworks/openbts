@@ -93,8 +93,6 @@ public:
 
   void put(radioVector *ptr);
 
-  radioVector *get() { ScopedLock lock(mLock); return (radioVector*) mQ.get();}
-
   radioVector *get(bool blocking);
 };
 
