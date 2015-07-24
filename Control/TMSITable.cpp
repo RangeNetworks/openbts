@@ -480,8 +480,7 @@ uint32_t TMSITable::tmsiTabCreateOrUpdate(
 	ScopedLock lock(sTmsiMutex,__FILE__,__LINE__); // This lock should be redundant - sql serializes access, but it may prevent sql retry failures.
 
 	unsigned oldRawTmsi = tmsiTabGetTMSI(imsi,false);
-	bool isAuthed = tmsiTabCheckAuthorization(imsi);
-	bool isNewRecord = (isAuthed == 0);
+	bool isNewRecord = !sqlite3_exists(mTmsiDB,"TMSI_TABLE","IMSI",imsi.c_str());
 
 	TSqlQuery *queryp;	// dufus language
 	TSqlInsert foo;
