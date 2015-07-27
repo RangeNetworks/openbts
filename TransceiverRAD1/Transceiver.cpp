@@ -833,7 +833,7 @@ void Transceiver::driveTransmitFIFO()
       else {
         // if underrun hasn't occurred in the last sec (216 frames) drop
         //    transmit latency by a timeslot
-	if (mTransmitLatency > GSM::Time(1,1)) {
+	if (mTransmitLatency > GSM::Time(3,0)) {
             if (radioClock->get() > mLatencyUpdateTime + GSM::Time(216,0)) {
 	    mTransmitLatency.decTN();
 	    LOG(INFO) << "reduced latency: " << mTransmitLatency;
