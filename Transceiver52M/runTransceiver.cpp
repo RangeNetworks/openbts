@@ -169,6 +169,10 @@ int main(int argc, char *argv[])
   case RadioDevice::RESAMP_100M:
     radio = new RadioInterfaceResamp(usrp, 3, SPS, false);
     break;
+  case RadioDevice::RESAMP_100M_NO_RXOFF:
+    radio = new RadioInterfaceResamp(usrp, 0, SPS, false);
+    radioType = RadioDevice::RESAMP_100M;   // reset radioType for radio->init() call
+    break;
   default:
     LOG(ALERT) << "Unsupported configuration";
     fail = 1;
