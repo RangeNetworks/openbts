@@ -1,5 +1,37 @@
-openbts (5.0) unstable; urgency=low
+openbts-public (5.0.5) unstable; urgency=medium
+
+  * optimization for RAD1 transceiver
+
+ -- Omar Ramadan <omar@endaga>  Wed, 15 Jul 2015 20:47:39 +0000
+
+openbts-public (5.0.4) unstable; urgency=medium
+
+  * updates NodeManager to master to fix TMSI table disconnects and updates
+    CommonLibs
+
+ -- Matt Ball <matt@procyon>  Sun, 12 Jul 2015 22:24:11 +0000
+
+openbts-public (5.0.3) unstable; urgency=medium
+
+  * Fixes issue with CANCEL where it was not using the right Via header
+
+ -- Kurtis Heimerl <kheimerl@palpatine>  Tue, 07 Jul 2015 17:14:04 -0700
+
+openbts-public (5.0.2) unstable; urgency=medium
+
+  * uses JSONDB for the tmsis command in NodeManager - 23157c32
+
+ -- Endaga BuildBot <buildbot@endaga.com>  Tue, 23 Jun 2015 15:15:23 -0700
+
+openbts-public (5.0.1) unstable; urgency=medium
+
+  * fixes deadlock - ed436d40
+
+ -- Endaga BuildBot <buildbot@endaga.com>  Tue, 23 Jun 2015 18:20:08 +0000
+
+openbts-public (5.0) unstable; urgency=low
 
     * Test
 
  -- Range Packager <buildmanager@rangenetworks.com>  Mon, 15 Sep 2014 17:42:42 -0700
+

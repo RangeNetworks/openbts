@@ -19,6 +19,25 @@
 #include <GSMTransfer.h>
 using namespace GSM;
 
+void VectorFIFO::put(radioVector* ptr)
+{
+  ScopedLock lock(mLock);
+  if (!ptr) return;
+  mQ.put((void*) ptr);
+  mSignal.signal();
+}
+
+radioVector* VectorFIFO::get(bool blocking)
+{
+  ScopedLock lock(mLock);
+
+  while (blocking && mQ.size() == 0)
+  {
+    mSignal.wait(mLock);
+  }
+
+  return (radioVector*) mQ.get();
+}
 
 GSM::Time VectorQueue::nextTime() const
 {

@@ -172,14 +172,27 @@ bool PhysicalStatus::setPhysical(const SACCHLogicalChannel* chan,
 		eData["reports"]["servingCell"]["RXQUALITY_FULL_BER"] = JsonBox::Value(measResults.RXQUAL_FULL_SERVING_CELL_BER());
 		eData["reports"]["servingCell"]["RXQUALITY_SUB_BER"] = JsonBox::Value(measResults.RXQUAL_SUB_SERVING_CELL_BER());
 
+		// Generate the neighbor list
+		std::vector<unsigned> ARFCNList = gNeighborTable.ARFCNList();
+		JsonBox::Array neighborList;
+		unsigned aCount = ARFCNList.size();
+		if (aCount != 0) {
+			for (unsigned i = 0; i < aCount; i++) {
+				neighborList.push_back(JsonBox::Value(int(ARFCNList[i])));
+			}
+		}
+		eData["neighborList"] = JsonBox::Array(neighborList);
+
+		// Neighbor measurement reports
 		JsonBox::Array neighbors;
 		unsigned nCount = measResults.NO_NCELL();
 		if (nCount != 0 && nCount != 7) {
 			for (unsigned i = 0; i < nCount; i++) {
 				int freq = (int)measResults.BCCH_FREQ_NCELL(i);
-				if (freq) {
+				if (freq >= 0 && aCount > 0) {
 					JsonBox::Object neighbor;
 					neighbor["BCCH_FREQ"] = JsonBox::Value(freq);
+					neighbor["BCCH_ARFCN"] = JsonBox::Value(int(gNeighborTable.ARFCNList()[freq]));
 					neighbor["RXLEVEL_dBm"] = JsonBox::Value(measResults.RXLEV_NCELL_dBm(i));
 					neighbor["BSIC"] = JsonBox::Value((int)measResults.BSIC_NCELL(i));
 					neighbors.push_back(neighbor);

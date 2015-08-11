@@ -409,7 +409,7 @@ CorrType Transceiver::expectedCorrType(GSM::Time currTime, int arfcn)
 void Transceiver::pullRadioVector()
 {
   radioVector *rxBurst = NULL;
-  rxBurst = (radioVector *) mReceiveFIFO->get();
+  rxBurst = (radioVector *) mReceiveFIFO->get(false);
   if (!rxBurst) return;
 
   //LOG(DEBUG) << "receiveFIFO: read radio vector " << rxBurst << " at time: " << rxBurst->time() << ", new size: " << mReceiveFIFO->size();
@@ -989,16 +989,11 @@ void Demodulator::driveDemod(bool wSingleARFCN)
   //radioClock->wait();
 
 
-  demodBurst = mDemodFIFO->get();
-  if (!wSingleARFCN) {
-    while  (!demodBurst) {
-      RadioClock *radioClock = (mRadioInterface->getClock());
-      //radioClock->wait();
-      demodBurst = mDemodFIFO->get();
-    }
-  }
-  else {
-    if (!demodBurst) return;
+  bool blockBurstGet = wSingleARFCN ? false : true;
+  demodBurst = mDemodFIFO->get(blockBurstGet);
+
+  if (wSingleARFCN && !demodBurst) {
+    return;
   }
 
   mMaxExpectedDelay = mTRX->maxDelay();  

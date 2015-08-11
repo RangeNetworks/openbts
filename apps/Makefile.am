@@ -49,7 +49,7 @@ ourlibs = \
 	$(NODEMANAGER_LA) \
 	$(ORTP_LIBS)
 
-OpenBTS_SOURCES = OpenBTS.cpp GetConfigurationKeys.cpp
+OpenBTS_SOURCES = OpenBTS.cpp GetConfigurationKeys.cpp ../NodeManager/JSONDB/JSONDB.cpp
 OpenBTS_LDADD = $(ourlibs) -lcrypto -lssl -ldl -lortp -la53 -lcoredumper 
 OpenBTS_LDFLAGS = $(GPROF_OPTIONS) -rdynamic
 
@@ -84,8 +84,8 @@ install: OpenBTS OpenBTSCLI
 	install OpenBTSDo "$(DESTDIR)/OpenBTS/"
 	chmod +x "$(DESTDIR)/OpenBTS/OpenBTSDo"
 	install .gdbinit "$(DESTDIR)/OpenBTS/"
-	mkdir -p "$(DESTDIR)/etc/init/"
-	install openbts.conf "$(DESTDIR)/etc/init/"
+	mkdir -p "$(DESTDIR)/etc/supervisor/conf.d/"
+	install openbts.conf "$(DESTDIR)/etc/supervisor/conf.d/"
 	mkdir -p "$(DESTDIR)/etc/OpenBTS/"
 	install iptables.rules "$(DESTDIR)/etc/OpenBTS/"
 	install OpenBTS.example.sql "$(DESTDIR)/etc/OpenBTS/"
@@ -93,7 +93,4 @@ install: OpenBTS OpenBTSCLI
 	mkdir -p "$(DESTDIR)/etc/logrotate.d/"
 	install rsyslogd.OpenBTS.conf "$(DESTDIR)/etc/rsyslog.d/OpenBTS.conf"
 	install logrotated.OpenBTS "$(DESTDIR)/etc/logrotate.d/OpenBTS"
-	mkdir -p "$(DESTDIR)/home/openbts/"
-	install CLI "$(DESTDIR)/home/openbts/"
-	install openbtsconfig "$(DESTDIR)/home/openbts/"
 

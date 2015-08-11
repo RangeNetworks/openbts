@@ -1,7 +1,0 @@
-#!/bin/bash
-if [ $# -eq '1' ]
-then
-	sqlite3 /etc/OpenBTS/OpenBTS.db "select KEYSTRING,VALUESTRING from CONFIG where KEYSTRING like '%$1%'";
-else
-	sqlite3 /etc/OpenBTS/OpenBTS.db "insert or replace into CONFIG (VALUESTRING,KEYSTRING) values ('$2','$1')";
-fi

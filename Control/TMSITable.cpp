@@ -480,7 +480,7 @@ uint32_t TMSITable::tmsiTabCreateOrUpdate(
 	ScopedLock lock(sTmsiMutex,__FILE__,__LINE__); // This lock should be redundant - sql serializes access, but it may prevent sql retry failures.
 
 	unsigned oldRawTmsi = tmsiTabGetTMSI(imsi,false);
-	bool isNewRecord = (oldRawTmsi == 0);
+	bool isNewRecord = !sqlite3_exists(mTmsiDB,"TMSI_TABLE","IMSI",imsi.c_str());
 
 	TSqlQuery *queryp;	// dufus language
 	TSqlInsert foo;
@@ -491,12 +491,12 @@ uint32_t TMSITable::tmsiTabCreateOrUpdate(
 		queryp->append("INSERT INTO TMSI_TABLE (");
 		queryp->addc("IMSI",imsi);
 		queryp->addc("CREATED",now);
-		queryp->addc("ACCESSED",now);
 	} else {
 		queryp = &bar; queryp->reserve(200);
 		// Update existing record.
 		queryp->append("UPDATE TMSI_TABLE SET ");
 	}
+	queryp->addc("ACCESSED",now);
 	uint32_t tmsi = 0;
 
 	if (sendTmsis) {
@@ -819,13 +819,22 @@ vector< vector<string> > TMSITable::tmsiTabView(int verbosity, bool rawFlag, uns
 				}
 			} else if (header == "CREATED" || header == "ACCESSED") {
 				// Print seconds as a time value.
-				row.push_back(prettyAge(now - query.getResultInt(col)));
+				unsigned timeDelta = now - query.getResultInt(col);
+				if (rawFlag) {
+					row.push_back(format("%d",timeDelta));
+ 				} else {
+					row.push_back(prettyAge(timeDelta));
+ 				}
 			} else if (header == "AUTH_EXPIRY") {
 				// The expiry is the absolute time when it expires, or 0 if unknown.
 				int expiry = query.getResultInt(col);
 				int remaining = expiry - now;
 				if (remaining < 0) remaining = 0;
-				row.push_back(expiry ? prettyAge(remaining) : "-");
+				if (rawFlag) {
+					row.push_back(format("%d", remaining));
+ 				} else {
+					row.push_back(expiry ? prettyAge(remaining) : "-");
+ 				}
 			} else {
 				// All other column types.  If they are integer they are converted to "" if NULL else decimal.
 				row.push_back(query.getResultText(col));

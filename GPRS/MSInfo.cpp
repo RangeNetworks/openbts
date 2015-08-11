@@ -1075,6 +1075,7 @@ void MSInfo::msDump(std::ostream&os, SGSN::PrintOptions options)
 	os << this		// Dumps the operator<< value, which is sprintf(MS#%d,msDebugId)
 		//<< LOGHEX(msTlli)		// The TLLI is in the default id now, so do not reprint it.
 		<< LOGVAR(rrmode)
+		<< " Multislot class: " << getMultislotClass(this).mMultislotClass
 		<< " Bytes:" << msBytesUp << "up/" << msBytesDown << "down"
 		// The TrafficMetric is total number of blocks sent and received,
 		// decayed by 1/2 every 24 blocks, so max is 48/channel.

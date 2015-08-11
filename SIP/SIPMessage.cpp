@@ -528,7 +528,7 @@ SipMessageAckOrCancel::SipMessageAckOrCancel(string method, SipMessage *other) {
 //		andn then add the remote-target-URI at the end of the route header.
 // 3. If no route-set, request-URI = remote-target-URI
 // The remote-target-URI is set by the Contact header only from a INVITE or re-INVITE.
-SipMessageRequestWithinDialog::SipMessageRequestWithinDialog(string reqMethod, SipBase *dialog, string branch) {
+SipMessageRequestWithinDialog::SipMessageRequestWithinDialog(string reqMethod, SipBase *dialog, bool incrementCSeq, string branch) {
 	this->smInit();
 	this->msmCallId = dialog->callId();
 	this->msmReqMethod = reqMethod;
@@ -537,9 +537,14 @@ SipMessageRequestWithinDialog::SipMessageRequestWithinDialog(string reqMethod, S
 	this->msmReqUri = dialog->dsInDialogRequestURI();		// TODO: WRONG! see comments above.
 	this->msmTo = *dialog->dsRequestToHeader();
 	this->msmFrom = *dialog->dsRequestFromHeader();
-	this->msmCSeqNum = dialog->dsNextCSeq();	// The BYE seq number must be incremental within the enclosing INVITE dialog.
+	if (incrementCSeq){ //NBYE and Dtmf increment, CANCEL does not -kurtis
+		this->msmCSeqNum = dialog->dsNextCSeq();	// The BYE seq number must be incremental within the enclosing INVITE dialog.
+	} else{
+		this->msmCSeqNum = dialog->mLocalCSeq; 
+	}
 	if (branch.empty()) { branch = make_branch(reqMethod.c_str()); }
-	this->smAddViaBranch(dialog,branch);
+	//this->smAddViaBranch(dialog,branch); // SHOULD NOT CREATE NEW VIA HEADER, USE OLD ONE -kurtis
+	this->smCopyTopVia(dialog->getInvite());
 }
 
 // This message exists to encapsulate the Dialog State into a SIP message.

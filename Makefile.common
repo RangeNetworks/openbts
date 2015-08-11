@@ -41,6 +41,7 @@ CLI_INCLUDEDIR = $(top_srcdir)/CLI
 PEERING_INCLUDEDIR = $(top_srcdir)/Peering
 NODEMANAGER_INCLUDEDIR = $(top_srcdir)/NodeManager
 JSONBOX_INCLUDEDIR = $(top_srcdir)/NodeManager/JsonBox-0.4.3/include
+JSONDB_INCLUDEDIR = $(top_srcdir)/NodeManager/JSONDB
 SCANNING_INCLUDEDIR = $(top_srcdir)/Scanning
 APPS_INCLUDEDIR = $(top_srcdir)/apps
 
@@ -63,6 +64,7 @@ STD_DEFINES_AND_INCLUDES = $(GPROF_OPTIONS) \
 	-I$(PEERING_INCLUDEDIR) \
 	-I$(NODEMANAGER_INCLUDEDIR) \
 	-I$(JSONBOX_INCLUDEDIR) \
+	-I$(JSONDB_INCLUDEDIR) \
 	-I$(SCANNING_INCLUDEDIR)
 
 # These macros are referenced in apps/Makefile.am, which must be changed in sync with these.

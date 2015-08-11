@@ -1492,6 +1492,7 @@ bool TranEntry::lockAndInvokeSipMsgs()
 	// Now that is handled by checking for sip state changes when the AssignTCHF procedure is finished.
 	//if (mSipDialogMessagesBlocked) { return false; }
 	if (DialogMessage*dmsg = this->mTranInbox.readNoBlock()) {
+		// We cannot hold the gMMLock here, causes deadlock -kurtis
 		lockAndInvokeSipMsg(dmsg);
 		delete dmsg;
 		// Since the message can result in the transaction being killed, only process one message
