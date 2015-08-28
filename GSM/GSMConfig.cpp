@@ -359,9 +359,9 @@ static unsigned getChanGroup(vector<ChanType*>& chanList, ChanType **results)
 		}
 		prevFreeCh = chan;
 	}
-	//finished:
+	int firstIx = sz-bestI-1; // only works if backwards==true
 	for (int j = 0; j < bestN; j++) {
-		results[j] = chanList[bestI+j];
+		results[j] = chanList[firstIx+j];
 	}
 	return bestN;
 }
