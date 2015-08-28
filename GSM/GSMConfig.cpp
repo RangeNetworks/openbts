@@ -368,10 +368,14 @@ static unsigned getChanGroup(vector<ChanType*>& chanList, ChanType **results)
 
 // Allocate a group of channels for gprs.
 // See comments at getChanGroup.
-int GSMConfig::getTCHGroup(int /* unused groupSize*/,TCHFACCHLogicalChannel **results)
+int GSMConfig::getTCHGroup(int groupSize,TCHFACCHLogicalChannel **results)
 {
 	ScopedLock lock(mLock);
 	int nfound = getChanGroup<TCHFACCHLogicalChannel>(mTCHPool,results);
+	// limit to channels actually requested
+	if (groupSize < nfound) {
+		nfound = groupSize;
+	}
 	for (int i = 0; i < nfound; i++) {
 		results[i]->lcGetL1()->setGPRS(true,NULL);
 	}
