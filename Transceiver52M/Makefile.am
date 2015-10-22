@@ -64,9 +64,7 @@ libtransceiver_la_SOURCES = \
 	radioInterfaceResamp.cpp
 
 noinst_PROGRAMS = \
-	USRPping \
-	transceiver \
-	sigProcLibTest 
+	transceiver
 
 noinst_HEADERS = \
 	Complex.h \
@@ -84,19 +82,8 @@ noinst_HEADERS = \
 	convolve.h \
 	convert.h
 
-USRPping_SOURCES = USRPping.cpp
-USRPping_LDADD = \
-	libtransceiver.la \
-	$(COMMON_LA) $(SQLITE_LA)
-
 transceiver_SOURCES = runTransceiver.cpp
 transceiver_LDADD = \
-	libtransceiver.la \
-	$(GSM_LA) \
-	$(COMMON_LA) $(SQLITE_LA)
-
-sigProcLibTest_SOURCES = sigProcLibTest.cpp
-sigProcLibTest_LDADD = \
 	libtransceiver.la \
 	$(GSM_LA) \
 	$(COMMON_LA) $(SQLITE_LA)
@@ -105,14 +92,10 @@ sigProcLibTest_LDADD = \
 if UHD
 libtransceiver_la_SOURCES += UHDDevice.cpp
 transceiver_LDADD += $(UHD_LIBS)
-USRPping_LDADD += $(UHD_LIBS)
-sigProcLibTest_LDADD += $(UHD_LIBS)
 else
 if USRP1
 libtransceiver_la_SOURCES += USRPDevice.cpp
 transceiver_LDADD += $(USRP_LIBS)
-USRPping_LDADD += $(USRP_LIBS)
-sigProcLibTest_LDADD += $(USRP_LIBS)
 else
 #we should never be here, as one of the above mustbe defined for us to build
 endif
@@ -134,12 +117,3 @@ else
 #we should never be here, as one of the above mustbe defined for us to build
 endif
 endif
-
-MOSTLYCLEANFILES +=
-
-#radioInterface.cpp
-#ComplexTest.cpp
-#sigProcLibTest.cpp
-#sweepGenerator.cpp
-#testRadio.cpp
-
