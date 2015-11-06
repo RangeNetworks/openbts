@@ -24,8 +24,7 @@
 
 #include "sigProcLib.h"
 #include "GSMCommon.h"
-#include "sendLPF_961.h"
-#include "rcvLPF_651.h"
+
 
 extern "C" {
 #include "convolve.h"
