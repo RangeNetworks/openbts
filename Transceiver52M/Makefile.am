@@ -76,8 +76,6 @@ noinst_HEADERS = \
 	Transceiver.h \
 	USRPDevice.h \
 	DummyLoad.h \
-	rcvLPF_651.h \
-	sendLPF_961.h \
 	Resampler.h \
 	convolve.h \
 	convert.h
