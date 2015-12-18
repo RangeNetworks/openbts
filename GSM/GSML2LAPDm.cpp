@@ -613,7 +613,7 @@ void L2LAPDm::receiveUFrameSABM(const L2Frame& frame)
 			if (frame.L()) {
 				// Presence of an L3 payload indicates contention resolution.
 				// GSM 04.06 5.4.1.4.
-				mState=ContentionResolution;
+				if (mSAPI==0) mState=ContentionResolution; // only SAP 0 is permitted to enter Contention Resolution
 				mContentionCheck = frame.sum();
 				writeL3(new L3Frame(mSAPI,frame.L3Part(),L3_DATA));
 				// Echo back payload.
@@ -776,8 +776,15 @@ void L2LAPDm::receiveUFrameDM(const L2Frame& frame)
 	case LinkEstablished:
 	case ContentionResolution:
 		// GSM 4.06 4.1.3.5: Unsolicited DM response is an error.
-		releaseLink(true,MDL_ERROR_INDICATION);
+		// Rel. 8 of 4.06, Sect. 5.4.1.2 says reset T200 and send up a RELEASE_INDICATION to L3.
+		// Confusing b/c Sect. 5.4.2.2 suggests (not requires) sending an MDL_ERROR_INDICATION
+		// But nothing about releasing the link, so don't do it!
+		//releaseLink(true,MDL_ERROR_INDICATION);
+	        mT200.set(T200());
+                writeL3(new L3Frame(mSAPI,L3_RELEASE_INDICATION));
+		//releaseLink(true,L3_RELEASE_INDICATION);
 		return;
+	
 	}
 
 }

@@ -788,11 +788,10 @@ class L3Frame : public BitVector {		// (pat) This is in Layer3, common to UMTS a
 	void text(std::ostream&os) const;
 
 	// (pat) This is used by PointerCompare when an L3Frame is placed in an InterthreadPriorityQueue.
-	// The "greatest" element is placed at the top of the queue.
 	bool operator>(const L3Frame&other) const {
 		// SAP 0 messages have priority over SAP 3.
-		if ((int)this->mSapi < (int) other.mSapi) { return true; }	// SAP 0 trumps SAP 3.
-		if ((int)this->mSapi > (int) other.mSapi) { return false; }	// SAP 3 is not as good as SAP 0.
+		if ((int)this->mSapi < (int) other.mSapi) { return false; }	// SAP 0 trumps SAP 3.
+		if ((int)this->mSapi > (int) other.mSapi) { return true; }	// SAP 3 is not as good as SAP 0.
 		return this->mTimestamp > other.mTimestamp; 				// Otherwise just order by time of creation.
 	}
 };
