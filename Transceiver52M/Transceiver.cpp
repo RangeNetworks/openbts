@@ -470,7 +470,7 @@ void Transceiver::driveControl()
   int msgLen = -1;
   buffer[0] = '\0';
  
-  msgLen = mControlSocket.read(buffer);
+  msgLen = mControlSocket.read(buffer, sizeof(buffer));
 
   if (msgLen < 1) {
     return;
@@ -661,7 +661,7 @@ bool Transceiver::driveTransmitPriorityQueue()
   char buffer[gSlotLen+50];
 
   // check data socket
-  size_t msgLen = mDataSocket.read(buffer);
+  size_t msgLen = mDataSocket.read(buffer, sizeof(buffer));
 
   if (msgLen!=gSlotLen+1+4+1) {
     LOG(ERR) << "badly formatted packet on GSM->TRX interface";
