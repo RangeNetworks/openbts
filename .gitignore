@@ -31,6 +31,7 @@ libtool
 ltmain.sh
 missing
 stamp-h1
+Transceiver52M/transceiver
 TransceiverRAD1/RAD1Cmd
 TransceiverRAD1/RAD1RxRawPower
 TransceiverRAD1/RAD1RxRawPowerSweep
