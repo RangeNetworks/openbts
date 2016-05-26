@@ -96,7 +96,7 @@ void TransceiverManager::clockHandler()
 	char buffer[MAX_UDP_LENGTH];
 	int msgLen;
 	try {
-		msgLen = mClockSocket.read(buffer,gConfig.getNum("TRX.Timeout.Clock")*1000);
+		msgLen = mClockSocket.read(buffer,sizeof(buffer),gConfig.getNum("TRX.Timeout.Clock")*1000);
 	} catch (SocketError) {
 		LOG(ERR) <<"Transceiver Clock Interface read error:"<<strerror(errno);
 		return;
@@ -284,7 +284,7 @@ int ::ARFCNManager::sendCommandPacket(const char* command, char* response)
 
 	for (int retry=0; retry<5; retry++) {
 		mControlSocket.write(command);
-		msgLen = mControlSocket.read(response,1000);
+		msgLen = mControlSocket.read(response,sizeof(response),1000);
 		if (msgLen>0) {
 			response[msgLen] = '\0';
 			break;
