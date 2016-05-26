@@ -77,8 +77,8 @@ install-arch:
 	dh_installdirs -s
 
 	# Add here commands to install the arch part of the package into
-	# debian/tmp.
-	$(MAKE) DESTDIR=$(CURDIR)/debian/tmp install
+	# debian/{package}.
+	$(MAKE) DESTDIR=$(CURDIR)/debian/openbts install
 
 	dh_install -s
 

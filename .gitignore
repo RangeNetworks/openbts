@@ -48,4 +48,4 @@ GSMShare/ViterbiTest
 TransceiverRAD1/PowerScanner
 debian/files
 debian/substvars
-debian/tmp/
+debian/openbts*

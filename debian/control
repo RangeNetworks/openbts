@@ -3,7 +3,7 @@ Section: comm
 Priority: optional
 Maintainer: Range Networks, Inc. <info@rangenetworks.com>
 Homepage: http://www.rangenetworks.com/
-Build-Depends: build-essential, debhelper (>= 7), pkg-config, autoconf, libtool, libortp-dev, libsqlite3-dev, libusb-1.0-0-dev, libreadline-dev, libssl-dev, libzmq3-dev, libzmq3, liba53
+Build-Depends: build-essential, debhelper (>= 7), pkg-config, autoconf, libtool, libortp-dev, libortp8 | libortp9, libsqlite3-dev, libusb-1.0-0-dev, libreadline-dev, libssl-dev, libzmq3-dev, libzmq3 | libzmq5, liba53
 Standards-Version: 3.7.3
 
 Package: openbts
@@ -11,5 +11,5 @@ Section: comm
 Priority: optional
 Architecture: any
 Essential: no
-Depends: sqlite3, libusb-1.0-0, libortp-dev, libc6, pkg-config, libzmq3, liba53, libreadline6, libssl1.0.0
+Depends: sqlite3, libusb-1.0-0, libortp-dev, libc6, pkg-config, libzmq3 | libzmq5, liba53, libreadline6, libssl1.0.0
 Description: Range Networks - OpenBTS GSM+GPRS Radio Access Network Node
