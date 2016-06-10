@@ -463,7 +463,7 @@ void Transceiver::driveControl(unsigned ARFCN)
   int msgLen = -1;
   buffer[0] = '\0';
  
-  msgLen = mControlSocket[ARFCN]->read(buffer, sizeof(buffer));
+  msgLen = mControlSocket[ARFCN]->read(buffer);
 
   mControlLock.lock();
 
@@ -725,7 +725,7 @@ bool Transceiver::driveTransmitPriorityQueue(unsigned ARFCN)
   char buffer[gSlotLen+50];
 
   // check data socket
-  size_t msgLen = mDataSocket[ARFCN]->read(buffer, sizeof(buffer));
+  size_t msgLen = mDataSocket[ARFCN]->read(buffer);
 
   ScopedLock lock(mTransmitPriorityQueueLock);
 
