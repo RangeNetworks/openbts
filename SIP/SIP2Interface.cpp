@@ -669,7 +669,7 @@ void SipInterface::siDrive2()
 	// All inbound SIP messages go here for processing.
 
 	LOG(DEBUG) << "blocking on socket";
-	int numRead = mSIPSocket->read(mReadBuffer, sizeof(mReadBuffer));
+	int numRead = mSIPSocket->read(mReadBuffer);
 	if (numRead<0) {
 		LOG(ALERT) << "cannot read SIP socket.";
 		return;

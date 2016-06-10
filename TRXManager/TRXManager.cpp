@@ -234,7 +234,7 @@ void ::ARFCNManager::driveRx()
 {
 	// read the message
 	char buffer[MAX_UDP_LENGTH];
-	int msgLen = mDataSocket.read(buffer, sizeof(buffer));
+	int msgLen = mDataSocket.read(buffer);
 	if (msgLen<=0) SOCKET_ERROR;
 	// decode
 	unsigned char *rp = (unsigned char*)buffer;

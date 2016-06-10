@@ -218,7 +218,7 @@ void* PeerInterface::serviceLoop2(void*)
 
 void PeerInterface::drive()
 {
-	int numRead = mSocket.read(mReadBuffer, sizeof(mReadBuffer));
+	int numRead = mSocket.read(mReadBuffer);
 	if (numRead<0) {
 		return;
 	}
