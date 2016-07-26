@@ -50,7 +50,7 @@ ourlibs = \
 	$(ORTP_LIBS)
 
 OpenBTS_SOURCES = OpenBTS.cpp GetConfigurationKeys.cpp
-OpenBTS_LDADD = $(ourlibs) -lcrypto -lssl -ldl -lortp -la53 -lcoredumper 
+OpenBTS_LDADD = $(ourlibs) -ldl -lortp -la53 -lcoredumper 
 OpenBTS_LDFLAGS = $(GPROF_OPTIONS) -rdynamic
 
 clilibs= \
