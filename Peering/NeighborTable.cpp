@@ -545,7 +545,7 @@ static void uniquify(vector<T> &vec)
 {
 	if (vec.size() < 2) return;
 	unsigned i = 0, j = 1;
-	while (j < vec.size()-1) {
+	while (j < vec.size()) {		// (pat 10-17-2014) was: (j<vec.size()-1)
 		if (vec[i] != vec[j]) {
 			i++;
 			if (i != j) { vec[i] = vec[j]; }
@@ -605,7 +605,7 @@ std::vector<unsigned> NeighborTable::getARFCNs() const
 		// Eliminate duplicate ARFCNs.
 		uniquify(bcchChannelList);
 
-		// If first element is ARFCN 0, move it to the back.
+		// If first element is ARFCN 0, move it to the back.  This required by the spec.
 		if (bcchChannelList.size() >= 2 && bcchChannelList[0] == 0) {
 			rollLeft(bcchChannelList);
 		}
@@ -682,6 +682,21 @@ bool NeighborTable::neighborCongestion(unsigned arfcn, unsigned bsic)
 	return false;
 }
 
+static void run1test(vector<int> &foo)
+{
+	for (vector<int>::iterator it = foo.begin(); it != foo.end(); it++) printf("%d ",*it);
+	printf("\n");
+	sort(foo.begin(),foo.end());
+	printf("after sort: "); for (vector<int>::iterator it = foo.begin(); it != foo.end(); it++) printf("%d ",*it);
+	printf("\n");
+	uniquify(foo);
+	printf("after uniquify: "); for (vector<int>::iterator it = foo.begin(); it != foo.end(); it++) printf("%d ",*it);
+	printf("\n");
+	rollLeft(foo);
+	printf("after rollLeft: "); for (vector<int>::iterator it = foo.begin(); it != foo.end(); it++) printf("%d ",*it);
+	printf("\n");
+}
+
 static void runSomeTests()
 {
 	vector<int> foo;
@@ -697,16 +712,19 @@ static void runSomeTests()
 	foo.push_back(2);
 	foo.push_back(0);
 
-	for (vector<int>::iterator it = foo.begin(); it != foo.end(); it++) printf("%d ",*it);
-	printf("\n");
+	run1test(foo);
 
-	sort(foo.begin(),foo.end());
-	printf("after sort: "); for (vector<int>::iterator it = foo.begin(); it != foo.end(); it++) printf("%d ",*it);
-	printf("\n");
-	uniquify(foo);
-	printf("after uniquify: "); for (vector<int>::iterator it = foo.begin(); it != foo.end(); it++) printf("%d ",*it);
-	printf("\n");
-	rollLeft(foo);
-	printf("after rollLeft: "); for (vector<int>::iterator it = foo.begin(); it != foo.end(); it++) printf("%d ",*it);
-	printf("\n");
+	foo.clear();
+	foo.push_back(19);
+	foo.push_back(19);
+	run1test(foo);
+
+	foo.clear();
+	foo.push_back(1);
+	foo.push_back(2);
+	run1test(foo);
+
+	foo.clear();
+	foo.push_back(1);
+	run1test(foo);
 }
