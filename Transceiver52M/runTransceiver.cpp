@@ -112,7 +112,7 @@ int testConfig(const char *filename)
 int main(int argc, char *argv[])
 {
   int trxPort, radioType, extref = 0, fail = 0;
-  std::string deviceArgs, logLevel, trxAddr;
+  std::string deviceArgs, logLevel, trxAddr, subdev;
   RadioDevice *usrp = NULL;
   RadioInterface *radio = NULL;
   Transceiver *trx = NULL;
@@ -141,6 +141,7 @@ int main(int argc, char *argv[])
   logLevel = gConfig.getStr("Log.Level");
   trxPort = gConfig.getNum("TRX.Port");
   trxAddr = gConfig.getStr("TRX.IP");
+  subdev = gConfig.getStr("TRX.Subdevice");
 
   if (gConfig.defines("TRX.Reference"))
     extref = gConfig.getNum("TRX.Reference");
@@ -155,7 +156,7 @@ int main(int argc, char *argv[])
   srandom(time(NULL));
 
   usrp = RadioDevice::make(SPS);
-  radioType = usrp->open(deviceArgs, extref);
+  radioType = usrp->open(deviceArgs, extref, subdev);
   if (radioType < 0) {
     LOG(ALERT) << "Transceiver exiting..." << std::endl;
     return EXIT_FAILURE;
