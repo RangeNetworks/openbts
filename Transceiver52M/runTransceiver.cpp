@@ -111,9 +111,10 @@ int testConfig(const char *filename)
 
 int main(int argc, char *argv[])
 {
-  int trxPort, radioType, extref = 0, fail = 0;
-  std::string deviceArgs, logLevel, trxAddr;
+  int trxPort, radioType, fail = 0;
+  std::string deviceArgs, logLevel, trxAddr, refstr;
   RadioDevice *usrp = NULL;
+  RadioDevice::ReferenceType refType;
   RadioInterface *radio = NULL;
   Transceiver *trx = NULL;
 
@@ -143,19 +144,34 @@ int main(int argc, char *argv[])
   trxAddr = gConfig.getStr("TRX.IP");
 
   if (gConfig.defines("TRX.Reference"))
-    extref = gConfig.getNum("TRX.Reference");
+    refstr = gConfig.getStr("TRX.Reference");
 
-  if (extref)
-    std::cout << "Using external clock reference" << std::endl;
-  else
-    std::cout << "Using internal clock reference" << std::endl;
+  /*
+   * We could get complicated here on search strings, but just use common
+   * cases for ease of use.
+   */
+  if ((refstr.find("GPS") != std::string::npos) ||
+      (refstr.find("gps") != std::string::npos)) {
+    refType = RadioDevice::REF_GPS;
+    refstr = "gpsdo";
+  } else if ((refstr.find("External") != std::string::npos) ||
+             (refstr.find("EXTERNAL") != std::string::npos) ||
+             (refstr.find("external") != std::string::npos)) {
+    refType = RadioDevice::REF_EXTERNAL;
+    refstr = "external";
+  } else {
+    refType = RadioDevice::REF_INTERNAL;
+    refstr = "internal";
+  }
+
+  std::cout << "Using " << refstr << " frequency reference" << std::endl;
 
   gLogInit("transceiver", logLevel.c_str(), LOG_LOCAL7);
 
   srandom(time(NULL));
 
   usrp = RadioDevice::make(SPS);
-  radioType = usrp->open(deviceArgs, extref);
+  radioType = usrp->open(deviceArgs, refType);
   if (radioType < 0) {
     LOG(ALERT) << "Transceiver exiting..." << std::endl;
     return EXIT_FAILURE;

@@ -36,10 +36,14 @@ class RadioDevice {
   /* Radio interface types */
   enum RadioInterfaceType { NORMAL, RESAMP_64M, RESAMP_100M };
 
+  enum ReferenceType { REF_INTERNAL, REF_EXTERNAL, REF_GPS };
+
   static RadioDevice *make(int sps, bool skipRx = false);
 
+  virtual ~RadioDevice() { }
+
   /** Initialize the USRP */
-  virtual int open(const std::string &args = "", bool extref = false)=0;
+  virtual int open(const std::string &args, ReferenceType ref)=0;
 
   /** Start the USRP */
   virtual bool start()=0;

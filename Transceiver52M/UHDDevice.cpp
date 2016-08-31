@@ -211,7 +211,7 @@ public:
 	uhd_device(int sps, bool skip_rx);
 	~uhd_device();
 
-	int open(const std::string &args, bool extref);
+	int open(const std::string &args, ReferenceType ref);
 	bool start();
 	bool stop();
 	void restart(uhd::time_spec_t ts);
@@ -290,7 +290,7 @@ private:
 	smpl_buf *rx_smpl_buf;
 
 	void init_gains();
-	void set_ref_clk(bool ext_clk);
+	void set_ref_clk(ReferenceType ref);
 	int set_master_clk(double rate);
 	int set_rates(double tx_rate, double rx_rate);
 	bool parse_dev_type();
@@ -375,12 +375,26 @@ void uhd_device::init_gains()
 	return;
 }
 
-void uhd_device::set_ref_clk(bool ext_clk)
+void uhd_device::set_ref_clk(ReferenceType ref)
 {
-	if (ext_clk)
-		usrp_dev->set_clock_source("external");
+	const char *refstr;
 
-	return;
+	switch (ref) {
+	case REF_INTERNAL:
+		refstr = "internal";
+		break;
+	case REF_EXTERNAL:
+		refstr = "external";
+		break;
+	case REF_GPS:
+		refstr = "gpsdo";
+		break;
+	default:
+		LOG(ALERT) << "Invalid reference type";
+		return;
+	}
+
+	usrp_dev->set_clock_source(refstr);
 }
 
 int uhd_device::set_master_clk(double clk_rate)
@@ -525,7 +539,7 @@ bool uhd_device::parse_dev_type()
 	return true;
 }
 
-int uhd_device::open(const std::string &args, bool extref)
+int uhd_device::open(const std::string &args, ReferenceType ref)
 {
 	// Find UHD devices
 	uhd::device_addr_t addr(args);
@@ -548,8 +562,7 @@ int uhd_device::open(const std::string &args, bool extref)
 	if (!parse_dev_type())
 		return -1;
 
-	if (extref)
-		set_ref_clk(true);
+	set_ref_clk(ref);
 
 	// Create TX and RX streamers
 	uhd::stream_args_t stream_args("sc16");
