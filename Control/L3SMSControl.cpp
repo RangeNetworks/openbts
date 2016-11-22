@@ -444,7 +444,7 @@ bool MTSMSMachine::createRPData(RPData &rp_data)
 		TLAddress tlcalling = TLAddress(tran()->calling().digits());
 		const char *dcsStr = gConfig.getStr("SMS.DCS").c_str(); 
 		if (strncmp(dcsStr,"4",1)==0) {
-			dcs=1; // 8 bit hex
+			dcs=4; // 8 bit hex
 		}
 		const char *udhiStr = gConfig.getStr("SMS.UDHI").c_str(); 
 		if (strncmp(udhiStr,"1",1)==0) {
