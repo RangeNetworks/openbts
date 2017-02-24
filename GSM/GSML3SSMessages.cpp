@@ -111,13 +111,13 @@ void L3SupServFacilityIE::text(ostream& os) const
 
 L3SupServMessage * L3SupServFactory(L3SupServMessage::MessageType MTI)
 {
-	LOG(DEBUG) << "Factory MTI"<< (int)MTI;
+	LOG(INFO) << "Factory MTI"<< (int)MTI;
 	switch (MTI) {
 		case L3SupServMessage::Facility: return new L3SupServFacilityMessage();
 		case L3SupServMessage::Register: return new L3SupServRegisterMessage();
 		case L3SupServMessage::ReleaseComplete: return new L3SupServReleaseCompleteMessage();
 		default: {
-			//LOG(NOTICE) << "no L3 NonCallSS factory support for message "<< MTI;
+			LOG(INFO) << "no L3 NonCallSS factory support for message "<< MTI;
 			return NULL;
 		}
 	}

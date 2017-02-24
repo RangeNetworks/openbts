@@ -244,7 +244,19 @@ TranEntry *TranEntry::newMTSMS(
 	return result;
 }
 
-
+// USSD
+TranEntry *TranEntry::newMTSS(
+	const FullMobileId& msid,
+	string ssBody,
+	string ssType)  // 0 Register, 1 Facility, 2 Release complete
+{
+	TranEntry *result = new TranEntry(NULL,GSM::L3CMServiceType::SupplementaryService);
+	result->mSubscriber = msid;
+	result->mMessage = ssBody;
+	result->mContentType = ssType;
+	gNewTransactionTable.ttAdd(result);
+	return result;
+}
 
 // Form for inbound handovers.
 TranEntry *TranEntry::newHandover(
@@ -1409,6 +1421,7 @@ bool TranEntry::handleMachineStatus(MachineStatus status)
 // If no proc is specified here, assume that teSetProcedure was called previously and start the currentProcedure.
 bool TranEntry::lockAndStart(MachineBase *wProc)
 {
+	LOG(INFO) << "SS " << wProc;
 	bool result = false;
 	RefCntPointer<TranEntry> saver = this;
 	{	ScopedLock lock(mL3RewriteLock,__FILE__,__LINE__);
@@ -1418,7 +1431,7 @@ bool TranEntry::lockAndStart(MachineBase *wProc)
 		} else {
 			wProc = currentProcedure();
 			devassert(wProc);	// Someone set the currentProcedure before calling this method.
-		}
+			}
 		result = handleMachineStatus(wProc->callMachStart(wProc));
 	}
 	return result;

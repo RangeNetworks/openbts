@@ -31,6 +31,7 @@ class SSDBase : public MachineBase {
 };
 
 void startMOSSD(const GSM::L3CMServiceRequest*cmsrq, MMContext *mmchan);
+void initMTSS(TranEntry *tran);
 string ssMap2Ussd(const unsigned char *mapcmd,unsigned maplen);
 
 };

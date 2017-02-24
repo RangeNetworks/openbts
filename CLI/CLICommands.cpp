@@ -490,7 +490,6 @@ static CLIStatus sendsimple(int argc, char** argv, ostream& os)
 static CLIStatus sendsms(int argc, char** argv, ostream& os)
 {
 	if (argc<4) return BAD_NUM_ARGS;
-
 	char *IMSI = argv[1];
 	char *srcAddr = argv[2];
 	string rest = "";
@@ -500,7 +499,6 @@ static CLIStatus sendsms(int argc, char** argv, ostream& os)
 		os << "Invalid IMSI. Enter 15 digits only.";
 		return BAD_VALUE;
 	}
-
 	// We just use the IMSI, dont try to find a tmsi.
 	FullMobileId msid(IMSI);
 	Control::TranEntry *tran = Control::TranEntry::newMTSMS(
@@ -514,6 +512,32 @@ static CLIStatus sendsms(int argc, char** argv, ostream& os)
 	return SUCCESS;
 }
 
+/** Submit an USSD for delivery to an IMSI on this BTS. */
+static CLIStatus sendss(int argc, char** argv, ostream& os)
+{
+	if (argc<3) return BAD_NUM_ARGS;
+	char *IMSI = argv[1];
+	string rest = argv[2];
+	string type = argv[3];
+	if (!isIMSI(IMSI)) {
+		os << "Invalid IMSI. Enter 15 digits only.";
+		return BAD_VALUE;
+	}
+	
+	if(type[0] != '0' && type[0] != '1' && type[0] != '2'){
+		os << "Type must be either 0 (Encapsulate msg as a unstructuredSSNotify type), 1 (EXPERT: Do not encapsulate msg. Send it as is), 2 (Notify x 100)\n";
+		return BAD_VALUE;	
+	}
+
+	FullMobileId msid(IMSI);
+	Control::TranEntry *tran = Control::TranEntry::newMTSS(
+						msid,
+						rest,   // message body
+						type);	// 0, 1, 2		
+	Control::gMMLayer.mmAddMT(tran);
+	os << "USSD submitted for delivery" << endl;
+	return SUCCESS;
+}
 
 /** Print current usage loads. */
 static CLIStatus printStats(int argc, char** argv, ostream& os)
@@ -1717,6 +1741,7 @@ void Parser::addCommands()
 	addCommand("shutdown", nop, "[] -- shut down via upstart OpenBTS.  If OpenBTS was not started via upstart, it is a no op.");
 	addCommand("tmsis", tmsis, tmsisHelp);
 	addCommand("sendsms", sendsms, "IMSI src# message... -- send direct SMS to IMSI on this BTS, addressed from source number src#.");
+	addCommand("sendss", sendss, "IMSI message type -- send direct MT USSD to IMSI on this BTS. Type must be either 0 (Encapsulate msg as a unstructuredSSNotify type), 1 (EXPERT: Do not encapsulate msg. Send it as is), 2 (Notify x 100)\n");
 	addCommand("sendsimple", sendsimple, "IMSI src# message... -- send SMS to IMSI via SIP interface, addressed from source number src#.");
 	addCommand("load", printStats, "-- print the current activity loads.");
 	addCommand("cellid", cellID, "[MCC MNC LAC CI] -- get/set location area identity (MCC, MNC, LAC) and cell ID (CI).");

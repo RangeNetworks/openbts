@@ -32,7 +32,9 @@
 #include <RRLPServer.h>
 #include <Globals.h>
 #include <typeinfo>
+#include <iostream>
 
+using namespace std;
 using namespace GSM;
 namespace Control {
 
@@ -257,6 +259,8 @@ static void handleStatus(const L3Message *l3msg, MMContext *mmchan)
 static bool handleCommonMessages(const L3Message *l3msg, MMContext *mmchan, bool *deletemsg)
 {
 	*deletemsg = true;
+	LOG(INFO) << "USSD " << L3CASE_RAW(l3msg->PD(),l3msg->MTI());
+
 	switch (L3CASE_RAW(l3msg->PD(),l3msg->MTI())) {
 		case L3CASE_RR(L3RRMessage::PagingResponse):
 			NewPagingResponseHandler(dynamic_cast<const L3PagingResponse*>(l3msg),mmchan);
@@ -602,6 +606,8 @@ static void csl3HandleFrame(const GSM::L3Frame *frame, L3LogicalChannel *lch)
 		l3msg = parseL3(*frame);
 		if (l3msg) {
 			WATCHINFO(lch <<" received L3 message "<<*l3msg);
+			//print msg to console
+			LOG(INFO) << "USSD RX: " << *l3msg;
 		} else {
 			LOG(ERR) <<lch<< " received unparseable Layer3 frame "<<*frame;
 			// We pass unparseable messages through to machineRunState1 to provide an error indication to

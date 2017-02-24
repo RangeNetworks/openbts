@@ -390,6 +390,10 @@ class TranEntry : public MemCheckTranEntry, public RefCntBase, public TranEntryP
 		string smsBody,
 		string smsContentType);
 
+	static TranEntry *newMTSS(
+		const FullMobileId& msid,
+		string ssBody,
+		string ssType);
 
 	static TranEntry *newHandover(const struct sockaddr_in* peer,
 		unsigned wHandoverReference,

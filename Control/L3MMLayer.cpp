@@ -30,6 +30,7 @@
 #include "ControlCommon.h"
 #include "L3TranEntry.h"
 #include "L3SMSControl.h"
+#include "L3SupServ.h"
 #include <SIPDialog.h>
 
 namespace Control {
@@ -80,6 +81,18 @@ void MMContext::startSMSTran(TranEntry *tran)
 	tran->lockAndStart();
 }
 
+void MMContext::startSSTran(TranEntry *tran)
+{
+	{
+		ScopedLock lock(gMMLock,__FILE__,__LINE__);	// Make sure.
+		LOG(INFO) << "new MTSS"<<LOGVAR(tran)<<LOGVAR2("chan",this);
+		// Tie the transaction to this channel.
+		devassert(this->mmGetTran(MMContext::TE_SS).isNULL());
+		this->mmConnectTran(MMContext::TE_SS,tran);
+		initMTSS(tran);
+	}
+}
+
 // (pat) WARNING: If this routine returns true it has performed the gMMLock.unlock() corresponding to a lock() in the caller.
 // Setting the lock in one function and releasing it in another sucks and should be fixed.
 bool MMUser::mmuServiceMTQueues()	// arg redundant with mmuContext->channel.
@@ -87,6 +100,7 @@ bool MMUser::mmuServiceMTQueues()	// arg redundant with mmuContext->channel.
 	devassert(gMMLock.lockcnt());		// Caller locked it.
 	//ScopedLock lock(mmuLock,__FILE__,__LINE__);
 	// TODO: check for blocks on our IMSI or TMSI?
+	//LOG(INFO) << "SS mmuServiceMTQueues()";
 
 	// TODO: Move this to the logical channel main thread.
 	// Service the MMC queues.
@@ -115,6 +129,15 @@ bool MMUser::mmuServiceMTQueues()	// arg redundant with mmuContext->channel.
 			TranEntry *tran = mmuMTSMSq.pop_frontr();
 			gMMLock.unlock();
 			mmuContext->startSMSTran(tran);
+			return true;
+		}
+	}
+	if (mmuContext->mmGetTran(MMContext::TE_SS).isNULL()) {
+		LOG(INFO) << "SS mmuContext->mmGetTran(MMContext::TE_SS).isNULL()";
+		if (mmuMTSSq.size()) {
+			TranEntry *tran = mmuMTSSq.pop_frontr();
+			gMMLock.unlock();
+			mmuContext->startSSTran(tran);
 			return true;
 		}
 	}
@@ -233,6 +256,9 @@ GSM::ChannelType MMUser::mmuGetInitialChanType() const
 		default:	// There shouldnt be anything else in the MTCq.
 			return GSM::SDCCHType;
 		}
+	}
+	if (mmuMTSSq.size()){
+		return GSM::SDCCHType;
 	}
 	devassert(mmuMTSMSq.size());
 	return GSM::SDCCHType;
@@ -715,6 +741,9 @@ void MMUser::mmuAddMT(TranEntry *tran)
 		break;
 	case L3CMServiceType::MobileTerminatedShortMessage:
 		mmuMTSMSq.push_back(tran);
+		break;
+	case L3CMServiceType::SupplementaryService:
+		mmuMTSSq.push_back(tran);
 		break;
 	default:
 		assert(0);

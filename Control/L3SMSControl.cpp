@@ -443,8 +443,8 @@ bool MTSMSMachine::createRPData(RPData &rp_data)
 		RPDUbits.LSB8MSB(); // bit flip ready for Tx
 		TLAddress tlcalling = TLAddress(tran()->calling().digits());
 		const char *dcsStr = gConfig.getStr("SMS.DCS").c_str(); 
-		if (strncmp(dcsStr,"4",1)==0) {
-			dcs=4; // 8 bit hex
+		if (strncmp(dcsStr,"0",1)!=0) { // if NOT 7 bit...
+			dcs=atoi(dcsStr);
 		}
 		const char *udhiStr = gConfig.getStr("SMS.UDHI").c_str(); 
 		if (strncmp(udhiStr,"1",1)==0) {
