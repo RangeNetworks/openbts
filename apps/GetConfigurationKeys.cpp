@@ -3037,7 +3037,7 @@ ConfigurationKeyMap getConfigurationKeys()
 	map[tmp.getName()] = tmp;
 	}
 
-	{ ConfigurationKey tmp("TRX.MinimumRxRSSI","-63",
+	{ ConfigurationKey tmp("TRX.MinimumRxRSSI","-90",
 		"dB",
 		ConfigurationKey::FACTORY,
 		ConfigurationKey::VALRANGE,
