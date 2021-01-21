@@ -131,7 +131,7 @@ void SipRtp::initRTP1(const char *d_ip_addr, unsigned d_port, unsigned dialogId)
 #ifdef ORTP_NEW_API
 	rtp_session_set_local_addr(mSession, "0.0.0.0", mRTPPort, -1);
 #else
-	rtp_session_set_local_addr(mSession, "0.0.0.0", mRTPPort);
+	rtp_session_set_local_addr(mSession, 0,0, mRTPPort );
 #endif
 	rtp_session_set_remote_addr(mSession, d_ip_addr, d_port);
 	WATCHF("*** initRTP local=%d remote=%s %d\n",mRTPPort,d_ip_addr,d_port);
