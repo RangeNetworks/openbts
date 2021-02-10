@@ -2,7 +2,7 @@
 /*
 * Copyright 2008, 2009, 2010 Free Software Foundation, Inc.
 * Copyright 2010 Kestrel Signal Processing, Inc.
-* Copyright 2011, 2012, 2014 Range Networks, Inc.
+* Copyright 2011-2021 Range Networks, Inc.
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
@@ -34,7 +34,7 @@ const char* gOpenBTSWelcome =
 	"OpenBTS\n"
 	"Copyright 2008, 2009, 2010 Free Software Foundation, Inc.\n"
 	"Copyright 2010 Kestrel Signal Processing, Inc.\n"
-	"Copyright 2011, 2012, 2013, 2014 Range Networks, Inc.\n"
+	"Copyright 2011-2021 Range Networks, Inc.\n"
 	"Release " VERSION "+" REPO_REV " " PROD_CAT " formal build date " TIMESTAMP_ISO "\n"
 	"\"OpenBTS\" is a registered trademark of Range Networks, Inc.\n"
 	"\nContributors:\n"

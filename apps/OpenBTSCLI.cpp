@@ -1,5 +1,5 @@
 /*
-* Copyright 2011, 2012, 2014 Range Networks, Inc.
+* Copyright 2011-2021 Range Networks, Inc.
 *
 * This software is distributed under the terms of the GNU Affero Public License.
 * See the COPYING file in the main directory for details.
