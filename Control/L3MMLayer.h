@@ -71,6 +71,7 @@ class MMUser : public MemCheckMMUser /*: public RefCntBase*/ {
 	typedef PtrList<TranEntry> MMUQueue_t;
 	MMUQueue_t mmuMTCq;
 	MMUQueue_t mmuMTSMSq;
+	MMUQueue_t mmuMTSSq;
 	friend class MMLayer;
 	MMState mmuState;
 	MMContext* mmuContext;
@@ -152,6 +153,7 @@ class MMContext : public MemCheckMMContext /*: public RefCntBase*/ {
 	unsigned mNextTI;
 	InterthreadQueue<const L3Message> mmcServiceRequests;	// Incoming CM Service Request messages.
 	void startSMSTran(TranEntry *tran);
+	void startSSTran(TranEntry *tran);
 
 	void MMContextInit();
 	void mmcFree(TermCause cause);	// This is the destructor.  It is not public.  Can only delete from gMMLayer because we must lock the MMUserMap first.

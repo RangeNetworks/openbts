@@ -418,50 +418,44 @@ void startMOSMS(const GSM::L3MMMessage *l3msg, MMContext *mmchan)
 // Return true on success.
 bool MTSMSMachine::createRPData(RPData &rp_data)
 {
-	// TODO: Read MIME Type from smqueue!!
-	const char *contentType = tran()->mContentType.c_str();
+	// OpenBTSCLI:
+	// rawconfig SMS.MIMEType text/plain
+
+	int dcs=0;
+	bool udhi=false;
+	const char *contentType = gConfig.getStr("SMS.MIMEType").c_str(); 
 	PROCLOG(DEBUG)<<LOGVAR(contentType)<<LOGVAR(tran()->mMessage);
 	if (strncmp(contentType,"text/plain",10)==0) {
 		TLAddress tlcalling = TLAddress(tran()->calling().digits());
-		TLUserData tlmessage = TLUserData(tran()->mMessage.c_str());
-		PROCLOG(DEBUG)<<LOGVAR(tlcalling)<<LOGVAR(tlmessage);
+		TLUserData tlmessage = TLUserData(tran()->mMessage.c_str()); 
 		rp_data = RPData(this->mRpduRef,
 			RPAddress(gConfig.getStr("SMS.FakeSrcSMSC").c_str()),
 			TLDeliver(tlcalling,tlmessage,0));
-	} else if (strncmp(contentType,"application/vnd.3gpp.sms",24)==0) {
+	} else { 
+
+		// OpenBTSCLI:
+		//rawconfig SMS.MIMEType "application/vnd.3gpp.sms"
+		//rawconfig SMS.DCS 0
+		//rawconfig SMS.UDHI 0
+
 		BitVector2 RPDUbits(strlen(tran()->mMessage.c_str())*4);
-		if (!RPDUbits.unhex(tran()->mMessage.c_str())) {
-			LOG(WARNING) << "Message is zero length which is valid";
-			// This is valid continue
-			return true;
+		RPDUbits.unhex(tran()->mMessage.c_str()); // hex to binary string
+		RPDUbits.LSB8MSB(); // bit flip ready for Tx
+		TLAddress tlcalling = TLAddress(tran()->calling().digits());
+		const char *dcsStr = gConfig.getStr("SMS.DCS").c_str(); 
+		if (strncmp(dcsStr,"0",1)!=0) { // if NOT 7 bit...
+			dcs=atoi(dcsStr);
 		}
-
-		try { // I suspect this is here to catch the above FIXED crash when string is zero length
-			RLFrame RPDU(RPDUbits);
-			LOG(DEBUG) << "SMS RPDU: " << RPDU;
-
-			rp_data.parse(RPDU);
-			LOG(DEBUG) << "SMS RP-DATA " << rp_data;
+		const char *udhiStr = gConfig.getStr("SMS.UDHI").c_str(); 
+		if (strncmp(udhiStr,"1",1)==0) {
+			udhi=true; // PDU has UDH
 		}
-		catch (SMSReadError) {
-			LOG(WARNING) << "SMS parsing failed (above L3)";
-			// Cause 95, "semantically incorrect message".
-			//LCH->l2sendf(CPData(L3TI,RPError(95,this->mRpduRef)),3); if you ever use this, it should call l3sendSms
-			return false;
-		}
-		catch (GSM::L3ReadError) {
-			LOG(WARNING) << "SMS parsing failed (in L3)";
-			// TODO:: send error back to the phone
-			return false;
-		}
-		catch (...) {
-			LOG(ERR) << "Unexpected throw";	// cryptic, but should never happen.
-			return false;
-		}
-	} else {
-		LOG(WARNING) << "Unsupported content type (in incoming SIP MESSAGE) -- type: " << contentType;
-		return false;
-	}
+		TLUserData tlmessage = TLUserData(dcs,RPDUbits,strlen(tran()->mMessage.c_str())/2,udhi); 
+		rp_data = RPData(this->mRpduRef,
+			RPAddress(gConfig.getStr("SMS.FakeSrcSMSC").c_str()),
+			TLDeliver(tlcalling,tlmessage,0));
+	} 
+	LOG(DEBUG) << "contentType: " << contentType << "\nrp_data: " << rp_data;
 	return true;
 }
 

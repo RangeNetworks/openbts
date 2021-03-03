@@ -18,12 +18,8 @@
 	As a simplification, we are supporting only the default 7-bit alphabet.
 */
 
-
-
-
 #ifndef SMS_MESSAGE_H
 #define SMS_MESSAGE_H
-
 #include <stdio.h>
 #include "SMSTransfer.h"
 #include <GSML3Message.h>
@@ -39,8 +35,6 @@ class SMSReadError : public GSM::GSMError {
 	SMSReadError():GSMError() {}
 };
 #define SMS_READ_ERROR {throw SMSReadError();}
-
-
 
 
 /**@name SMS Transport Layer (TL) */
