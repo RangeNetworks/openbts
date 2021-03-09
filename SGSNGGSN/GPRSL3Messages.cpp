@@ -367,6 +367,22 @@ void GMMAttach::gmParseIEs(L3GmmFrame &src, size_t &rp, const char *culprit)
 			mTmsiStatus = iei & 1;
 			continue;
 		}
+        if ((iei & 0xf0) == 0xd0) {
+            // 10.5.7.8 Device properties. Ignore for now
+            continue;
+        }
+        if ((iei & 0xf0) == 0xe0) {
+            // 10.5.5.29 P-TMSI type. Ignore for now
+            continue;
+        }
+        if ((iei & 0xf0) == 0xc0) {
+            // 10.5.1.15 MS network feature support. Ignore for now
+            continue;
+        }
+        if ((iei & 0xf0) == 0xf0) {
+            // 10.5.5.0 Additional update type. Ignore for now
+            continue;
+        }
 		switch (iei) {
 		case 0x19:	// TV Old P-TMSI signature.
 			// Dont have a 3 byte 'read' function so use getField then advance rp by 3.
@@ -385,6 +401,10 @@ void GMMAttach::gmParseIEs(L3GmmFrame &src, size_t &rp, const char *culprit)
 		// The specified length is of the ie itself, excluding the iei type and length byte.
 		// Get the length, but dont move rp - let the IEs do that, because
 		// some of them need the length byte.
+		if (rp >= src.size()) {
+			SGSNERROR("invalid message size in "<<culprit <<" bytes="<<src.hexstr());
+			return;
+		}
 		int len = src.getByte(rp);
 		size_t nextrp = rp + len + 1;
 		if (nextrp > src.size()) {	// last one will have nextrp == src.size()
