@@ -638,7 +638,7 @@ bool MSInfo::msAssignChannels()
         if (msPCHDowns.size() > 1) {
             std::ostringstream os;
             msDumpChannels(os);
-            LOG(INFO) << "Multislot assignment for "<<this<<os;
+            LOG(INFO) << "Multislot assignment for "<<this<<os.str();
         }
 
 	} else {
