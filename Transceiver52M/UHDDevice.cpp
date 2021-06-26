@@ -488,7 +488,8 @@ bool uhd_device::parse_dev_type()
 	std::string mboard_str, dev_str;
 	uhd::property_tree::sptr prop_tree;
 	size_t usrp1_str, usrp2_str, b100_str, b200_str,
-	       b210_str, x300_str, x310_str, umtrx_str;
+	       b210_str, b200mini_str, b205mini_str, x300_str, 
+	       x310_str, umtrx_str;
 
 	prop_tree = usrp_dev->get_device()->get_tree();
 	dev_str = prop_tree->access<std::string>("/name").get();
@@ -499,6 +500,8 @@ bool uhd_device::parse_dev_type()
 	b100_str = mboard_str.find("B100");
 	b200_str = mboard_str.find("B200");
 	b210_str = mboard_str.find("B210");
+	b200mini_str = mboard_str.find("B200mini");
+	b205mini_str = mboard_str.find("B205mini");
 	x300_str = mboard_str.find("X300");
 	x310_str = mboard_str.find("X310");
 	umtrx_str = dev_str.find("UmTRX");
@@ -519,6 +522,10 @@ bool uhd_device::parse_dev_type()
 	} else if (b200_str != std::string::npos) {
 		dev_type = B2XX;
 	} else if (b210_str != std::string::npos) {
+		dev_type = B2XX;
+	} else if (b200mini_str != std::string::npos) {
+		dev_type = B2XX;
+	} else if (b205mini_str != std::string::npos) {
 		dev_type = B2XX;
 	} else if (x300_str != std::string::npos) {
 		dev_type = X3XX;
