@@ -664,7 +664,7 @@ bool uhd_device::start()
 	setPriority();
 
 	// Register msg handler
-	uhd::msg::register_handler(&uhd_msg_handler);
+	//uhd::msg::register_handler(&uhd_msg_handler);
 
 	// Start asynchronous event (underrun check) loop
 	async_event_thrd.start((void * (*)(void*))async_event_loop, (void*)this);
