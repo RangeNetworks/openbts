@@ -1,8 +1,8 @@
 [submodule "CommonLibs"]
 	path = CommonLibs
-	url = https://github.com/RangeNetworks/CommonLibs.git
+	url = https://github.com/PentHertz/CommonLibs.git
 	branch = master
 [submodule "NodeManager"]
 	path = NodeManager
-	url = https://github.com/RangeNetworks/NodeManager.git
+	url = https://github.com/PentHertz/NodeManager.git
 	branch = master
