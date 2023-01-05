@@ -1,9 +1,7 @@
 #!/bin/sh
 
 # Installing compilation dependencies
-sudo apt install autoconf libtool libosip2-dev libortp-dev libusb-1.0-0-dev g++ sqlite3 \ 
-	libsqlite3-dev erlang libreadline6-dev libncurses5-dev git dpkg-dev debhelper \ 
-	libssl-dev cmake build-essential wget libzmq3-dev
+sudo apt install autoconf libtool libosip2-dev libortp-dev libusb-1.0-0-dev g++ sqlite3 libsqlite3-dev erlang libreadline6-dev libncurses5-dev git dpkg-dev debhelper libssl-dev cmake build-essential wget libzmq3-dev
 
 # Installing HD driver 4.1.0 & tools from Ubuntu package manager
 sudo apt install libuhd4.1.0 libuhd-dev uhd-host
