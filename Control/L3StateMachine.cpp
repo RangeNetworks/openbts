@@ -85,11 +85,11 @@ void MachineBase::machineErrorMessage(int level, int state, const L3Message *l3m
 
 	// This kind sucks, digging into the Logger.  The logger could be better.
 	if (l3msg) {
-		Log(level).get() <<os <<" Unexpected L3 message:"<<l3msg;
+		Log(level).get() <<os.str() <<" Unexpected L3 message:"<<l3msg;
 	} else if (sipmsg) {
-		Log(level).get() <<os <<" Unexpected SIP message:"<<sipmsg;
+		Log(level).get() <<os.str() <<" Unexpected SIP message:"<<sipmsg;
 	} else {
-		Log(level).get() <<os <<" Unexpected"<<LOGHEX(state);
+		Log(level).get() <<os.str() <<" Unexpected"<<LOGHEX(state);
 	}
 }
 

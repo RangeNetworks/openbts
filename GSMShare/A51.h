@@ -7,5 +7,5 @@ typedef unsigned char byte;
 typedef unsigned long word;
 typedef word bit;
 
-void A51_GSM( byte *key, int klen, int count, byte *block1, byte *block2 );
+void A51_GSM( unsigned char *key, int klen, int count, unsigned char *block1, unsigned char *block2 );
 

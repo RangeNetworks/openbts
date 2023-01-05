@@ -26,7 +26,6 @@
 #include <uhd/property_tree.hpp>
 #include <uhd/usrp/multi_usrp.hpp>
 #include <uhd/utils/thread_priority.hpp>
-#include <uhd/utils/msg.hpp>
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -313,12 +312,13 @@ void *async_event_loop(uhd_device *dev)
 	return NULL;
 }
 
+// TODO: Use the new API to display new stuff
 /* 
     Catch and drop underrun 'U' and overrun 'O' messages from stdout
     since we already report using the logging facility. Direct
     everything else appropriately.
  */
-void uhd_msg_handler(uhd::msg::type_t type, const std::string &msg)
+/*void uhd_msg_handler(uhd::msg::type_t type, const std::string &msg)
 {
 	switch (type) {
 	case uhd::msg::status:
@@ -333,7 +333,7 @@ void uhd_msg_handler(uhd::msg::type_t type, const std::string &msg)
 	case uhd::msg::fastpath:
 		break;
 	}
-}
+}*/
 
 uhd_device::uhd_device(int sps, bool skip_rx)
 	: tx_gain(0.0), tx_gain_min(0.0), tx_gain_max(0.0),

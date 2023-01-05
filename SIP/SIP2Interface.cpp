@@ -756,7 +756,7 @@ void MySipInterface::msiInit()
 	// FIXME -- Can we coordinate this with the global logger?
 	//ortp_set_log_level_mask(ORTP_MESSAGE|ORTP_WARNING|ORTP_ERROR);
 
-	ortp_set_log_handler(ortpLogFunc);
+	ortp_set_log_handler((BctbxLogFunc) ortpLogFunc);
 
 	mDriveThread.start((void *(*)(void*))driveLoop2, &gSipInterface );
 	mPeriodicServiceThread.start((void *(*)(void*))periodicServiceLoop, &gSipInterface );
