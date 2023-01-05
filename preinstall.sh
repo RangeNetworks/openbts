@@ -13,7 +13,7 @@ git submodule update
 # Installing libcoredumper
 git clone https://github.com/PentHertz/libcoredumper.git
 cd libcoredumper
-./build
+./build.sh
 cd coredumper-1.2.1
 ./configure
 make -j$(nproc)
