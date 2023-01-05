@@ -28,6 +28,7 @@ git submodule update
 ./autogen.sh
 ./configure
 make -j$(nproc)
+sudo make install
 cd ../
 
 # Installing liba53
@@ -35,6 +36,17 @@ git clone https://github.com/PentHertz/liba53.git
 cd liba53
 make && make install
 cd ..
+
+# Installing smqueue
+git clone https://github.com/PentHertz/smqueue.git
+cd smqueue
+git submodule init
+git submodule update
+./autogen.sh
+./configure
+make -j$(nproc)
+sudo make install
+cd ../
 
 # Installing OpenBTS
 #./autogen.sh
