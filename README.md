@@ -25,6 +25,7 @@ Clone the repository and use the pre-installation script `preinstall.sh` to clon
 ```
 $ git clone https://github.com/PentHertz/OpenBTS.git
 $ cd OpenBTS
+$ # Optionally, checkout 5.1.0 branch which is the stable one with `git checkout 5.1.0`
 $ ./preinstall.sh # note that for now libcoredumper will show some failures but we quickly bypass them forcing the compilation
 ```
 
