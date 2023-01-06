@@ -1,5 +1,70 @@
-Welcome to the OpenBTS source code.
+Welcome to the OpenBTS  source code reloaded for 2023 supporting new UHD drivers and Ubuntu 22.04 LTS to be compiled against C++11 and C++17.
 
+# What is this project?
+
+This projects provides a GSM+GPRS Radio Access Network Node with Software-Defined Radio.
+
+# Supported hardware
+
+* USRPs:
+	* USRP v1 (with 52 MHz clock -> but can be patched for default 64 MHz) 
+	* USRP2
+	* USRP B200/B210 and B205mini-*
+	* USRP N210
+	* USRP X3*0
+	* USRP N210
+* UmTRX
+* LimeSDR with OsmoTRX transceiver by now
+
+# Quick usage
+
+## Setup
+
+Clone the repository and use the pre-installation script `preinstall.sh` to clone all other projects, submodules and install dependencies:
+
+```
+$ git clone https://github.com/PentHertz/OpenBTS.git
+$ cd OpenBTS
+$ ./preinstall.sh # note that for now libcoredumper will show some failures but we quickly bypass them forcing the compilation
+```
+
+Once it is finished, you can proceed with the installation of OpenBTS as follows:
+
+```
+$ ./autogen.sh
+$ ./configure --with-uhd # use different options for other drivers
+$ make -j$(nproc)
+$ sudo make install
+$ sudo ldconfig
+```
+
+And then we can launch everything!
+
+# Running everything
+
+Preferably run the probe UHD tool to load the firmware and FPGA into the USRP first:
+
+```
+$ uhd_usrp_probe 
+[INFO] [UHD] linux; GNU C++ version 11.2.0; Boost_107400; UHD_4.1.0.5-3
+[INFO] [B200] Loading firmware image: /usr/share/uhd/images/usrp_b200_fw.hex...
+[INFO] [B200] Detected Device: B210
+[INFO] [B200] Loading FPGA image: /usr/share/uhd/images/usrp_b210_fpga.bin...
+[...]
+```
+
+You can use `screen`, `tmux` or just laucnh everything except `OpenBTS` in background:
+
+```
+$ sudo smqueue &
+$ sudo sipauthserve &
+$ sudo /OpenBTS/OpenBTS
+```
+
+And voilà!
+
+
+# Old README
 
 For free support, please subscribe to openbts-discuss@lists.sourceforge.net.
 See http://sourceforge.net/mailarchive/forum.php?forum_name=openbts-discuss
@@ -58,8 +123,7 @@ normal GNU build process with the rest of OpenBTS.  To build smqueue, go
 into the smqueue directory and just type "make -f Makefile.standalone".
 
 
-
-Release history:
+# Release history:
 
 Release	Name		SVN Reposiory	SVN Rev	Comments
 
@@ -178,3 +242,5 @@ Release	Name		SVN Reposiory	SVN Rev	Comments
 
 2.9	Plaquemine	Range				socket-based remote CLI
 							merge-in of "S" Release
+5.0     ?                ?                              ?
+5.1     FlUxIuS         Penthertz                       Release for 2023 compiling with fresh Ubuntu 22.04
