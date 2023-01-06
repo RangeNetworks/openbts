@@ -1,5 +1,11 @@
 #!/bin/sh
 
+##########################################################
+# This is a simple script made by FlUxIuS @ Penthertz    #
+# It is there to simplify the installation of this whole #
+# project.                                               #
+##########################################################
+
 # Installing compilation dependencies
 sudo apt install autoconf libtool libosip2-dev libortp-dev libusb-1.0-0-dev g++ sqlite3 libsqlite3-dev erlang libreadline6-dev libncurses5-dev git dpkg-dev debhelper libssl-dev cmake build-essential wget libzmq3-dev
 

@@ -1,5 +1,6 @@
 /*
 * Copyright 2014 Range Networks, Inc.
+* Renewed for 2023 by FlUxIuS @ Penthertz
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
