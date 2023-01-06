@@ -48,6 +48,13 @@ make -j$(nproc)
 sudo make install
 cd ../
 
+# Making rooms for subscriberRegistry and smqueue
+sudo sqlite3 -init ./apps/OpenBTS.example.sql /etc/OpenBTS/OpenBTS.db ".quit"
+sudo mkdir -p /var/lib/asterisk/sqlite3dir
+sudo sqlite3 -init /etc/OpenBTS/sipauthserve.example.sql /etc/OpenBTS/sipauthserve.db ".quit"
+sudo mkdir /var/lib/OpenBTS
+sudo touch /var/lib/OpenBTS/smq.cdr
+
 # Installing OpenBTS
 #./autogen.sh
 #./configure --with-uhd
