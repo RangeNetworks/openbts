@@ -21,7 +21,7 @@ dnl
 
 AC_PREREQ([2.57])
 # must be AC_INIT([openbts], [5.0-master])
-AC_INIT(openbts,5.0-master) 
+AC_INIT(openbts,5.1-master) 
 
 AC_CANONICAL_BUILD
 AC_CANONICAL_HOST

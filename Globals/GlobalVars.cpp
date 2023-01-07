@@ -35,6 +35,7 @@ const char* gOpenBTSWelcome =
 	"Copyright 2008, 2009, 2010 Free Software Foundation, Inc.\n"
 	"Copyright 2010 Kestrel Signal Processing, Inc.\n"
 	"Copyright 2011-2021 Range Networks, Inc.\n"
+	"Reloaded for 2023 by FlUxIuS @ Penthertz SAS.\n"
 	"Release " VERSION "+" REPO_REV " " PROD_CAT " formal build date " TIMESTAMP_ISO "\n"
 	"\"OpenBTS\" is a registered trademark of Range Networks, Inc.\n"
 	"\nContributors:\n"
