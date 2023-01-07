@@ -25,7 +25,7 @@
 #include <uhd/version.hpp>
 #include <uhd/property_tree.hpp>
 #include <uhd/usrp/multi_usrp.hpp>
-#include <uhd/utils/thread_priority.hpp>
+#include <uhd/utils/thread.hpp>
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
