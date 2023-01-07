@@ -112,7 +112,7 @@ int testConfig(const char *filename)
 int main(int argc, char *argv[])
 {
   int trxPort, radioType, fail = 0;
-  std::string deviceArgs, logLevel, trxAddr, refstr;
+  std::string deviceArgs, logLevel, trxAddr, refstr, subdev;
   RadioDevice *usrp = NULL;
   RadioDevice::ReferenceType refType;
   RadioInterface *radio = NULL;
@@ -142,6 +142,7 @@ int main(int argc, char *argv[])
   logLevel = gConfig.getStr("Log.Level");
   trxPort = gConfig.getNum("TRX.Port");
   trxAddr = gConfig.getStr("TRX.IP");
+  subdev = gConfig.getStr("TRX.Subdevice");
 
   if (gConfig.defines("TRX.Reference"))
     refstr = gConfig.getStr("TRX.Reference");

@@ -237,6 +237,7 @@ INSERT OR IGNORE INTO "CONFIG" VALUES('TRX.RadioFrequencyOffset','128',1,0,'Fine
 INSERT OR IGNORE INTO "CONFIG" VALUES('TRX.Timeout.Clock','10',0,0,'How long to wait during a read operation from the Transceiver before giving up.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('TRX.Timeout.Start','2',0,0,'How long to wait during system startup before checking to see if the Transceiver can be reached.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('TRX.TxAttenOffset','0',1,0,'Hardware-specific gain adjustment for transmitter, matched to the power amplifier, expessed as an attenuation in dB.  Set at the factory.  Do not adjust without proper calibration.  Static.');
+INSERT OR IGNORE INTO "CONFIG" VALUES('TRX.Subdevice','',1,0,'Subdevice (Daughterboard) to use on Ettus hardware that supports it');
 INSERT OR IGNORE INTO "CONFIG" VALUES('TRX.Reference','internal',0,0,'TRX reference type ("internal", "external", "gpsdo")');
 INSERT OR IGNORE INTO "CONFIG" VALUES('Test.GSM.SimulatedFER.Downlink','0',0,0,'Probability (0-100) of dropping any downlink frame to test robustness.');
 INSERT OR IGNORE INTO "CONFIG" VALUES('Test.GSM.SimulatedFER.Uplink','0',0,0,'Probability (0-100) of dropping any uplink frame to test robustness.');

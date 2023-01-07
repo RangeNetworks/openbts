@@ -210,7 +210,7 @@ public:
 	uhd_device(int sps, bool skip_rx);
 	~uhd_device();
 
-	int open(const std::string &args, ReferenceType ref);
+	int open(const std::string &args, ReferenceType ref, const std::string &subdev);
 	bool start();
 	bool stop();
 	void restart(uhd::time_spec_t ts);
@@ -545,7 +545,7 @@ bool uhd_device::parse_dev_type()
 	return true;
 }
 
-int uhd_device::open(const std::string &args, ReferenceType ref)
+int uhd_device::open(const std::string &args, ReferenceType ref, const std::string &subdev)
 {
 	// Find UHD devices
 	uhd::device_addr_t addr(args);
@@ -569,6 +569,12 @@ int uhd_device::open(const std::string &args, ReferenceType ref)
 		return -1;
 
 	set_ref_clk(ref);
+
+	//specify subdevice (daughterboard)
+	if(!subdev.empty()) {
+		usrp_dev->set_tx_subdev_spec(subdev);
+		usrp_dev->set_rx_subdev_spec(subdev);
+	}
 
 	// Create TX and RX streamers
 	uhd::stream_args_t stream_args("sc16");
