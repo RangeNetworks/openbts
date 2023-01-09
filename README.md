@@ -41,7 +41,7 @@ $ sudo ldconfig
 
 And then we can launch everything!
 
-# Running everything
+## Running everything
 
 Preferably run the probe UHD tool to load the firmware and FPGA into the USRP first:
 
@@ -63,6 +63,10 @@ $ sudo /OpenBTS/OpenBTS
 ```
 
 And voilà!
+
+# Docker container
+
+A Docker images has been also generated for the backup and is ready to use with all installed tools: https://hub.docker.com/r/penthertz/openbts
 
 
 # Old README
