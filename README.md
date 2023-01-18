@@ -68,6 +68,18 @@ And voilà!
 
 A Docker images has been also generated for the backup and is ready to use with all installed tools: https://hub.docker.com/r/penthertz/openbts
 
+# Fuzzing with OpenBTS
+
+The Testcall feature has been reintroduced and includes also a SMS Fuzzing features thanks to @Djimmer work, and is under test with this new version of OpenBTS.
+
+You can already test it with the `fuzzing-dev` branch:
+
+```
+git checkout fuzzing-dev
+```
+
+Do not hesitate to send issue or pull requests in order to stabilize it.
+
 
 # Old README
 
