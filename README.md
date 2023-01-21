@@ -15,6 +15,7 @@ This projects provides a GSM+GPRS Radio Access Network Node with Software-Define
 	* USRP N210
 * UmTRX
 * LimeSDR with OsmoTRX transceiver by now
+* ANTSDR E200: Warning! Super experimental as we don't own the hardware yet (send your captures centered on the used ARFCN for debug)
 
 # Quick usage
 
