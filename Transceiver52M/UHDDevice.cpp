@@ -131,7 +131,7 @@ static double select_rate(uhd_dev_type type, int sps)
 	case B100:
 		return B100_BASE_RT * sps;
 	case B2XX:
-	case E200:
+	case ANTSDR_E200:
 	case UMTRX:
 		return GSMRATE * sps;
 	default:
