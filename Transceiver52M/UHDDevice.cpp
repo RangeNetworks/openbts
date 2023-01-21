@@ -44,6 +44,7 @@ enum uhd_dev_type {
 	B2XX,
 	X3XX,
 	UMTRX,
+	ANTSDR_E200,
 	NUM_USRP_TYPES,
 };
 
@@ -64,6 +65,9 @@ struct uhd_dev_offset {
 #define B2XX_TIMING_1SPS	9.9692e-5
 #define B2XX_TIMING_4SPS	6.9248e-5
 #endif
+
+#define E200_TIMING_1SPS        9.9692e-5 # TODO: probably to fix
+#define E200_TIMING_4SPS        6.9248e-5 # TODO: probably to fix
 
 /*
  * Tx / Rx sample offset values. In a perfect world, there is no group delay
@@ -88,6 +92,8 @@ static struct uhd_dev_offset uhd_offsets[NUM_USRP_TYPES * 2] = {
 	{ X3XX,  4, 1.1264e-4, "X3XX 4 SPS"},
 	{ UMTRX, 1, 9.9692e-5, "UmTRX 1 SPS" },
 	{ UMTRX, 4, 7.3846e-5, "UmTRX 4 SPS" },
+	{ ANTSDR_E200,  1, E200_TIMING_1SPS, "ANTSDR E200 1 SPS" },
+        { ANTSDR_E200,  4, E200_TIMING_4SPS, "ANTSDR E200 4 SPS" },
 };
 
 static double get_dev_offset(enum uhd_dev_type type, int sps)
@@ -125,6 +131,7 @@ static double select_rate(uhd_dev_type type, int sps)
 	case B100:
 		return B100_BASE_RT * sps;
 	case B2XX:
+	case E200:
 	case UMTRX:
 		return GSMRATE * sps;
 	default:
@@ -487,7 +494,7 @@ bool uhd_device::parse_dev_type()
 {
 	std::string mboard_str, dev_str;
 	uhd::property_tree::sptr prop_tree;
-	size_t usrp1_str, usrp2_str, b100_str, b200_str,
+	size_t usrp1_str, usrp2_str, b100_str, b200_str, antsdr_e200_str,
 	       b210_str, x300_str, x310_str, umtrx_str, b205mini_str, b200mini_str;
 
 	prop_tree = usrp_dev->get_device()->get_tree();
@@ -504,6 +511,7 @@ bool uhd_device::parse_dev_type()
 	x300_str = mboard_str.find("X300");
 	x310_str = mboard_str.find("X310");
 	umtrx_str = dev_str.find("UmTRX");
+	antsdr_e200_str = mboard_str.find("E200");
 
 	if (usrp1_str != std::string::npos) {
 		LOG(ALERT) << "USRP1 is not supported using the UHD driver";
@@ -534,7 +542,9 @@ bool uhd_device::parse_dev_type()
 		dev_type = USRP2;
 	} else if (umtrx_str != std::string::npos) {
 		dev_type = UMTRX;
-	} else {
+	} else if (antsdr_e200_str != std::string::npos) {
+                dev_type = ANTSDR_E200;
+        } else {
 		LOG(ALERT) << "Unknown UHD device type " << dev_str;
 		return false;
 	}
