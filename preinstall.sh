@@ -42,7 +42,8 @@ cd ../
 # Installing liba53
 git clone https://github.com/PentHertz/liba53.git
 cd liba53
-make && make install
+make -j$(nproc)
+sudo make install
 sudo ldconfig
 cd ..
 
