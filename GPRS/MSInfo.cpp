@@ -1,5 +1,6 @@
 /*
 * Copyright 2011, 2014 Range Networks, Inc.
+* Renewed for 2023 by FlUxIuS @ Penthertz
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
@@ -638,7 +639,7 @@ bool MSInfo::msAssignChannels()
         if (msPCHDowns.size() > 1) {
             std::ostringstream os;
             msDumpChannels(os);
-            LOG(INFO) << "Multislot assignment for "<<this<<os;
+            LOG(INFO) << "Multislot assignment for "<<this<<os.str();
         }
 
 	} else {

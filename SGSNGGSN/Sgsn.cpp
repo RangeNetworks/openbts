@@ -1,5 +1,6 @@
 /*
 * Copyright 2011, 2014 Range Networks, Inc.
+* Renewed for 2023 by FlUxIuS @ Penthertz
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
@@ -127,7 +128,7 @@ void SgsnInfo::sirm()
 {
 	std::ostringstream ss;
 	sgsnInfoDump(this,ss);
-	SGSNLOG("Removing SgsnInfo:"<<ss);
+	SGSNLOG("Removing SgsnInfo:"<<ss.str());
 	sSgsnInfoList.remove(this);
 	delete this;
 }
@@ -224,7 +225,7 @@ static void GmmRemove(GmmInfo *gmm)
 {
 	std::ostringstream ss;
 	gmmInfoDump(gmm,ss,0);
-	SGSNLOG("Removing gmm:"<<ss);
+	SGSNLOG("Removing gmm:"<<ss.str());
 	SgsnInfo *si;
 	RN_FOR_ALL(SgsnInfoList_t,sSgsnInfoList,si) {
 		// The second test here should be redundant.
