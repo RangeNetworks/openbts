@@ -66,8 +66,8 @@ struct uhd_dev_offset {
 #define B2XX_TIMING_4SPS	6.9248e-5
 #endif
 
-#define E200_TIMING_1SPS        9.9692e-5 # TODO: probably to fix
-#define E200_TIMING_4SPS        6.9248e-5 # TODO: probably to fix
+#define E200_TIMING_1SPS        9.9692e-5 // TODO: probably to fix
+#define E200_TIMING_4SPS        6.9248e-5 // TODO: probably to fix
 
 /*
  * Tx / Rx sample offset values. In a perfect world, there is no group delay
