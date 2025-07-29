@@ -3078,6 +3078,17 @@ ConfigurationKeyMap getConfigurationKeys()
 	map[tmp.getName()] = tmp;
 	}
 
+	{ ConfigurationKey tmp("TRX.Subdevice","",
+		"",
+		ConfigurationKey::CUSTOMERWARN,
+		ConfigurationKey::STRING,
+		"",
+		true,
+		"This value is a string that specifies a subdevice for Ettus Hardware."
+	);
+	map[tmp.getName()] = tmp;
+	}
+
 	{ ConfigurationKey tmp("TRX.Timeout.Clock","10",
 		"seconds",
 		ConfigurationKey::DEVELOPER,

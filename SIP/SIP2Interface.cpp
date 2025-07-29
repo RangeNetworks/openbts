@@ -1,6 +1,7 @@
 /*
 * Copyright 2008, 2009, 2010 Free Software Foundation, Inc.
 * Copyright 2011, 2014 Range Networks, Inc.
+* Renewed for 2023 by FlUxIuS @ Penthertz
 *
 * This software is distributed under multiple licenses;
 * see the COPYING file in the main directory for licensing
@@ -756,7 +757,7 @@ void MySipInterface::msiInit()
 	// FIXME -- Can we coordinate this with the global logger?
 	//ortp_set_log_level_mask(ORTP_MESSAGE|ORTP_WARNING|ORTP_ERROR);
 
-	ortp_set_log_handler(ortpLogFunc);
+	ortp_set_log_handler((BctbxLogFunc) ortpLogFunc);
 
 	mDriveThread.start((void *(*)(void*))driveLoop2, &gSipInterface );
 	mPeriodicServiceThread.start((void *(*)(void*))periodicServiceLoop, &gSipInterface );

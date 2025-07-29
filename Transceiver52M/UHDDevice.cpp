@@ -3,7 +3,7 @@
  * Written by Thomas Tsou <ttsou@vt.edu>
  *
  * Copyright 2010,2011 Free Software Foundation, Inc.
- *
+ * Renewed for 2023 by FlUxIuS @ Penthertz
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
@@ -25,8 +25,7 @@
 #include <uhd/version.hpp>
 #include <uhd/property_tree.hpp>
 #include <uhd/usrp/multi_usrp.hpp>
-#include <uhd/utils/thread_priority.hpp>
-#include <uhd/utils/msg.hpp>
+#include <uhd/utils/thread.hpp>
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -45,6 +44,7 @@ enum uhd_dev_type {
 	B2XX,
 	X3XX,
 	UMTRX,
+	ANTSDR_E200,
 	NUM_USRP_TYPES,
 };
 
@@ -65,6 +65,9 @@ struct uhd_dev_offset {
 #define B2XX_TIMING_1SPS	9.9692e-5
 #define B2XX_TIMING_4SPS	6.9248e-5
 #endif
+
+#define E200_TIMING_1SPS        9.9692e-5 // TODO: probably to fix
+#define E200_TIMING_4SPS        6.9248e-5 // TODO: probably to fix
 
 /*
  * Tx / Rx sample offset values. In a perfect world, there is no group delay
@@ -89,6 +92,8 @@ static struct uhd_dev_offset uhd_offsets[NUM_USRP_TYPES * 2] = {
 	{ X3XX,  4, 1.1264e-4, "X3XX 4 SPS"},
 	{ UMTRX, 1, 9.9692e-5, "UmTRX 1 SPS" },
 	{ UMTRX, 4, 7.3846e-5, "UmTRX 4 SPS" },
+	{ ANTSDR_E200,  1, E200_TIMING_1SPS, "ANTSDR E200 1 SPS" },
+        { ANTSDR_E200,  4, E200_TIMING_4SPS, "ANTSDR E200 4 SPS" },
 };
 
 static double get_dev_offset(enum uhd_dev_type type, int sps)
@@ -126,6 +131,7 @@ static double select_rate(uhd_dev_type type, int sps)
 	case B100:
 		return B100_BASE_RT * sps;
 	case B2XX:
+	case ANTSDR_E200:
 	case UMTRX:
 		return GSMRATE * sps;
 	default:
@@ -211,7 +217,7 @@ public:
 	uhd_device(int sps, bool skip_rx);
 	~uhd_device();
 
-	int open(const std::string &args, ReferenceType ref);
+	int open(const std::string &args, ReferenceType ref, const std::string &subdev);
 	bool start();
 	bool stop();
 	void restart(uhd::time_spec_t ts);
@@ -313,12 +319,13 @@ void *async_event_loop(uhd_device *dev)
 	return NULL;
 }
 
+// TODO: Use the new API to display new stuff
 /* 
     Catch and drop underrun 'U' and overrun 'O' messages from stdout
     since we already report using the logging facility. Direct
     everything else appropriately.
  */
-void uhd_msg_handler(uhd::msg::type_t type, const std::string &msg)
+/*void uhd_msg_handler(uhd::msg::type_t type, const std::string &msg)
 {
 	switch (type) {
 	case uhd::msg::status:
@@ -333,7 +340,7 @@ void uhd_msg_handler(uhd::msg::type_t type, const std::string &msg)
 	case uhd::msg::fastpath:
 		break;
 	}
-}
+}*/
 
 uhd_device::uhd_device(int sps, bool skip_rx)
 	: tx_gain(0.0), tx_gain_min(0.0), tx_gain_max(0.0),
@@ -487,8 +494,8 @@ bool uhd_device::parse_dev_type()
 {
 	std::string mboard_str, dev_str;
 	uhd::property_tree::sptr prop_tree;
-	size_t usrp1_str, usrp2_str, b100_str, b200_str,
-	       b210_str, x300_str, x310_str, umtrx_str;
+	size_t usrp1_str, usrp2_str, b100_str, b200_str, antsdr_e200_str,
+	       b210_str, x300_str, x310_str, umtrx_str, b205mini_str, b200mini_str;
 
 	prop_tree = usrp_dev->get_device()->get_tree();
 	dev_str = prop_tree->access<std::string>("/name").get();
@@ -498,10 +505,13 @@ bool uhd_device::parse_dev_type()
 	usrp2_str = dev_str.find("USRP2");
 	b100_str = mboard_str.find("B100");
 	b200_str = mboard_str.find("B200");
+	b200mini_str = mboard_str.find("B200mini");
+	b205mini_str = mboard_str.find("B205mini");
 	b210_str = mboard_str.find("B210");
 	x300_str = mboard_str.find("X300");
 	x310_str = mboard_str.find("X310");
 	umtrx_str = dev_str.find("UmTRX");
+	antsdr_e200_str = mboard_str.find("E200");
 
 	if (usrp1_str != std::string::npos) {
 		LOG(ALERT) << "USRP1 is not supported using the UHD driver";
@@ -518,7 +528,11 @@ bool uhd_device::parse_dev_type()
 		return true;
 	} else if (b200_str != std::string::npos) {
 		dev_type = B2XX;
-	} else if (b210_str != std::string::npos) {
+	} else if (b200mini_str != std::string::npos) {
+		dev_type = B2XX;
+	} else if (b205mini_str != std::string::npos) {
+                dev_type = B2XX;
+        } else if (b210_str != std::string::npos) {
 		dev_type = B2XX;
 	} else if (x300_str != std::string::npos) {
 		dev_type = X3XX;
@@ -528,7 +542,9 @@ bool uhd_device::parse_dev_type()
 		dev_type = USRP2;
 	} else if (umtrx_str != std::string::npos) {
 		dev_type = UMTRX;
-	} else {
+	} else if (antsdr_e200_str != std::string::npos) {
+                dev_type = ANTSDR_E200;
+        } else {
 		LOG(ALERT) << "Unknown UHD device type " << dev_str;
 		return false;
 	}
@@ -539,7 +555,7 @@ bool uhd_device::parse_dev_type()
 	return true;
 }
 
-int uhd_device::open(const std::string &args, ReferenceType ref)
+int uhd_device::open(const std::string &args, ReferenceType ref, const std::string &subdev)
 {
 	// Find UHD devices
 	uhd::device_addr_t addr(args);
@@ -563,6 +579,12 @@ int uhd_device::open(const std::string &args, ReferenceType ref)
 		return -1;
 
 	set_ref_clk(ref);
+
+	//specify subdevice (daughterboard)
+	if(!subdev.empty()) {
+		usrp_dev->set_tx_subdev_spec(subdev);
+		usrp_dev->set_rx_subdev_spec(subdev);
+	}
 
 	// Create TX and RX streamers
 	uhd::stream_args_t stream_args("sc16");
@@ -664,7 +686,7 @@ bool uhd_device::start()
 	setPriority();
 
 	// Register msg handler
-	uhd::msg::register_handler(&uhd_msg_handler);
+	//uhd::msg::register_handler(&uhd_msg_handler);
 
 	// Start asynchronous event (underrun check) loop
 	async_event_thrd.start((void * (*)(void*))async_event_loop, (void*)this);

@@ -202,7 +202,7 @@ void Parser::cliServer()
 						close(i);
 						continue; // go to next socket
 					}
-					if (len < (int) sizeof(len)) // should never get here
+					if (nread < (int) sizeof(len)) // should never get here
 					{
 						char buf[BUFSIZ];
 						sprintf(buf, "Unable to read complete length, s.b. %d bytes, got %d bytes\n", sizeof(len), len);
